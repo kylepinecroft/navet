@@ -7,6 +7,7 @@ import { normalizeResourceUrl } from '@navet/app/services/integration-resource.s
 import { integrationSelectors, settingsSelectors } from '@navet/app/stores/selectors';
 import { useSettingsStore } from '@navet/app/stores/settings-store';
 import type { PersonDevice } from '@navet/app/types/device.types';
+import { resolveGreetingDisplayName } from '@navet/app/utils/display-overrides';
 import { useMemo, useRef, useState } from 'react';
 import { useHeaderSearch } from './use-header-search';
 
@@ -81,6 +82,7 @@ export function useHeaderController() {
   const { t } = useI18n();
   const headerTitleMode = useSettingsStore(settingsSelectors.headerTitleMode);
   const headerCustomText = useSettingsStore(settingsSelectors.headerCustomText);
+  const headerGreetingName = useSettingsStore(settingsSelectors.headerGreetingName);
   const {
     closeMobileSearch,
     handleClearSearch,
@@ -95,14 +97,15 @@ export function useHeaderController() {
     setIsSearchFocused,
   } = useHeaderSearch();
 
-  const firstName = useMemo(() => {
-    const fullName = user?.name?.trim();
-    if (!fullName) {
-      return t('header.guestName');
-    }
-
-    return fullName.split(/\s+/)[0];
-  }, [t, user?.name]);
+  const firstName = useMemo(
+    () =>
+      resolveGreetingDisplayName({
+        override: headerGreetingName,
+        providerUserName: user?.name,
+        guestName: t('header.guestName'),
+      }),
+    [headerGreetingName, t, user?.name]
+  );
 
   const matchedPersonCanonicalId = useMemo(() => {
     if (user?.avatarUrl) {
@@ -162,6 +165,7 @@ export function useHeaderController() {
     dividerColor: surface.textMuted,
     firstName,
     headerCustomText,
+    headerGreetingName,
     headerTitleMode,
     closeMobileSearch,
     closeNotifications: () => setIsNotificationOpen(false),

@@ -141,6 +141,12 @@ const SETTINGS: SearchSettingDefinition[] = [
     descriptionKey: 'settings.dashboard.headerTitle.description',
   },
   {
+    id: 'dashboard-greeting-name',
+    sectionId: 'dashboard',
+    labelKey: 'settings.dashboard.greetingName.title',
+    descriptionKey: 'settings.dashboard.greetingName.description',
+  },
+  {
     id: 'dashboard-home-summary',
     sectionId: 'dashboard',
     labelKey: 'settings.dashboard.homeSummaryBar.title',

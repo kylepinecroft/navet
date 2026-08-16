@@ -53,7 +53,7 @@ function createController(overrides: Partial<HeaderController> = {}): HeaderCont
     surface,
     t: (key, params) => {
       if (key === 'header.greeting.welcome') {
-        return `Welcome back, ${params?.name ?? 'Guest'}!`;
+        return `Welcome back ${params?.name ?? 'Guest'}`;
       }
 
       if (key === 'header.weekLabel') {
@@ -98,6 +98,6 @@ describe('Header', () => {
     renderWithProviders(<Header controller={createController()} />);
 
     expect(screen.getAllByText('May 30 · 12:00')).toHaveLength(2);
-    expect(screen.getAllByText('Welcome back, Jane! · Week 22')).toHaveLength(2);
+    expect(screen.getAllByText('Welcome back Jane · Week 22')).toHaveLength(2);
   });
 });

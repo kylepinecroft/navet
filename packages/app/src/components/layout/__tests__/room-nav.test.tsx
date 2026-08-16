@@ -1,4 +1,6 @@
 import { RoomNav } from '@navet/app/components/layout/room-nav';
+import { useRoomWorkspaceStore } from '@navet/app/features/dashboard/rooms/room-workspace-store';
+import { migrateLegacyRoomWorkspaceV2 } from '@navet/app/features/dashboard/rooms/room-workspace-v2';
 import { renderWithProviders } from '@navet/app/test/render';
 import { resetAppStores } from '@navet/app/test/store-reset';
 import { fireEvent, screen, waitFor, within } from '@testing-library/react';
@@ -455,5 +457,43 @@ describe('RoomNav', () => {
     expect(
       within(screen.getByRole('menu')).queryByRole('menuitem', { name: 'Kitchen' })
     ).not.toBeInTheDocument();
+  });
+
+  it('opens a room bar editor from the customize pencil', () => {
+    const workspace = migrateLegacyRoomWorkspaceV2({
+      discoveredRooms: [
+        {
+          displayName: 'Kitchen',
+          sourceRef: {
+            providerId: 'home_assistant',
+            canonicalId: 'home_assistant:area_kitchen',
+            sourceType: 'provider_managed',
+          },
+        },
+      ],
+    });
+    useRoomWorkspaceStore.getState().replaceWorkspace(workspace);
+
+    renderWithProviders(
+      <RoomNav
+        rooms={['Kitchen']}
+        activeRoom="All"
+        onRoomChange={() => undefined}
+        isEditMode
+        suppressEditActions
+        onToggleEditMode={() => undefined}
+      />
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Edit rooms' }));
+
+    const roomGroup = screen.getByRole('group', { name: 'Hide Kitchen' });
+    fireEvent.click(within(roomGroup).getByRole('button', { name: 'Hidden' }));
+
+    expect(
+      useRoomWorkspaceStore
+        .getState()
+        .workspace?.rooms.find((room) => room.displayName === 'Kitchen')?.metadata.visibility
+    ).toBe('hidden');
   });
 });

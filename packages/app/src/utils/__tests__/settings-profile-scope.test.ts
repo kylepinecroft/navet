@@ -22,6 +22,8 @@ describe('settings profile scope', () => {
     );
     expect(SETTINGS_PROFILE_CLASSIFICATION).toMatchObject({
       showHomeSummaryBar: 'shared',
+      headerGreetingName: 'shared',
+      entityDisplayNames: 'shared',
       language: 'account',
       keepDeviceAwake: 'device',
       disableAnimations: 'device',

@@ -34,6 +34,28 @@ describe('useSettingsStore', () => {
     expect(useSettingsStore.getState().temperatureUnit).toBe('celsius');
   });
 
+  it('stores dashboard greeting and entity display overrides without writing provider names', () => {
+    useSettingsStore.getState().updateSettings({
+      headerGreetingName: '  Chef  ',
+      entityDisplayNames: {
+        'light.kitchen': 'Island',
+      },
+    });
+
+    expect(useSettingsStore.getState().headerGreetingName).toBe('Chef');
+    expect(useSettingsStore.getState().entityDisplayNames).toEqual({
+      'home_assistant:light.kitchen': 'Island',
+    });
+
+    useSettingsStore.getState().setEntityDisplayName('light.kitchen', 'Kitchen island');
+    expect(useSettingsStore.getState().entityDisplayNames).toEqual({
+      'home_assistant:light.kitchen': 'Kitchen island',
+    });
+
+    useSettingsStore.getState().setEntityDisplayName('light.kitchen', null);
+    expect(useSettingsStore.getState().entityDisplayNames).toEqual({});
+  });
+
   it('applies imported settings wholesale', () => {
     useSettingsStore.getState().applyImportedSettings({
       ...defaultSettings,

@@ -6,6 +6,11 @@ import type {
   SecuritySeverity,
 } from '@navet/app/types/device.types';
 import { getDeviceRoomLabel, UNKNOWN_ROOM_LABEL } from '@navet/app/utils/device-location';
+import {
+  getEntityDisplayNameOverride,
+  isSyntheticDisplayOverrideId,
+  resolveEntityDisplayName,
+} from '@navet/app/utils/display-overrides';
 import { collapseOverlappingSecurityDevices, getSecurityAlertCount } from './security-alert-count';
 
 export type SecurityGroupKey =
@@ -1073,9 +1078,58 @@ function buildGroupSummaries(
     .filter((group): group is SecurityGroupSummary => group !== null);
 }
 
+function applyAggregateDisplayNames(
+  model: CameraDashboardModel,
+  entityDisplayNames: Record<string, string>
+): CameraDashboardModel {
+  if (Object.keys(entityDisplayNames).length === 0) {
+    return model;
+  }
+
+  const rename = (device: DeviceWithType): DeviceWithType => {
+    if (!isSyntheticDisplayOverrideId(device.id)) {
+      return device;
+    }
+    const nextName = resolveEntityDisplayName(
+      device.name,
+      getEntityDisplayNameOverride(entityDisplayNames, device.id)
+    );
+    return nextName === device.name ? device : { ...device, name: nextName };
+  };
+
+  const groups = Object.fromEntries(
+    (Object.entries(model.groups) as Array<[SecurityGroupKey, DeviceWithType[]]>).map(
+      ([key, devices]) => [key, devices.map(rename)]
+    )
+  ) as SecurityEntityGroups;
+
+  return {
+    ...model,
+    allEntities: model.allEntities.map(rename),
+    groups,
+    orderedGroups: model.orderedGroups.map((group) => ({
+      ...group,
+      devices: group.devices.map(rename),
+    })),
+    summary: {
+      ...model.summary,
+      attentionItems: model.summary.attentionItems.map(rename),
+      activityItems: model.summary.activityItems.map(rename),
+      liveItems: model.summary.liveItems.map(rename),
+      unknownItems: model.summary.unknownItems.map(rename),
+      secureItems: model.summary.secureItems.map(rename),
+      groupSummaries: model.summary.groupSummaries.map((group) => ({
+        ...group,
+        entities: group.entities.map(rename),
+      })),
+    },
+  };
+}
+
 export function buildSecurityCameraDashboardModel(
   devices: SecurityDashboardDeviceCollection,
-  t: TranslateFn = defaultTranslate
+  t: TranslateFn = defaultTranslate,
+  entityDisplayNames: Record<string, string> = {}
 ): CameraDashboardModel {
   const groups = createEmptyGroups();
   const candidates = buildSecurityDashboardCandidates(devices);
@@ -1124,28 +1178,31 @@ export function buildSecurityCameraDashboardModel(
     t
   );
 
-  return {
-    allEntities,
-    groups,
-    orderedGroups: GROUP_ORDER.map((key) => ({ key, devices: groups[key] })).filter(
-      (group) => group.devices.length > 0
-    ),
-    summary: {
-      ...hero,
-      attentionItems,
-      attentionEntityCount: getSecurityAlertCount(allEntities),
-      activityItems,
-      liveItems,
-      unknownItems,
-      secureItems,
-      securedCounts,
-      groupSummaries,
-      totalEntities: allEntities.length,
-      criticalCount: severityCounts.critical,
-      warningCount: severityCounts.warning,
-      activeCount: severityCounts.active,
-      unknownCount: severityCounts.unknown,
-      normalCount: severityCounts.normal,
+  return applyAggregateDisplayNames(
+    {
+      allEntities,
+      groups,
+      orderedGroups: GROUP_ORDER.map((key) => ({ key, devices: groups[key] })).filter(
+        (group) => group.devices.length > 0
+      ),
+      summary: {
+        ...hero,
+        attentionItems,
+        attentionEntityCount: getSecurityAlertCount(allEntities),
+        activityItems,
+        liveItems,
+        unknownItems,
+        secureItems,
+        securedCounts,
+        groupSummaries,
+        totalEntities: allEntities.length,
+        criticalCount: severityCounts.critical,
+        warningCount: severityCounts.warning,
+        activeCount: severityCounts.active,
+        unknownCount: severityCounts.unknown,
+        normalCount: severityCounts.normal,
+      },
     },
-  };
+    entityDisplayNames
+  );
 }

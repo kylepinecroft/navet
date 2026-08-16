@@ -85,6 +85,15 @@ describe('SettingsDashboardSection', () => {
     expect(screen.queryByPlaceholderText('Welcome home')).not.toBeInTheDocument();
   });
 
+  it('lets the greeting name be overridden independently of the header title', () => {
+    renderWithProviders(<TestSection />);
+
+    const greetingInput = screen.getByRole('textbox', { name: 'What to call you' });
+    fireEvent.change(greetingInput, { target: { value: 'Chef' } });
+
+    expect(useSettingsStore.getState().headerGreetingName).toBe('Chef');
+  });
+
   it('applies dashboard profile presets through scoped settings', () => {
     renderWithProviders(<TestSection />);
 

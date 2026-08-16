@@ -558,6 +558,54 @@ describe('security camera dashboard model', () => {
     ]);
   });
 
+  it('applies a dashboard label overlay to grouped security aggregates', () => {
+    const model = buildSecurityCameraDashboardModel(
+      {
+        cameras: [],
+        covers: [],
+        locks: [],
+        sensors: [
+          sensor({
+            id: 'binary_sensor.hall_motion',
+            name: 'Hall Motion',
+            securityKind: 'motion',
+            securitySeverity: 'normal',
+            status: 'clear',
+            value: 'Clear',
+          }),
+          sensor({
+            id: 'binary_sensor.garage_motion',
+            name: 'Garage Motion',
+            room: 'Garage',
+            securityKind: 'motion',
+            securitySeverity: 'normal',
+            status: 'clear',
+            value: 'Clear',
+          }),
+        ],
+      },
+      undefined,
+      {
+        'security.aggregate.motion.secure': 'Yard motion',
+      }
+    );
+
+    expect(
+      model.summary.secureItems.find((device) => device.id === 'security.aggregate.motion.secure')
+    ).toMatchObject({
+      name: 'Yard motion',
+      value: '2 clear',
+    });
+    expect(
+      model.summary.groupSummaries.find((group) => group.id === 'motion-occupancy')?.entities
+    ).toMatchObject([
+      {
+        id: 'security.aggregate.motion.secure',
+        name: 'Yard motion',
+      },
+    ]);
+  });
+
   it('treats streaming cameras as live even if upstream securitySeverity is stale', () => {
     const model = buildSecurityCameraDashboardModel({
       cameras: [

@@ -40,6 +40,7 @@ export function useSettingsSectionController() {
   const hassUrl = useAuthBaseUrl();
   const authSession = useOptionalAuthSession();
   const currentProviderId = useIntegrationStore(integrationSelectors.currentProviderId);
+  const currentUser = useIntegrationStore(integrationSelectors.currentUser);
   const activeProviderId = authSession?.providerId ?? currentProviderId;
   const sessions = authSession?.sessions ?? {};
   const login = authSession?.login;
@@ -58,6 +59,7 @@ export function useSettingsSectionController() {
     effectsQuality,
     effectsQualityUserOverride,
     headerCustomText,
+    headerGreetingName,
     headerTitleMode,
     lowPowerMode,
     language,
@@ -82,6 +84,7 @@ export function useSettingsSectionController() {
       effectsQualityUserOverride: state.effectsQualityUserOverride,
       lowPowerMode: state.lowPowerMode,
       headerCustomText: state.headerCustomText,
+      headerGreetingName: state.headerGreetingName,
       headerTitleMode: state.headerTitleMode,
       language: state.language,
       keepDeviceAwake: state.keepDeviceAwake,
@@ -210,6 +213,7 @@ export function useSettingsSectionController() {
     effectsQuality,
     effectsQualityUserOverride,
     headerCustomText,
+    headerGreetingName,
     headerTitleMode,
     entityInteractionMode,
     followSystemTheme,
@@ -237,6 +241,7 @@ export function useSettingsSectionController() {
     manualTheme,
     primaryColor,
     providerCards,
+    providerUserName: currentUser?.name ?? null,
     reopenOnboarding,
     setActiveProvider,
     setPrimaryColor,
