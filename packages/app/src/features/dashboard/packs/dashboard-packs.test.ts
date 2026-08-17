@@ -105,6 +105,8 @@ describe('dashboard packs', () => {
       cardIds: [],
       sections: [],
       cardSectionAssignments: {},
+      cardLayouts: {},
+      cardGridColumns: 12,
     });
   });
 });

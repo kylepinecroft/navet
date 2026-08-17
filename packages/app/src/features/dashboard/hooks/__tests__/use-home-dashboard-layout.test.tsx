@@ -4,13 +4,16 @@ import { useHomeDashboardLayoutStore } from '../../stores/home-dashboard-layout-
 import { useHomeDashboardLayout } from '../use-home-dashboard-layout';
 
 describe('useHomeDashboardLayout', () => {
+  const cardSizes = {};
+
   beforeEach(() => {
     useHomeDashboardLayoutStore.setState(useHomeDashboardLayoutStore.getInitialState(), true);
   });
 
   it('keeps layout actions stable when an equivalent valid-card list is rebuilt', () => {
     const { result, rerender } = renderHook(
-      ({ validCardIds }: { validCardIds: string[] }) => useHomeDashboardLayout(validCardIds, {}),
+      ({ validCardIds }: { validCardIds: string[] }) =>
+        useHomeDashboardLayout(validCardIds, cardSizes),
       {
         initialProps: {
           validCardIds: ['home_assistant:light.kitchen', 'custom-status'],
@@ -30,7 +33,8 @@ describe('useHomeDashboardLayout', () => {
 
   it('refreshes add-card validation when valid membership changes', () => {
     const { result, rerender } = renderHook(
-      ({ validCardIds }: { validCardIds: string[] }) => useHomeDashboardLayout(validCardIds, {}),
+      ({ validCardIds }: { validCardIds: string[] }) =>
+        useHomeDashboardLayout(validCardIds, cardSizes),
       {
         initialProps: {
           validCardIds: ['home_assistant:light.kitchen'],

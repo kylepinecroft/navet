@@ -32,6 +32,13 @@ vi.mock('@dnd-kit/core', async () => {
       setNodeRef: vi.fn(),
       isOver: false,
     }),
+    useDraggable: () => ({
+      attributes: {},
+      listeners: {},
+      setNodeRef: vi.fn(),
+      transform: null,
+      isDragging: false,
+    }),
   };
 });
 
@@ -249,5 +256,60 @@ describe('home dashboard overview grid layout', () => {
     expect(screen.getByTestId('card-light.kitchen')).toBeInTheDocument();
     expect(screen.queryByTestId('card-light.hall')).not.toBeInTheDocument();
     expect(container.querySelector('[class*="content-visibility:auto"]')).toBeTruthy();
+  });
+
+  it('shades the landing cells for a snap drop preview', () => {
+    const cards = new Map([['light.kitchen', createDevice('light.kitchen', 'medium')]]);
+
+    const { container } = renderWithProviders(
+      <CardGrid
+        cardIds={['light.kitchen']}
+        sectionId="section-a"
+        gridCols={4}
+        activeDragCard="light.kitchen"
+        allCards={cards}
+        cardSizes={{ 'light.kitchen': 'medium' }}
+        updateCardSize={vi.fn()}
+        isEditMode
+        onRemoveFromLayout={vi.fn()}
+        showHero
+        snapPlacement
+        cardLayouts={{ 'light.kitchen': { x: 0, y: 0 } }}
+        cardGridColumns={12}
+        accentColor="#7c3aed"
+        snapDropPreview={{ sectionId: 'section-a', x: 4, y: 2 }}
+      />
+    );
+
+    const preview = container.querySelector('[data-home-snap-drop-preview="true"]');
+    expect(preview).toBeInstanceOf(HTMLElement);
+    expect((preview as HTMLElement).style.gridColumn).toBe('5 / span 4');
+    expect((preview as HTMLElement).style.gridRow).toBe('3 / span 2');
+  });
+
+  it('does not shade cells when the snap preview belongs to another section', () => {
+    const cards = new Map([['light.kitchen', createDevice('light.kitchen')]]);
+
+    const { container } = renderWithProviders(
+      <CardGrid
+        cardIds={['light.kitchen']}
+        sectionId="section-a"
+        gridCols={4}
+        activeDragCard="light.kitchen"
+        allCards={cards}
+        cardSizes={{}}
+        updateCardSize={vi.fn()}
+        isEditMode
+        onRemoveFromLayout={vi.fn()}
+        showHero
+        snapPlacement
+        cardLayouts={{ 'light.kitchen': { x: 0, y: 0 } }}
+        cardGridColumns={12}
+        accentColor="#7c3aed"
+        snapDropPreview={{ sectionId: 'section-b', x: 4, y: 2 }}
+      />
+    );
+
+    expect(container.querySelector('[data-home-snap-drop-preview="true"]')).toBeNull();
   });
 });

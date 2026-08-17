@@ -1,14 +1,29 @@
 import { useDroppable } from '@dnd-kit/core';
 import { rectSortingStrategy, SortableContext } from '@dnd-kit/sortable';
-import { type CardSize, getCardSpanClass } from '@navet/app/components/shared/card-size-selector';
+import {
+  type CardSize,
+  getCardSpanClass,
+  getResponsiveCardSize,
+} from '@navet/app/components/shared/card-size-selector';
 import type { getThemeSurfaceTokens } from '@navet/app/components/shared/theme/theme-surface-tokens';
 import { useI18n } from '@navet/app/hooks';
+import { useBreakpointCols } from '@navet/app/hooks/use-breakpoint-cols';
 import type { DeviceWithType } from '@navet/app/types/device.types';
 import { Plus } from 'lucide-react';
 import { type CSSProperties, memo, type ReactNode, useCallback, useMemo } from 'react';
 import type { DropMeta } from '../hooks/use-home-dashboard-editor';
 import { useHomeGridRuntime } from '../hooks/use-home-grid-runtime';
 import type { CustomCard } from '../stores/custom-cards-store';
+import {
+  areCardLayoutsEqual,
+  areSnapDropPreviewsEqual,
+  CARD_LAYOUT_COLUMNS,
+  cardSpanForSize,
+  fillMissingCardLayouts,
+  getSnapCardStyle,
+  packCardsFromOrder,
+  sortCardIdsByPlacement,
+} from '../utils/card-placement';
 import { DashboardCardItem } from './dashboard-card-item';
 import {
   areCardIdsStable,
@@ -132,10 +147,20 @@ export const CardGrid = memo(function CardGrid({
   showHero,
   onOpenAddCardDialog,
   sortable = true,
+  snapPlacement = false,
+  cardLayouts,
+  cardGridColumns,
+  accentColor,
+  snapDropPreview,
 }: CardGridProps) {
   const { t } = useI18n();
+  const breakpointCols = useBreakpointCols();
+  const isPhone = breakpointCols <= 2;
+  const snapColumns = cardGridColumns ?? CARD_LAYOUT_COLUMNS;
+  const snapDesktop = snapPlacement && !isPhone;
   const hasTrailingAddCardSlot = isEditMode && Boolean(onOpenAddCardDialog);
   const {
+    gridGapPx,
     gridStyle,
     innerContainerStyle,
     innerRef,
@@ -144,30 +169,121 @@ export const CardGrid = memo(function CardGrid({
     outerContainerStyle,
     outerRef,
     renderedGridCols,
+    rowHeightPx,
     visibleCardIds,
   } = useHomeGridRuntime({
     allCards,
     cardIds,
     cardSizes,
     gridCols,
+    forcedGridCols: snapDesktop ? snapColumns : undefined,
     isEditMode,
     sortable,
   });
+  const placementLayouts = useMemo(() => {
+    if (!snapPlacement) {
+      return undefined;
+    }
+
+    const resolvedSizes = Object.fromEntries(
+      cardIds.map((cardId) => {
+        const entry = allCards.get(cardId);
+        const size = cardSizes[cardId] ?? entry?.size ?? 'small';
+        return [cardId, getResponsiveCardSize(size, breakpointCols)];
+      })
+    );
+
+    if (isPhone) {
+      return packCardsFromOrder(
+        sortCardIdsByPlacement(cardIds, cardLayouts ?? {}),
+        resolvedSizes,
+        renderedGridCols
+      );
+    }
+
+    const groupId = sectionId ?? '__section__';
+    return fillMissingCardLayouts({
+      cardIds,
+      assignments: Object.fromEntries(cardIds.map((cardId) => [cardId, groupId])),
+      existing: cardLayouts ?? {},
+      cardSizes: resolvedSizes,
+      columns: snapColumns,
+      sectionIds: [groupId],
+    });
+  }, [
+    allCards,
+    breakpointCols,
+    cardIds,
+    cardLayouts,
+    cardSizes,
+    isPhone,
+    renderedGridCols,
+    sectionId,
+    snapColumns,
+    snapPlacement,
+  ]);
   const addCardSlotCols = Math.min(renderedGridCols, 2);
   const hasInlineAddCardSlot = hasTrailingAddCardSlot;
   const handleAddCard = useCallback(() => {
     onOpenAddCardDialog?.();
   }, [onOpenAddCardDialog]);
-  const addCardSlotStyle = useMemo(
-    () =>
-      ({
-        gridColumn: `span ${addCardSlotCols} / span ${addCardSlotCols}`,
-        borderColor: 'rgba(255,255,255,0.16)',
-        background:
-          'radial-gradient(circle at top left, rgba(159,176,255,0.1), transparent 34%), radial-gradient(circle at bottom right, rgba(159,176,255,0.06), transparent 28%)',
-      }) as CSSProperties,
-    [addCardSlotCols]
-  );
+  const addCardSlotStyle = useMemo(() => {
+    const maxRow = placementLayouts
+      ? cardIds.reduce((bottom, cardId) => {
+          const origin = placementLayouts[cardId];
+          const entry = allCards.get(cardId);
+          const size = getResponsiveCardSize(
+            cardSizes[cardId] ?? entry?.size ?? 'small',
+            breakpointCols
+          );
+          return origin
+            ? Math.max(bottom, origin.y + cardSpanForSize(size, renderedGridCols).h)
+            : bottom;
+        }, 0)
+      : 0;
+
+    return {
+      gridColumn: `span ${addCardSlotCols} / span ${addCardSlotCols}`,
+      ...(placementLayouts ? { gridRow: String(maxRow + 1) } : {}),
+      borderColor: 'rgba(255,255,255,0.16)',
+      background:
+        'radial-gradient(circle at top left, rgba(159,176,255,0.1), transparent 34%), radial-gradient(circle at bottom right, rgba(159,176,255,0.06), transparent 28%)',
+    } as CSSProperties;
+  }, [
+    addCardSlotCols,
+    allCards,
+    breakpointCols,
+    cardIds,
+    cardSizes,
+    placementLayouts,
+    renderedGridCols,
+  ]);
+  const allowSnapDrag = snapDesktop && isEditMode && sortable;
+  const dropPreviewOrigin =
+    snapDesktop &&
+    snapDropPreview &&
+    sectionId &&
+    snapDropPreview.sectionId === sectionId &&
+    activeDragCard
+      ? snapDropPreview
+      : null;
+  const dropPreviewStyle = (() => {
+    if (!dropPreviewOrigin || !activeDragCard || !accentColor) {
+      return undefined;
+    }
+
+    const entry = allCards.get(activeDragCard);
+    const size = getResponsiveCardSize(
+      cardSizes[activeDragCard] ?? entry?.size ?? 'small',
+      breakpointCols
+    );
+    return {
+      ...getSnapCardStyle(dropPreviewOrigin, cardSpanForSize(size, renderedGridCols)),
+      backgroundColor: `${accentColor}18`,
+      boxShadow: `0 0 0 1px ${accentColor}55`,
+      zIndex: 2,
+    } as CSSProperties;
+  })();
 
   return (
     <div ref={outerRef} className="relative w-full" style={outerContainerStyle}>
@@ -178,9 +294,17 @@ export const CardGrid = memo(function CardGrid({
       >
         <div
           className={`grid w-full gap-3 lg:gap-4 ${
-            hasInlineAddCardSlot ? 'grid-flow-row' : 'grid-flow-row-dense'
+            placementLayouts
+              ? 'grid-flow-row'
+              : hasInlineAddCardSlot
+                ? 'grid-flow-row'
+                : 'grid-flow-row-dense'
           }`}
           style={gridStyle}
+          data-home-card-grid={sectionId ?? 'flow'}
+          data-home-card-cols={renderedGridCols}
+          data-home-card-gap={gridGapPx}
+          data-home-card-row={rowHeightPx}
         >
           {visibleCardIds.map((cardId) => {
             const entry = allCards.get(cardId);
@@ -189,16 +313,26 @@ export const CardGrid = memo(function CardGrid({
             }
 
             const size = cardSizes[cardId] ?? entry.size;
-            const spanClass = getCardSpanClass(size);
+            const origin = placementLayouts?.[cardId];
+            const snapStyle =
+              origin && placementLayouts
+                ? getSnapCardStyle(
+                    origin,
+                    cardSpanForSize(getResponsiveCardSize(size, breakpointCols), renderedGridCols)
+                  )
+                : undefined;
+            const spanClass = origin ? '' : getCardSpanClass(size);
 
             return (
               <HomeCardSlot
                 key={cardId}
-                sortable={sortable}
+                sortable={sortable && !snapPlacement}
+                snapDraggable={allowSnapDrag}
                 cardId={cardId}
                 sectionId={sectionId}
                 isPreviewHidden={activeDragCard === cardId}
                 className={spanClass}
+                style={snapStyle}
                 optimizeOffscreenPaint={optimizeOffscreenPaint}
                 content={
                   !isCustomCard(entry) ? (
@@ -227,6 +361,14 @@ export const CardGrid = memo(function CardGrid({
               />
             );
           })}
+          {dropPreviewStyle ? (
+            <div
+              aria-hidden="true"
+              data-home-snap-drop-preview="true"
+              className="pointer-events-none rounded-[20px]"
+              style={dropPreviewStyle}
+            />
+          ) : null}
           {hasInlineAddCardSlot ? (
             <button
               type="button"
@@ -284,6 +426,11 @@ function areCardGridPropsEqual(previous: CardGridProps, next: CardGridProps) {
     previous.showHero === next.showHero &&
     previous.onOpenAddCardDialog === next.onOpenAddCardDialog &&
     previous.sortable === next.sortable &&
+    previous.snapPlacement === next.snapPlacement &&
+    previous.cardGridColumns === next.cardGridColumns &&
+    previous.accentColor === next.accentColor &&
+    areSnapDropPreviewsEqual(previous.snapDropPreview, next.snapDropPreview) &&
+    areCardLayoutsEqual(previous.cardLayouts, next.cardLayouts) &&
     areCardIdsStable(
       previous.cardIds,
       next.cardIds,

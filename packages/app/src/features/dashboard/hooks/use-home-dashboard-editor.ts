@@ -30,7 +30,12 @@ interface UseHomeDashboardEditorParams {
   homeLayout: HomeDashboardLayoutState;
   cardSizes: Record<string, CardSize>;
   hiddenEntityCount: number;
-  moveHomeCard: (activeId: string, overId: string | null, sectionId?: string) => void;
+  moveHomeCard: (
+    activeId: string,
+    overId: string | null,
+    sectionId?: string,
+    origin?: { x: number; y: number }
+  ) => void;
   moveHomeSection: (sourceId: string, targetId: string) => void;
   moveHomeColumn: (sourceId: string, targetId: string) => void;
 }

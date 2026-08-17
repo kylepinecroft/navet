@@ -126,6 +126,36 @@ describe('useHomeDashboardLayoutStore', () => {
     ]);
   });
 
+  it('persists card placements and restores them after rehydrate', async () => {
+    useHomeDashboardLayoutStore.getState().updateLayout({
+      ...DEFAULT_HOME_DASHBOARD_LAYOUT,
+      mode: 'sectioned',
+      cardIds: ['light.kitchen'],
+      sections: [
+        {
+          id: 'section-1',
+          title: 'Pinned',
+          x: 0,
+          y: 0,
+          w: 12,
+          h: 1,
+          span: 12,
+        },
+      ],
+      cardSectionAssignments: { 'light.kitchen': 'section-1' },
+      cardLayouts: { 'light.kitchen': { x: 4, y: 2 } },
+      cardGridColumns: 12,
+    });
+
+    expect(useHomeDashboardLayoutStore.getState().cardLayouts).toEqual({
+      'home_assistant:light.kitchen': { x: 4, y: 2 },
+    });
+    expect(localStorage.getItem(STORAGE_KEYS.homeDashboardLayout)).toContain('"x":4');
+    expect(localStorage.getItem(STORAGE_KEYS.homeDashboardLayout)).toContain(
+      'home_assistant:light.kitchen'
+    );
+  });
+
   it('bounds layout history to the latest fifty snapshots', () => {
     for (let index = 0; index < 55; index += 1) {
       useHomeDashboardLayoutStore.getState().updateLayout({

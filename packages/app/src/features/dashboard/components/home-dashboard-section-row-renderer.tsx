@@ -51,6 +51,10 @@ interface SectionRowRendererProps {
   ) => void;
   surface: ReturnType<typeof getThemeSurfaceTokens>;
   renderMode: 'edit' | 'presentation';
+  snapPlacement?: boolean;
+  cardLayouts?: import('../utils/card-placement').CardLayoutMap;
+  cardGridColumns?: number;
+  snapDropPreview?: import('../utils/card-placement').SnapDropPreview | null;
 }
 
 export function SectionRowRenderer({
@@ -78,6 +82,10 @@ export function SectionRowRenderer({
   onResizeSection,
   surface,
   renderMode,
+  snapPlacement = false,
+  cardLayouts,
+  cardGridColumns,
+  snapDropPreview,
 }: SectionRowRendererProps) {
   const sectionStacksByRow = useMemo(() => buildSectionStacks(sections), [sections]);
   const portraitLaneCount = useMemo(() => getPortraitLaneCount(sectionGridCols), [sectionGridCols]);
@@ -209,6 +217,10 @@ export function SectionRowRenderer({
                             rowSiblingCount={rowStacks.length}
                             onResizeSection={onResizeSection}
                             surface={surface}
+                            snapPlacement={snapPlacement}
+                            cardLayouts={cardLayouts}
+                            cardGridColumns={cardGridColumns}
+                            snapDropPreview={snapDropPreview}
                           />
                         ))}
                         <SectionInsertDropZone
@@ -246,6 +258,9 @@ export function SectionRowRenderer({
                           rowSiblingCount={rowStacks.length}
                           onResizeSection={onResizeSection}
                           surface={surface}
+                          snapPlacement={snapPlacement}
+                          cardLayouts={cardLayouts}
+                          cardGridColumns={cardGridColumns}
                         />
                       ))
                     )}

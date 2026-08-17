@@ -33,6 +33,10 @@ export function SectionCanvasGrid({
   onRemoveSection,
   onResizeSection,
   surface,
+  snapPlacement = false,
+  cardLayouts,
+  cardGridColumns,
+  snapDropPreview,
 }: {
   sections: HomeEditorSection[];
   sectionGridCols: number;
@@ -64,6 +68,10 @@ export function SectionCanvasGrid({
     minWidthsBySection?: Record<string, number>
   ) => void;
   surface: ReturnType<typeof getThemeSurfaceTokens>;
+  snapPlacement?: boolean;
+  cardLayouts?: import('../utils/card-placement').CardLayoutMap;
+  cardGridColumns?: number;
+  snapDropPreview?: import('../utils/card-placement').SnapDropPreview | null;
 }) {
   return (
     <SectionRowRenderer
@@ -91,6 +99,10 @@ export function SectionCanvasGrid({
       onResizeSection={onResizeSection}
       surface={surface}
       renderMode="edit"
+      snapPlacement={snapPlacement}
+      cardLayouts={cardLayouts}
+      cardGridColumns={cardGridColumns}
+      snapDropPreview={snapDropPreview}
     />
   );
 }
@@ -195,6 +207,9 @@ export function HomePresentation({
         onResizeSection={() => {}}
         surface={surface}
         renderMode="presentation"
+        snapPlacement={isSectioned}
+        cardLayouts={undefined}
+        cardGridColumns={undefined}
       />
       {flowCards.length > 0 ? (
         <CardGrid

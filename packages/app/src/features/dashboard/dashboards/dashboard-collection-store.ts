@@ -153,6 +153,8 @@ function pickLayout(layout: HomeDashboardLayoutState): HomeDashboardLayoutState 
     cardIds: [...layout.cardIds],
     sections: layout.sections.map((section) => ({ ...section })),
     cardSectionAssignments: { ...layout.cardSectionAssignments },
+    cardLayouts: { ...layout.cardLayouts },
+    cardGridColumns: layout.cardGridColumns,
   };
 }
 

@@ -145,6 +145,53 @@ describe('dashboard collection contract', () => {
     ).toEqual(['living room', 'Office']);
   });
 
+  it('copies card placements with remapped custom card ids', () => {
+    const source = createDashboardDefinition({
+      id: 'wall',
+      name: 'Wall',
+      source: { kind: 'blank' },
+    });
+    source.homeLayout = {
+      ...source.homeLayout,
+      mode: 'sectioned',
+      cardIds: ['custom-note'],
+      sections: [
+        {
+          id: 'section-1',
+          title: 'Pinned',
+          x: 0,
+          y: 0,
+          w: 12,
+          h: 1,
+          span: 12,
+        },
+      ],
+      cardSectionAssignments: { 'custom-note': 'section-1' },
+      cardLayouts: { 'custom-note': { x: 2, y: 4 } },
+      cardGridColumns: 12,
+    };
+    source.homeCustomCards = [
+      {
+        id: 'custom-note',
+        type: 'note',
+        size: 'small',
+        room: '__home__',
+        createdAt: 1,
+      },
+    ];
+
+    const copy = createDashboardDefinition({
+      id: 'wall-copy',
+      name: 'Wall copy',
+      source: { kind: 'copy', dashboard: source },
+    });
+
+    expect(copy.homeCustomCards[0]?.id).not.toBe('custom-note');
+    const copiedId = copy.homeCustomCards[0]?.id ?? '';
+    expect(copy.homeLayout.cardLayouts[copiedId]).toEqual({ x: 2, y: 4 });
+    expect(copy.homeLayout.cardSectionAssignments[copiedId]).toBe('section-1');
+  });
+
   it('atomically remaps the default and every assigned display when deleting a dashboard', () => {
     const home = createDashboardDefinition({ id: 'home', name: 'Home' });
     const upstairs = createDashboardDefinition({ id: 'upstairs', name: 'Upstairs' });

@@ -1,4 +1,4 @@
-import { closestCenter, DndContext, DragOverlay } from '@dnd-kit/core';
+import { closestCenter, DndContext, DragOverlay, pointerWithin } from '@dnd-kit/core';
 import { Badge } from '@navet/app/components/primitives';
 import { getCardSizeOverlayStyle } from '@navet/app/components/shared/card-size-selector';
 import { getThemeSurfaceTokens } from '@navet/app/components/shared/theme/theme-surface-tokens';
@@ -54,8 +54,11 @@ export default function HomeDashboardOverviewEdit({
     activeDragColumn,
     setActiveDragColumn,
     activeDragSize,
+    snapDropPreview,
     sensors,
     handleDragOver,
+    handleDragMove,
+    handleDragCancel,
     handleDragEnd,
     summaryItems,
   } = useHomeDashboardEditor({
@@ -105,9 +108,14 @@ export default function HomeDashboardOverviewEdit({
   return (
     <DndContext
       sensors={sensors}
-      collisionDetection={closestCenter}
+      collisionDetection={(args) => {
+        const pointerCollisions = pointerWithin(args);
+        return pointerCollisions.length > 0 ? pointerCollisions : closestCenter(args);
+      }}
       onDragStart={handleDragStart}
       onDragOver={handleDragOver}
+      onDragMove={handleDragMove}
+      onDragCancel={handleDragCancel}
       onDragEnd={handleDragEnd}
     >
       <div className="flex flex-col gap-3 lg:gap-4">
@@ -159,6 +167,10 @@ export default function HomeDashboardOverviewEdit({
                   onResizeSection={resizeHomeSection}
                   isPortraitHome={isPortraitHome}
                   surface={surface}
+                  snapPlacement
+                  cardLayouts={homeLayout.cardLayouts}
+                  cardGridColumns={homeLayout.cardGridColumns}
+                  snapDropPreview={snapDropPreview}
                 />
               ) : (
                 <EmptyCanvas

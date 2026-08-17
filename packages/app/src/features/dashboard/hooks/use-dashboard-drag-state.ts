@@ -1,5 +1,7 @@
 import {
+  type DragCancelEvent,
   type DragEndEvent,
+  type DragMoveEvent,
   type DragOverEvent,
   KeyboardSensor,
   MouseSensor,
@@ -12,6 +14,13 @@ import type { CardSize } from '@navet/app/components/shared/card-size-selector';
 import type { DeviceWithType } from '@navet/app/types/device.types';
 import { useMemo, useRef, useState } from 'react';
 import type { CustomCard } from '../stores/custom-cards-store';
+import {
+  areSnapDropPreviewsEqual,
+  cardSpanForSize,
+  clampCardOrigin,
+  cssPointToCell,
+  type SnapDropPreview,
+} from '../utils/card-placement';
 import type { DragMeta, DropMeta } from './use-home-dashboard-editor';
 
 const INTERACTIVE_NO_DRAG_SELECTOR = [
@@ -115,10 +124,55 @@ function resolveDropMeta(
   return undefined;
 }
 
+function resolveSnapPlacement(
+  event: DragEndEvent | DragMoveEvent,
+  sectionId: string | undefined
+): { origin: { x: number; y: number }; columns: number } | undefined {
+  if (!sectionId) {
+    return undefined;
+  }
+
+  const grid = document.querySelector(`[data-home-card-grid="${sectionId}"]`);
+  if (!(grid instanceof HTMLElement)) {
+    return undefined;
+  }
+
+  const translated = event.active.rect.current.translated ?? event.active.rect.current.initial;
+  if (!translated) {
+    return undefined;
+  }
+
+  const visualRect = grid.getBoundingClientRect();
+  const scale = grid.offsetWidth === 0 ? 1 : visualRect.width / grid.offsetWidth;
+  const columns = Number(grid.dataset.homeCardCols);
+  const gapPx = Number(grid.dataset.homeCardGap);
+  const rowHeightPx = Number(grid.dataset.homeCardRow);
+  if (!Number.isFinite(columns) || columns <= 0) {
+    return undefined;
+  }
+
+  return {
+    origin: cssPointToCell(
+      (translated.left - visualRect.left) / scale,
+      (translated.top - visualRect.top) / scale,
+      grid.offsetWidth,
+      columns,
+      Number.isFinite(gapPx) ? gapPx : 0,
+      Number.isFinite(rowHeightPx) ? rowHeightPx : 0
+    ),
+    columns,
+  };
+}
+
 interface UseDashboardDragStateParams {
   allCards: Map<string, DeviceWithType | CustomCard>;
   cardSizes: Record<string, CardSize>;
-  moveHomeCard: (activeId: string, overId: string | null, sectionId?: string) => void;
+  moveHomeCard: (
+    activeId: string,
+    overId: string | null,
+    sectionId?: string,
+    origin?: { x: number; y: number }
+  ) => void;
   moveHomeSection: (sourceId: string, targetId: string) => void;
   moveHomeColumn: (sourceId: string, targetId: string) => void;
   sectionToColumnId: Record<string, string>;
@@ -137,7 +191,22 @@ export function useDashboardDragState({
   const [activeDragColumn, setActiveDragColumn] = useState<string | null>(null);
   const [activeSectionDropTarget, setActiveSectionDropTarget] = useState<string | null>(null);
   const [activeColumnDropTarget, setActiveColumnDropTarget] = useState<string | null>(null);
+  const [snapDropPreview, setSnapDropPreview] = useState<SnapDropPreview | null>(null);
   const lastResolvedOverRef = useRef<DropMeta | null>(null);
+
+  const clearDragIndicators = () => {
+    setActiveDragCard(null);
+    setActiveDragSection(null);
+    setActiveDragColumn(null);
+    setActiveSectionDropTarget(null);
+    setActiveColumnDropTarget(null);
+    setSnapDropPreview(null);
+    lastResolvedOverRef.current = null;
+  };
+
+  const updateSnapDropPreview = (next: SnapDropPreview | null) => {
+    setSnapDropPreview((previous) => (areSnapDropPreviewsEqual(previous, next) ? previous : next));
+  };
 
   const sensors = useSensors(
     useSensor(DashboardMouseSensor, { activationConstraint: { distance: 8 } }),
@@ -218,18 +287,50 @@ export function useDashboardDragState({
     lastResolvedOverRef.current = overMeta;
   };
 
+  const handleDragMove = (event: DragMoveEvent) => {
+    const activeMeta = event.active.data.current as DragMeta | undefined;
+    if (activeMeta?.source !== 'home') {
+      updateSnapDropPreview(null);
+      return;
+    }
+
+    const overMeta = resolveDropMeta(
+      event.over?.data.current as DropMeta | undefined,
+      event.over?.id
+    );
+    const targetSectionId = overMeta?.sectionId ?? activeMeta.sectionId;
+    const placement = resolveSnapPlacement(event, targetSectionId);
+    if (!placement || !targetSectionId) {
+      updateSnapDropPreview(null);
+      return;
+    }
+
+    const entry = allCards.get(activeMeta.cardId);
+    const size = cardSizes[activeMeta.cardId] ?? (entry && 'size' in entry ? entry.size : 'small');
+    const clamped = clampCardOrigin(
+      placement.origin,
+      cardSpanForSize(size, placement.columns),
+      placement.columns
+    );
+
+    updateSnapDropPreview({
+      sectionId: targetSectionId,
+      x: clamped.x,
+      y: clamped.y,
+    });
+  };
+
+  const handleDragCancel = (_event: DragCancelEvent) => {
+    clearDragIndicators();
+  };
+
   const handleDragEnd = (event: DragEndEvent) => {
     const activeMeta = event.active.data.current as DragMeta | undefined;
     const overMeta =
       resolveDropMeta(event.over?.data.current as DropMeta | undefined, event.over?.id) ??
       lastResolvedOverRef.current;
 
-    setActiveDragCard(null);
-    setActiveDragSection(null);
-    setActiveDragColumn(null);
-    setActiveSectionDropTarget(null);
-    setActiveColumnDropTarget(null);
-    lastResolvedOverRef.current = null;
+    clearDragIndicators();
 
     if (!activeMeta || !overMeta) return;
 
@@ -257,12 +358,15 @@ export function useDashboardDragState({
       return;
     }
 
-    const targetSectionId = overMeta.sectionId;
+    const targetSectionId = overMeta.sectionId ?? activeMeta.sectionId;
     const overCardId = overMeta.type === 'card' ? overMeta.cardId : null;
+    const origin = resolveSnapPlacement(event, targetSectionId)?.origin;
 
-    if (activeMeta.cardId === overCardId) return;
+    if (activeMeta.cardId === overCardId && !origin) {
+      return;
+    }
 
-    moveHomeCard(activeMeta.cardId, overCardId, targetSectionId);
+    moveHomeCard(activeMeta.cardId, overCardId, targetSectionId, origin);
   };
 
   return {
@@ -274,9 +378,12 @@ export function useDashboardDragState({
     setActiveDragColumn,
     activeSectionDropTarget,
     activeColumnDropTarget,
+    snapDropPreview,
     activeDragSize,
     sensors,
     handleDragOver,
+    handleDragMove,
+    handleDragCancel,
     handleDragEnd,
   };
 }

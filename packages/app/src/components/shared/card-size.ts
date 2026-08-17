@@ -31,7 +31,7 @@ export interface DashboardCardFootprint {
   heightPx: number;
 }
 
-const CARD_SIZE_RENDERED_SPANS: Record<CardSize, { cols: number; rows: number }> = {
+export const CARD_SIZE_RENDERED_SPANS: Record<CardSize, { cols: number; rows: number }> = {
   tiny: { cols: 1, rows: 1 },
   'extra-small': { cols: 2, rows: 1 },
   small: { cols: 2, rows: 2 },
@@ -40,6 +40,11 @@ const CARD_SIZE_RENDERED_SPANS: Record<CardSize, { cols: number; rows: number }>
   large: { cols: 4, rows: 4 },
   'extra-large': { cols: 6, rows: 4 },
 };
+
+export function getCardSizeGridSpan(size: CardSize | undefined): { w: number; h: number } {
+  const spans = CARD_SIZE_RENDERED_SPANS[size ?? 'small'] ?? CARD_SIZE_RENDERED_SPANS.small;
+  return { w: spans.cols, h: spans.rows };
+}
 
 export function getDashboardCardGridGapPx(logicalColumns: number) {
   if (logicalColumns >= 6) {

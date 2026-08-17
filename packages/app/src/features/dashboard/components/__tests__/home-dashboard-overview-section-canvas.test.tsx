@@ -111,4 +111,14 @@ describe('SectionCanvas memoization', () => {
 
     expect(onResizeSection).toHaveBeenCalledWith('section-a', expect.any(Number), nextMinWidths);
   });
+
+  it('forwards the snap drop preview to the card grid', () => {
+    const snapDropPreview = { sectionId: 'section-a', x: 4, y: 1 };
+    renderWithProviders(<SectionCanvas {...createProps({ snapDropPreview })} />);
+
+    expect(cardGridPropsMock.mock.calls.at(-1)?.[0]).toMatchObject({
+      snapDropPreview,
+      accentColor: '#7c3aed',
+    });
+  });
 });

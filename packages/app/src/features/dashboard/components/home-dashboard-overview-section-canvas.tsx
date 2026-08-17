@@ -5,6 +5,7 @@ import { useI18n } from '@navet/app/hooks';
 import { GripVertical, Minus, Plus } from 'lucide-react';
 import { memo } from 'react';
 import type { DragMeta, DropMeta } from '../hooks/use-home-dashboard-editor';
+import { areCardLayoutsEqual, areSnapDropPreviewsEqual } from '../utils/card-placement';
 import { getSectionCardMinColumns, SECTION_LAYOUT_COLUMNS } from '../utils/layout-engine';
 import {
   areCardIdsStable,
@@ -42,6 +43,10 @@ export const SectionCanvas = memo(function SectionCanvas({
   rowSiblingCount,
   onResizeSection,
   surface,
+  snapPlacement = false,
+  cardLayouts,
+  cardGridColumns,
+  snapDropPreview,
 }: SectionCanvasProps) {
   const { t } = useI18n();
   const renderedSpan = Math.max(1, getRenderedSectionSpan(span, layoutCols));
@@ -174,7 +179,7 @@ export const SectionCanvas = memo(function SectionCanvas({
       </div>
 
       <SortableContext
-        items={cardIds.map((cardId) => `home-card-${cardId}`)}
+        items={snapPlacement ? [] : cardIds.map((cardId) => `home-card-${cardId}`)}
         strategy={rectSortingStrategy}
       >
         <div className="relative z-10">
@@ -193,6 +198,11 @@ export const SectionCanvas = memo(function SectionCanvas({
                 onRemoveFromLayout={onRemoveFromLayout}
                 showHero={showHero}
                 onOpenAddCardDialog={handleOpenAddCard}
+                snapPlacement={snapPlacement}
+                cardLayouts={cardLayouts}
+                cardGridColumns={cardGridColumns}
+                accentColor={accentColor}
+                snapDropPreview={snapDropPreview}
               />
             ) : (
               <EmptyCanvas
@@ -292,6 +302,10 @@ function areSectionCanvasPropsEqual(previous: SectionCanvasProps, next: SectionC
     previous.onResizeSection === next.onResizeSection &&
     previous.surface === next.surface &&
     previous.minWidthsBySection === next.minWidthsBySection &&
+    previous.snapPlacement === next.snapPlacement &&
+    previous.cardGridColumns === next.cardGridColumns &&
+    areSnapDropPreviewsEqual(previous.snapDropPreview, next.snapDropPreview) &&
+    areCardLayoutsEqual(previous.cardLayouts, next.cardLayouts) &&
     areCardIdsStable(
       previous.cardIds,
       next.cardIds,

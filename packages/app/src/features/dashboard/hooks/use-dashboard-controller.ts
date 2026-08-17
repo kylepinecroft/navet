@@ -343,16 +343,6 @@ export function useDashboardController(): DashboardController {
     [homeCardSizes, isHomeOverview, sharedCardSizes]
   );
   const updateActiveCardSize = useDashboardCollectionStore((state) => state.updateActiveCardSize);
-  const updateCardSize = useCallback(
-    (cardId: string, size: Parameters<typeof updateSharedCardSize>[1]) => {
-      if (isHomeOverview) {
-        updateActiveCardSize(cardId, size);
-        return;
-      }
-      updateSharedCardSize(cardId, size);
-    },
-    [isHomeOverview, updateActiveCardSize, updateSharedCardSize]
-  );
   const { cardOrders } = useCardOrdering(devices, rooms, visibleCards);
   const { cardZones: sharedCardZones, updateCardZone: updateSharedCardZone } = useCardZones();
   const homeCardZones = activeDashboard?.homeCardZones ?? {};
@@ -397,6 +387,18 @@ export function useDashboardController(): DashboardController {
 
   const homeLayoutValidIds = useHomeLayoutValidIds(availableDeviceMap, allCustomCards);
   const homeLayoutController = useHomeDashboardLayout(homeLayoutValidIds, cardSizes);
+  const applyHomeCardSize = homeLayoutController.applyCardSize;
+  const updateCardSize = useCallback(
+    (cardId: string, size: Parameters<typeof updateSharedCardSize>[1]) => {
+      if (isHomeOverview) {
+        updateActiveCardSize(cardId, size);
+        applyHomeCardSize(cardId, size);
+        return;
+      }
+      updateSharedCardSize(cardId, size);
+    },
+    [applyHomeCardSize, isHomeOverview, updateActiveCardSize, updateSharedCardSize]
+  );
   const {
     addCard: addHomeLayoutCard,
     addSection: addHomeLayoutSection,

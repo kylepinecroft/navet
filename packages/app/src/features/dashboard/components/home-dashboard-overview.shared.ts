@@ -17,6 +17,7 @@ import type {
 } from '../hooks/use-home-dashboard-layout';
 import type { DashboardPackId } from '../packs/dashboard-packs';
 import type { CustomCard } from '../stores/custom-cards-store';
+import type { CardLayoutMap, SnapDropPreview } from '../utils/card-placement';
 import {
   getRenderedRowLayouts,
   getSectionCardMinColumns,
@@ -36,7 +37,12 @@ export interface HomeDashboardOverviewProps {
   canRedoHomeLayout?: boolean;
   canUndoHomeLayout?: boolean;
   removeHomeCard: (cardId: string) => void;
-  moveHomeCard: (activeId: string, overId: string | null, sectionId?: string) => void;
+  moveHomeCard: (
+    activeId: string,
+    overId: string | null,
+    sectionId?: string,
+    origin?: { x: number; y: number }
+  ) => void;
   setHomeLayoutMode: (mode: HomeDashboardLayoutState['mode']) => void;
   addHomeSection: () => string;
   addHomeColumnSection: (targetSectionId?: string) => string;
@@ -92,6 +98,11 @@ export type CardGridProps = {
   showHero: boolean;
   onOpenAddCardDialog?: (sectionId?: string) => void;
   sortable?: boolean;
+  snapPlacement?: boolean;
+  cardLayouts?: CardLayoutMap;
+  cardGridColumns?: number;
+  accentColor?: string;
+  snapDropPreview?: SnapDropPreview | null;
 };
 
 export type SectionCanvasProps = {
@@ -125,6 +136,10 @@ export type SectionCanvasProps = {
     minWidthsBySection?: Record<string, number>
   ) => void;
   surface: ReturnType<typeof getThemeSurfaceTokens>;
+  snapPlacement?: boolean;
+  cardLayouts?: CardLayoutMap;
+  cardGridColumns?: number;
+  snapDropPreview?: SnapDropPreview | null;
 };
 
 export const SECTION_GRID_GAP_CLASS = 'gap-x-6 md:gap-x-7 lg:gap-x-8';

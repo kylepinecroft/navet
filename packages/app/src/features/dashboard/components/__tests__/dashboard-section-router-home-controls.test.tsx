@@ -294,6 +294,8 @@ function createController(): DashboardController {
       mode: 'personal',
       sections: [],
       showHero: true,
+      cardLayouts: {},
+      cardGridColumns: 12,
     },
     homeLayoutHydrated: true,
     isEditMode: false,

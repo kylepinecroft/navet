@@ -10,7 +10,9 @@ import { getThemeSurfaceTokens } from './theme/theme-surface-tokens';
 
 export type { CardSize } from './card-size';
 export {
+  CARD_SIZE_RENDERED_SPANS,
   getCardGridAutoRowsStyle,
+  getCardSizeGridSpan,
   getCardSizeOverlayStyle,
   getDashboardCardFootprint,
   getDashboardCardGridGapPx,

@@ -38,6 +38,8 @@ interface HomePresentationProps {
   emptyDescription: string;
   densePerformanceMode?: boolean;
   onToggleEditMode?: () => void;
+  cardLayouts?: import('../utils/card-placement').CardLayoutMap;
+  cardGridColumns?: number;
 }
 
 export function HomePresentation({
@@ -57,6 +59,8 @@ export function HomePresentation({
   emptyDescription,
   densePerformanceMode = false,
   onToggleEditMode,
+  cardLayouts,
+  cardGridColumns,
 }: HomePresentationProps) {
   const { t } = useI18n();
   const hasCards = flowCards.length > 0 || sections.some((section) => section.cardIds.length > 0);
@@ -191,6 +195,9 @@ export function HomePresentation({
                         onUpdateCard={onUpdateCard}
                         showHero={showHero}
                         densePerformanceMode={densePerformanceMode}
+                        snapPlacement
+                        cardLayouts={cardLayouts}
+                        cardGridColumns={cardGridColumns}
                       />
                     </div>
                   ))}

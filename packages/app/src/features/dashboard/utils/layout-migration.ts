@@ -1,4 +1,5 @@
 import type { HomeDashboardLayoutState } from '../hooks/use-home-dashboard-layout';
+import { CARD_LAYOUT_COLUMNS, type CardLayoutMap, normalizeCardOrigin } from './card-placement';
 import type { SectionLayoutItem } from './layout-engine';
 
 interface LegacyLayoutState {
@@ -15,6 +16,8 @@ interface LegacyLayoutState {
     span?: number;
   }>;
   cardSectionAssignments?: Record<string, string>;
+  cardLayouts?: Record<string, unknown>;
+  cardGridColumns?: number;
 }
 
 function isValidSection(section: unknown): section is SectionLayoutItem {
@@ -60,6 +63,8 @@ export function normalizeLayout(raw: unknown): Omit<HomeDashboardLayoutState, 's
     cardIds: [],
     sections: [],
     cardSectionAssignments: {},
+    cardLayouts: {},
+    cardGridColumns: CARD_LAYOUT_COLUMNS,
   };
 
   if (!raw || typeof raw !== 'object') {
@@ -91,11 +96,31 @@ export function normalizeLayout(raw: unknown): Omit<HomeDashboardLayoutState, 's
     }
   }
 
+  const cardLayouts: CardLayoutMap = {};
+  if (obj.cardLayouts && typeof obj.cardLayouts === 'object') {
+    for (const [cardId, rawOrigin] of Object.entries(obj.cardLayouts)) {
+      if (typeof cardId !== 'string') {
+        continue;
+      }
+      const origin = normalizeCardOrigin(rawOrigin);
+      if (origin) {
+        cardLayouts[cardId] = origin;
+      }
+    }
+  }
+
+  const cardGridColumns =
+    typeof obj.cardGridColumns === 'number' && Number.isFinite(obj.cardGridColumns)
+      ? Math.max(1, Math.floor(obj.cardGridColumns))
+      : CARD_LAYOUT_COLUMNS;
+
   return {
     mode,
     showHero,
     cardIds,
     sections,
     cardSectionAssignments,
+    cardLayouts,
+    cardGridColumns,
   };
 }

@@ -7,6 +7,7 @@ import {
 import { ensureCanonicalEntityId } from '@navet/app/utils/provider-entity-id';
 import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
+import { CARD_LAYOUT_COLUMNS, type CardLayoutMap } from '../utils/card-placement';
 import type { SectionLayoutItem } from '../utils/layout-engine';
 import { normalizeLayout } from '../utils/layout-migration';
 
@@ -23,6 +24,8 @@ export interface HomeDashboardLayoutState {
   cardIds: string[];
   sections: HomeDashboardSection[];
   cardSectionAssignments: Record<string, string>;
+  cardLayouts: CardLayoutMap;
+  cardGridColumns: number;
 }
 
 interface HomeDashboardLayoutStore extends HomeDashboardLayoutState {
@@ -48,6 +51,8 @@ export const DEFAULT_HOME_DASHBOARD_LAYOUT: HomeDashboardLayoutState = {
   cardIds: [],
   sections: [],
   cardSectionAssignments: {},
+  cardLayouts: {},
+  cardGridColumns: CARD_LAYOUT_COLUMNS,
 };
 
 function toHomeSection(section: SectionLayoutItem): HomeDashboardSection {
@@ -71,6 +76,13 @@ function normalizeHomeDashboardLayout(value: unknown): HomeDashboardLayoutState 
         sectionId,
       ])
     ),
+    cardLayouts: Object.fromEntries(
+      Object.entries(normalized.cardLayouts).map(([id, origin]) => [
+        ensureCanonicalEntityId(id),
+        origin,
+      ])
+    ),
+    cardGridColumns: normalized.cardGridColumns,
   };
 }
 
@@ -81,6 +93,8 @@ function pickLayoutState(state: HomeDashboardLayoutState): HomeDashboardLayoutSt
     cardIds: [...state.cardIds],
     sections: state.sections.map((section) => ({ ...section })),
     cardSectionAssignments: { ...state.cardSectionAssignments },
+    cardLayouts: { ...state.cardLayouts },
+    cardGridColumns: state.cardGridColumns,
   };
 }
 
@@ -184,6 +198,8 @@ export const useHomeDashboardLayoutStore = create<HomeDashboardLayoutStore>()(
         cardIds: state.cardIds,
         sections: state.sections,
         cardSectionAssignments: state.cardSectionAssignments,
+        cardLayouts: state.cardLayouts,
+        cardGridColumns: state.cardGridColumns,
       }),
       merge: (persisted, current) => ({
         ...current,

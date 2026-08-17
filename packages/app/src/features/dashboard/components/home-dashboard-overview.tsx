@@ -140,6 +140,8 @@ export const HomeDashboardOverview = memo(function HomeDashboardOverview({
         emptyDescription={t('dashboard.homeOverview.emptyDescription')}
         densePerformanceMode={densePerformanceMode}
         onToggleEditMode={onToggleEditMode}
+        cardLayouts={homeLayout.cardLayouts}
+        cardGridColumns={homeLayout.cardGridColumns}
       />
     </SummaryBarStack>
   );

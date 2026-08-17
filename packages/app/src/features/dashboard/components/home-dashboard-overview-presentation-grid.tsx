@@ -1,8 +1,23 @@
-import type { CardSize } from '@navet/app/components/shared/card-size-selector';
+import {
+  type CardSize,
+  getCardSpanClass,
+  getResponsiveCardSize,
+} from '@navet/app/components/shared/card-size-selector';
+import { useBreakpointCols } from '@navet/app/hooks/use-breakpoint-cols';
 import type { DeviceWithType } from '@navet/app/types/device.types';
-import { memo } from 'react';
+import { memo, useMemo } from 'react';
 import { useHomeGridRuntime } from '../hooks/use-home-grid-runtime';
 import type { CustomCard } from '../stores/custom-cards-store';
+import {
+  areCardLayoutsEqual,
+  CARD_LAYOUT_COLUMNS,
+  type CardLayoutMap,
+  cardSpanForSize,
+  fillMissingCardLayouts,
+  getSnapCardStyle,
+  packCardsFromOrder,
+  sortCardIdsByPlacement,
+} from '../utils/card-placement';
 import { DashboardCardItem } from './dashboard-card-item';
 import { areCardIdsStable, isCustomCard } from './home-dashboard-overview.shared';
 
@@ -15,6 +30,9 @@ interface PresentationCardGridProps {
   onUpdateCard?: (cardId: string, data: Record<string, unknown>) => void;
   showHero: boolean;
   densePerformanceMode?: boolean;
+  snapPlacement?: boolean;
+  cardLayouts?: CardLayoutMap;
+  cardGridColumns?: number;
 }
 
 export const PresentationCardGrid = memo(function PresentationCardGrid({
@@ -26,7 +44,14 @@ export const PresentationCardGrid = memo(function PresentationCardGrid({
   onUpdateCard,
   showHero,
   densePerformanceMode = false,
+  snapPlacement = false,
+  cardLayouts,
+  cardGridColumns,
 }: PresentationCardGridProps) {
+  const breakpointCols = useBreakpointCols();
+  const isPhone = breakpointCols <= 2;
+  const snapColumns = cardGridColumns ?? CARD_LAYOUT_COLUMNS;
+  const snapDesktop = snapPlacement && !isPhone;
   const {
     gridStyle,
     innerContainerStyle,
@@ -35,6 +60,7 @@ export const PresentationCardGrid = memo(function PresentationCardGrid({
     optimizeOffscreenPaint,
     outerContainerStyle,
     outerRef,
+    renderedGridCols,
     visibleCardIds,
   } = useHomeGridRuntime({
     allCards,
@@ -42,8 +68,49 @@ export const PresentationCardGrid = memo(function PresentationCardGrid({
     cardSizes,
     densePerformanceMode,
     gridCols,
+    forcedGridCols: snapDesktop ? snapColumns : undefined,
     isEditMode: false,
   });
+  const placementLayouts = useMemo(() => {
+    if (!snapPlacement) {
+      return undefined;
+    }
+
+    const resolvedSizes = Object.fromEntries(
+      cardIds.map((cardId) => {
+        const entry = allCards.get(cardId);
+        const size = cardSizes[cardId] ?? entry?.size ?? 'small';
+        return [cardId, getResponsiveCardSize(size, breakpointCols)];
+      })
+    );
+
+    if (isPhone) {
+      return packCardsFromOrder(
+        sortCardIdsByPlacement(cardIds, cardLayouts ?? {}),
+        resolvedSizes,
+        renderedGridCols
+      );
+    }
+
+    return fillMissingCardLayouts({
+      cardIds,
+      assignments: Object.fromEntries(cardIds.map((cardId) => [cardId, 'section'])),
+      existing: cardLayouts ?? {},
+      cardSizes: resolvedSizes,
+      columns: snapColumns,
+      sectionIds: ['section'],
+    });
+  }, [
+    allCards,
+    breakpointCols,
+    cardIds,
+    cardLayouts,
+    cardSizes,
+    isPhone,
+    renderedGridCols,
+    snapColumns,
+    snapPlacement,
+  ]);
 
   return (
     <div ref={outerRef} className="relative w-full" style={outerContainerStyle}>
@@ -52,7 +119,10 @@ export const PresentationCardGrid = memo(function PresentationCardGrid({
         className={`w-full${isAutoScaled ? ' absolute left-0 top-0 origin-top-left' : ''}`}
         style={innerContainerStyle}
       >
-        <div className="grid w-full gap-3 lg:gap-4" style={gridStyle}>
+        <div
+          className={`grid w-full gap-3 lg:gap-4${placementLayouts ? '' : ' grid-flow-row-dense'}`}
+          style={gridStyle}
+        >
           {visibleCardIds.map((cardId) => {
             const entry = allCards.get(cardId);
             if (!entry) {
@@ -60,32 +130,43 @@ export const PresentationCardGrid = memo(function PresentationCardGrid({
             }
 
             const size = cardSizes[cardId] ?? entry.size;
+            const origin = placementLayouts?.[cardId];
+            const snapStyle =
+              origin && placementLayouts
+                ? getSnapCardStyle(
+                    origin,
+                    cardSpanForSize(getResponsiveCardSize(size, breakpointCols), renderedGridCols)
+                  )
+                : undefined;
+            const spanClass = origin ? undefined : getCardSpanClass(size);
 
-            return !isCustomCard(entry) ? (
-              <DashboardCardItem
-                key={cardId}
-                id={cardId}
-                device={entry}
-                size={size}
-                isEditMode={false}
-                handleSizeChange={updateCardSize}
-                allowExtraLargeSizes={showHero}
-                densePerformanceMode={densePerformanceMode}
-                optimizeOffscreenPaint={optimizeOffscreenPaint}
-              />
-            ) : (
-              <DashboardCardItem
-                key={cardId}
-                id={cardId}
-                card={entry}
-                size={size}
-                isEditMode={false}
-                handleSizeChange={updateCardSize}
-                onUpdateCard={onUpdateCard}
-                allowExtraLargeSizes={showHero}
-                densePerformanceMode={densePerformanceMode}
-                optimizeOffscreenPaint={optimizeOffscreenPaint}
-              />
+            return (
+              <div key={cardId} className={origin ? 'h-full min-h-0' : spanClass} style={snapStyle}>
+                {!isCustomCard(entry) ? (
+                  <DashboardCardItem
+                    id={cardId}
+                    device={entry}
+                    size={size}
+                    isEditMode={false}
+                    handleSizeChange={updateCardSize}
+                    allowExtraLargeSizes={showHero}
+                    densePerformanceMode={densePerformanceMode}
+                    optimizeOffscreenPaint={optimizeOffscreenPaint}
+                  />
+                ) : (
+                  <DashboardCardItem
+                    id={cardId}
+                    card={entry}
+                    size={size}
+                    isEditMode={false}
+                    handleSizeChange={updateCardSize}
+                    onUpdateCard={onUpdateCard}
+                    allowExtraLargeSizes={showHero}
+                    densePerformanceMode={densePerformanceMode}
+                    optimizeOffscreenPaint={optimizeOffscreenPaint}
+                  />
+                )}
+              </div>
             );
           })}
         </div>
@@ -104,6 +185,9 @@ function arePresentationCardGridPropsEqual(
     previous.onUpdateCard === next.onUpdateCard &&
     previous.showHero === next.showHero &&
     previous.densePerformanceMode === next.densePerformanceMode &&
+    previous.snapPlacement === next.snapPlacement &&
+    previous.cardGridColumns === next.cardGridColumns &&
+    areCardLayoutsEqual(previous.cardLayouts, next.cardLayouts) &&
     areCardIdsStable(
       previous.cardIds,
       next.cardIds,

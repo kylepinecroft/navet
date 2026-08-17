@@ -1,6 +1,7 @@
 import {
   type CardSize,
   getCardGridAutoRowsStyle,
+  getDashboardCardGridMetrics,
 } from '@navet/app/components/shared/card-size-selector';
 import { useBreakpointCols } from '@navet/app/hooks/use-breakpoint-cols';
 import { settingsSelectors } from '@navet/app/stores/selectors';
@@ -23,6 +24,7 @@ interface UseHomeGridRuntimeOptions {
   cardSizes: Record<string, CardSize>;
   densePerformanceMode?: boolean;
   gridCols?: number;
+  forcedGridCols?: number;
   isEditMode: boolean;
   sortable?: boolean;
 }
@@ -33,6 +35,7 @@ export function useHomeGridRuntime({
   cardSizes,
   densePerformanceMode = false,
   gridCols,
+  forcedGridCols,
   isEditMode,
 }: UseHomeGridRuntimeOptions) {
   const disableAnimations = useSettingsStore(settingsSelectors.disableAnimations);
@@ -86,8 +89,8 @@ export function useHomeGridRuntime({
     () => resolvedCardSizes.length > 0 && resolvedCardSizes.every((size) => size === 'tiny'),
     [resolvedCardSizes]
   );
-  const preferredRenderedGridCols = logicalGridCols * 2;
-  const renderedGridCols = hasOnlyTinyCards ? 1 : preferredRenderedGridCols;
+  const preferredRenderedGridCols = forcedGridCols ?? logicalGridCols * 2;
+  const renderedGridCols = forcedGridCols || !hasOnlyTinyCards ? preferredRenderedGridCols : 1;
   const { microCardMinWidth, targetGridWidth } = useMemo(
     () => getCardGridTargetWidth(renderedGridCols, gridGapPx),
     [gridGapPx, renderedGridCols]
@@ -113,28 +116,36 @@ export function useHomeGridRuntime({
       }) as CSSProperties,
     [autoScale, isAutoScaled, targetGridWidth]
   );
+  const rowHeightPx = getDashboardCardGridMetrics(
+    forcedGridCols ? Math.max(1, Math.ceil(renderedGridCols / 2)) : breakpointCols
+  ).rowHeightPx;
   const gridStyle = useMemo(
     () =>
       ({
         '--home-card-cols': renderedGridCols,
         '--home-card-min': `${microCardMinWidth}px`,
-        ...getCardGridAutoRowsStyle(breakpointCols),
+        ...getCardGridAutoRowsStyle(
+          forcedGridCols ? Math.max(1, Math.ceil(renderedGridCols / 2)) : breakpointCols
+        ),
         gridTemplateColumns: 'repeat(var(--home-card-cols), minmax(var(--home-card-min), 1fr))',
       }) as CSSProperties,
-    [breakpointCols, microCardMinWidth, renderedGridCols]
+    [breakpointCols, forcedGridCols, microCardMinWidth, renderedGridCols]
   );
   return {
     breakpointCols,
+    gridGapPx,
     gridStyle,
     innerContainerStyle,
     innerRef,
     isAutoScaled,
+    logicalGridCols,
     microCardMinWidth,
     optimizeOffscreenPaint:
       !isEditMode && (densePerformanceMode || performanceProfile.optimizeOffscreenPaint),
     outerContainerStyle,
     outerRef,
     renderedGridCols,
+    rowHeightPx,
     targetGridWidth,
     visibleCardIds,
   };

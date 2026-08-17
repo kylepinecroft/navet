@@ -191,6 +191,8 @@ function createController(overrides: Partial<DashboardController> = {}): Dashboa
       cardIds: ['light.missing'],
       sections: [],
       cardSectionAssignments: {},
+      cardLayouts: {},
+      cardGridColumns: 12,
     },
     homeLayoutHydrated: false,
     addHomeCard: vi.fn(),

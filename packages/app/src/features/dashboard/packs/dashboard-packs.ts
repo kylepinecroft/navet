@@ -1,6 +1,7 @@
 import { defaultTranslate, type TranslateFn, type TranslationKey } from '@navet/app/i18n';
 import type { DeviceWithType } from '@navet/app/types/device.types';
 import type { HomeDashboardLayoutState } from '../hooks/use-home-dashboard-layout';
+import { CARD_LAYOUT_COLUMNS, fillMissingCardLayouts } from '../utils/card-placement';
 
 export type DashboardPackId = 'command-center' | 'security-monitor' | 'energy-wall';
 
@@ -213,6 +214,7 @@ export function buildDashboardPackLayout(
   const cardSectionAssignments = Object.fromEntries(
     sections.flatMap((section) => section.cardIds.map((cardId) => [cardId, section.id]))
   );
+  const cardSizes = Object.fromEntries(sortedDevices.map((device) => [device.id, device.size]));
 
   return {
     mode: 'sectioned',
@@ -220,5 +222,14 @@ export function buildDashboardPackLayout(
     cardIds,
     sections: sections.map(({ cardIds: _cardIds, ...section }) => section),
     cardSectionAssignments,
+    cardLayouts: fillMissingCardLayouts({
+      cardIds,
+      assignments: cardSectionAssignments,
+      existing: {},
+      cardSizes,
+      columns: CARD_LAYOUT_COLUMNS,
+      sectionIds: sections.map((section) => section.id),
+    }),
+    cardGridColumns: CARD_LAYOUT_COLUMNS,
   };
 }

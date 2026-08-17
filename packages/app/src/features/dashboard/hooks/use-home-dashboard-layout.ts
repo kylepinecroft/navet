@@ -8,6 +8,15 @@ import {
   type HomeLayoutMode,
 } from '../stores/home-dashboard-layout-store';
 import {
+  CARD_LAYOUT_COLUMNS,
+  type CardOrigin,
+  cardSpanForSize,
+  fillMissingCardLayouts,
+  findFirstFit,
+  placeCardAt,
+  rewriteCardIdsForSection,
+} from '../utils/card-placement';
+import {
   getBottomRow,
   getSectionCardMinColumns,
   insertSectionBelow,
@@ -55,6 +64,74 @@ function toSectionLayoutItem(section: HomeDashboardSection): SectionLayoutItem {
     y: section.y,
     w: section.w,
     h: section.h,
+  };
+}
+
+function withFilledCardLayouts(
+  layout: HomeDashboardLayoutState,
+  cardSizes: Record<string, CardSize | undefined>
+): HomeDashboardLayoutState {
+  const columns = layout.cardGridColumns || CARD_LAYOUT_COLUMNS;
+  if (layout.mode !== 'sectioned') {
+    return {
+      ...layout,
+      cardLayouts: layout.cardLayouts ?? {},
+      cardGridColumns: columns,
+    };
+  }
+
+  return {
+    ...layout,
+    cardGridColumns: columns,
+    cardLayouts: fillMissingCardLayouts({
+      cardIds: layout.cardIds,
+      assignments: layout.cardSectionAssignments,
+      existing: layout.cardLayouts ?? {},
+      cardSizes,
+      columns,
+      sectionIds: layout.sections.map((section) => section.id),
+    }),
+  };
+}
+
+function placeCardInSection(
+  layout: HomeDashboardLayoutState,
+  cardId: string,
+  origin: CardOrigin,
+  cardSizes: Record<string, CardSize | undefined>,
+  sectionId?: string
+): HomeDashboardLayoutState {
+  const filled = withFilledCardLayouts(layout, cardSizes);
+  const assignments =
+    filled.mode === 'sectioned' && sectionId
+      ? { ...filled.cardSectionAssignments, [cardId]: sectionId }
+      : filled.cardSectionAssignments;
+  const targetSectionId = assignments[cardId];
+  const sectionCardIds = filled.cardIds.filter(
+    (id) => assignments[id] === targetSectionId || id === cardId
+  );
+  const nextLayouts = {
+    ...filled.cardLayouts,
+    ...placeCardAt(
+      sectionCardIds,
+      filled.cardLayouts,
+      cardId,
+      origin,
+      cardSizes,
+      filled.cardGridColumns
+    ),
+  };
+  const nextCardIds = filled.cardIds.includes(cardId)
+    ? filled.cardIds
+    : [...filled.cardIds, cardId];
+
+  return {
+    ...filled,
+    cardIds: targetSectionId
+      ? rewriteCardIdsForSection(nextCardIds, targetSectionId, assignments, nextLayouts)
+      : nextCardIds,
+    cardSectionAssignments: assignments,
+    cardLayouts: nextLayouts,
   };
 }
 
@@ -109,23 +186,27 @@ export function useHomeDashboardLayout(
                 }),
               ];
         const firstSectionId = sections[0]?.id;
+        const nextAssignments = firstSectionId
+          ? Object.fromEntries(
+              previous.cardIds.map((cardId) => [
+                cardId,
+                previous.cardSectionAssignments[cardId] ?? firstSectionId,
+              ])
+            )
+          : previous.cardSectionAssignments;
 
-        return {
-          ...previous,
-          mode,
-          sections,
-          cardSectionAssignments: firstSectionId
-            ? Object.fromEntries(
-                previous.cardIds.map((cardId) => [
-                  cardId,
-                  previous.cardSectionAssignments[cardId] ?? firstSectionId,
-                ])
-              )
-            : previous.cardSectionAssignments,
-        };
+        return withFilledCardLayouts(
+          {
+            ...previous,
+            mode,
+            sections,
+            cardSectionAssignments: nextAssignments,
+          },
+          cardSizes
+        );
       });
     },
-    [persistLayout]
+    [cardSizes, persistLayout]
   );
 
   const setShowHero = useCallback(
@@ -352,18 +433,45 @@ export function useHomeDashboardLayout(
         const cardIds = previous.cardIds.includes(cardId)
           ? previous.cardIds
           : [...previous.cardIds, cardId];
+        const nextAssignments =
+          sectionId && previous.mode === 'sectioned'
+            ? { ...previous.cardSectionAssignments, [cardId]: sectionId }
+            : previous.cardSectionAssignments;
 
-        return {
-          ...previous,
-          cardIds,
-          cardSectionAssignments:
-            sectionId && previous.mode === 'sectioned'
-              ? { ...previous.cardSectionAssignments, [cardId]: sectionId }
-              : previous.cardSectionAssignments,
-        };
+        if (previous.mode !== 'sectioned' || !sectionId) {
+          return {
+            ...previous,
+            cardIds,
+            cardSectionAssignments: nextAssignments,
+          };
+        }
+
+        const filled = withFilledCardLayouts(
+          {
+            ...previous,
+            cardIds,
+            cardSectionAssignments: nextAssignments,
+          },
+          cardSizes
+        );
+        const occupants = filled.cardIds
+          .filter((id) => nextAssignments[id] === sectionId && id !== cardId)
+          .flatMap((id) => {
+            const origin = filled.cardLayouts[id];
+            return origin
+              ? [{ ...origin, ...cardSpanForSize(cardSizes[id], filled.cardGridColumns) }]
+              : [];
+          });
+        const origin = findFirstFit(
+          occupants,
+          cardSpanForSize(cardSizes[cardId], filled.cardGridColumns),
+          filled.cardGridColumns
+        );
+
+        return placeCardInSection(filled, cardId, origin, cardSizes, sectionId);
       });
     },
-    [persistLayout, validIdSet]
+    [cardSizes, persistLayout, validIdSet]
   );
 
   const removeCard = useCallback(
@@ -371,11 +479,14 @@ export function useHomeDashboardLayout(
       persistLayout((previous) => {
         const nextAssignments = { ...previous.cardSectionAssignments };
         delete nextAssignments[cardId];
+        const nextLayouts = { ...previous.cardLayouts };
+        delete nextLayouts[cardId];
 
         return {
           ...previous,
           cardIds: previous.cardIds.filter((id) => id !== cardId),
           cardSectionAssignments: nextAssignments,
+          cardLayouts: nextLayouts,
         };
       });
     },
@@ -383,7 +494,7 @@ export function useHomeDashboardLayout(
   );
 
   const moveCard = useCallback(
-    (activeId: string, overId: string | null, sectionId?: string) => {
+    (activeId: string, overId: string | null, sectionId?: string, origin?: CardOrigin) => {
       persistLayout((previous) => {
         if (!previous.cardIds.includes(activeId)) {
           return previous;
@@ -411,52 +522,68 @@ export function useHomeDashboardLayout(
           };
         }
 
-        const getCardGroupKey = (cardId: string) => nextAssignments[cardId] ?? '__flow__';
-        const targetGroup = getCardGroupKey(activeId);
-        const grouped = new Map<string, string[]>();
+        const filled = withFilledCardLayouts(
+          {
+            ...previous,
+            cardSectionAssignments: nextAssignments,
+          },
+          cardSizes
+        );
+        const dropOrigin =
+          origin ??
+          (overId && filled.cardLayouts[overId]
+            ? filled.cardLayouts[overId]
+            : findFirstFit(
+                filled.cardIds
+                  .filter(
+                    (id) => nextAssignments[id] === nextAssignments[activeId] && id !== activeId
+                  )
+                  .flatMap((id) => {
+                    const placed = filled.cardLayouts[id];
+                    return placed
+                      ? [{ ...placed, ...cardSpanForSize(cardSizes[id], filled.cardGridColumns) }]
+                      : [];
+                  }),
+                cardSpanForSize(cardSizes[activeId], filled.cardGridColumns),
+                filled.cardGridColumns
+              ));
 
-        for (const cardId of withoutActive) {
-          const group = getCardGroupKey(cardId);
-          const cards = grouped.get(group);
-          if (cards) {
-            cards.push(cardId);
-          } else {
-            grouped.set(group, [cardId]);
-          }
-        }
-
-        const targetCards = [...(grouped.get(targetGroup) ?? [])];
-        if (!overId || !targetCards.includes(overId)) {
-          targetCards.push(activeId);
-        } else {
-          targetCards.splice(targetCards.indexOf(overId), 0, activeId);
-        }
-        grouped.set(targetGroup, targetCards);
-
-        const nextCardIds = withoutActive.reduce<string[]>((result, originalCardId) => {
-          const group = getCardGroupKey(originalCardId);
-          const remainingCards = grouped.get(group);
-          const nextCardId = remainingCards?.shift();
-
-          if (nextCardId) {
-            result.push(nextCardId);
-          }
-
-          return result;
-        }, []);
-
-        for (const remainingCards of grouped.values()) {
-          nextCardIds.push(...remainingCards);
-        }
-
-        return {
-          ...previous,
-          cardIds: nextCardIds,
-          cardSectionAssignments: nextAssignments,
-        };
+        return placeCardInSection(filled, activeId, dropOrigin, cardSizes, sectionId);
       });
     },
-    [persistLayout]
+    [cardSizes, persistLayout]
+  );
+
+  const applyCardSize = useCallback(
+    (cardId: string, size: CardSize) => {
+      persistLayout((previous) => {
+        if (previous.mode !== 'sectioned' || !previous.cardIds.includes(cardId)) {
+          return previous;
+        }
+
+        const nextSizes = { ...cardSizes, [cardId]: size };
+        const filled = withFilledCardLayouts(previous, nextSizes);
+        const origin = filled.cardLayouts[cardId];
+        if (!origin) {
+          return filled;
+        }
+
+        const previousSpan = cardSpanForSize(cardSizes[cardId], filled.cardGridColumns);
+        const nextSpan = cardSpanForSize(size, filled.cardGridColumns);
+        if (nextSpan.w <= previousSpan.w && nextSpan.h <= previousSpan.h) {
+          return filled;
+        }
+
+        return placeCardInSection(
+          filled,
+          cardId,
+          origin,
+          nextSizes,
+          filled.cardSectionAssignments[cardId]
+        );
+      });
+    },
+    [cardSizes, persistLayout]
   );
 
   const moveSection = useCallback(
@@ -508,5 +635,6 @@ export function useHomeDashboardLayout(
     addCard,
     removeCard,
     moveCard,
+    applyCardSize,
   };
 }

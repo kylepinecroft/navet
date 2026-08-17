@@ -196,6 +196,13 @@ export function normalizeHomeDashboardLayout(value: unknown): HomeDashboardLayou
         sectionId,
       ])
     ),
+    cardLayouts: Object.fromEntries(
+      Object.entries(normalized.cardLayouts).map(([cardId, origin]) => [
+        ensureCanonicalEntityId(cardId),
+        origin,
+      ])
+    ),
+    cardGridColumns: normalized.cardGridColumns,
   };
 }
 
@@ -299,6 +306,12 @@ export function createDashboardDefinition(input: DashboardCreateInput): NavetDas
         Object.entries(homeLayout.cardSectionAssignments).map(([cardId, sectionId]) => [
           copiedCardIds.get(cardId) ?? cardId,
           sectionId,
+        ])
+      ),
+      cardLayouts: Object.fromEntries(
+        Object.entries(homeLayout.cardLayouts).map(([cardId, origin]) => [
+          copiedCardIds.get(cardId) ?? cardId,
+          origin,
         ])
       ),
     };

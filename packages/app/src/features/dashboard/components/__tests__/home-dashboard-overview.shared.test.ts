@@ -61,6 +61,8 @@ const homeLayout: HomeDashboardLayoutState = {
     'calendar.kitchen': 'section-1',
     'missing.entity': 'section-1',
   },
+  cardLayouts: {},
+  cardGridColumns: 12,
 };
 
 const kitchenCalendar: DeviceWithType = {

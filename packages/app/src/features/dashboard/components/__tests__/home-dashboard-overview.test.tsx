@@ -124,6 +124,8 @@ describe('HomeDashboardOverview', () => {
           cardIds: [],
           sections: [],
           cardSectionAssignments: {},
+          cardLayouts: {},
+          cardGridColumns: 12,
         }}
         removeHomeCard={vi.fn()}
         moveHomeCard={vi.fn()}
@@ -158,6 +160,8 @@ describe('HomeDashboardOverview', () => {
         cardIds: [],
         sections: [],
         cardSectionAssignments: {},
+        cardLayouts: {},
+        cardGridColumns: 12,
       },
       removeHomeCard: vi.fn(),
       moveHomeCard: vi.fn(),
@@ -207,6 +211,8 @@ describe('HomeDashboardOverview', () => {
           cardIds: [],
           sections: [],
           cardSectionAssignments: {},
+          cardLayouts: {},
+          cardGridColumns: 12,
         }}
         removeHomeCard={vi.fn()}
         moveHomeCard={vi.fn()}
