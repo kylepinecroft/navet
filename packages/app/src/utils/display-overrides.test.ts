@@ -5,6 +5,7 @@ import {
   resolveEntityDisplayName,
   resolveGreetingDisplayName,
   sanitizeEntityDisplayNames,
+  sanitizeHeaderGreetingName,
 } from './display-overrides';
 
 describe('display overrides', () => {
@@ -79,5 +80,10 @@ describe('display overrides', () => {
   it('trims greeting names to the display limit', () => {
     expect(normalizeHeaderGreetingName(`  ${'A'.repeat(80)}  `)).toBe('A'.repeat(40));
     expect(normalizeHeaderGreetingName(12)).toBe('');
+  });
+
+  it('preserves trailing spaces while greeting names are being edited', () => {
+    expect(sanitizeHeaderGreetingName('Jane ')).toBe('Jane ');
+    expect(normalizeHeaderGreetingName('Jane ')).toBe('Jane');
   });
 });

@@ -12,6 +12,7 @@ import {
   normalizeEntityDisplayName,
   normalizeHeaderGreetingName,
   sanitizeEntityDisplayNames,
+  sanitizeHeaderGreetingName,
 } from '@navet/app/utils/display-overrides';
 import {
   readLocalStorageWithMigration,
@@ -203,6 +204,14 @@ function isDashboardProfileMode(value: unknown): value is DashboardProfileMode {
   );
 }
 
+export function sanitizeHeaderCustomText(value: unknown): string {
+  if (typeof value !== 'string') {
+    return defaultSettings.headerCustomText;
+  }
+
+  return value.slice(0, HEADER_CUSTOM_TEXT_MAX_LENGTH);
+}
+
 export function normalizeHeaderCustomText(value: unknown): string {
   if (typeof value !== 'string') {
     return defaultSettings.headerCustomText;
@@ -352,11 +361,11 @@ export const useSettingsStore = create<SettingsState>()(
               : state.headerTitleMode,
           headerCustomText:
             newSettings.headerCustomText !== undefined
-              ? normalizeHeaderCustomText(newSettings.headerCustomText)
+              ? sanitizeHeaderCustomText(newSettings.headerCustomText)
               : state.headerCustomText,
           headerGreetingName:
             newSettings.headerGreetingName !== undefined
-              ? normalizeHeaderGreetingName(newSettings.headerGreetingName)
+              ? sanitizeHeaderGreetingName(newSettings.headerGreetingName)
               : state.headerGreetingName,
           entityDisplayNames:
             newSettings.entityDisplayNames !== undefined

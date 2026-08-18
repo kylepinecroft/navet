@@ -10,17 +10,27 @@ export const HEADER_GREETING_NAME_MAX_LENGTH = 40;
 export const ENTITY_DISPLAY_NAME_MAX_LENGTH = 64;
 const SYNTHETIC_DISPLAY_OVERRIDE_ID_PATTERN = /^security\.aggregate\.[a-z0-9][a-z0-9_.-]*$/i;
 
-function normalizeDisplayText(value: string, maxLength: number): string {
+function stripControlCharacters(value: string): string {
   return Array.from(value.normalize('NFKC'))
     .filter((character) => {
       const code = character.charCodeAt(0);
       return code > 31 && code !== 127;
     })
-    .join('')
-    .trim()
-    .replace(/\s+/g, ' ')
-    .slice(0, maxLength)
-    .trim();
+    .join('');
+}
+
+function sanitizeDisplayTextInput(value: string, maxLength: number): string {
+  return stripControlCharacters(value).replace(/\s+/g, ' ').slice(0, maxLength);
+}
+
+function normalizeDisplayText(value: string, maxLength: number): string {
+  return stripControlCharacters(value).trim().replace(/\s+/g, ' ').slice(0, maxLength).trim();
+}
+
+export function sanitizeHeaderGreetingName(value: unknown): string {
+  return typeof value === 'string'
+    ? sanitizeDisplayTextInput(value, HEADER_GREETING_NAME_MAX_LENGTH)
+    : '';
 }
 
 export function normalizeHeaderGreetingName(value: unknown): string {

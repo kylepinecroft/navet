@@ -1,6 +1,7 @@
 import { STORE_STORAGE_KEYS } from '@navet/app/constants/storage-keys';
 import { resetAppStores } from '@navet/app/test/store-reset';
 import { resetDetectedDeviceTierCache } from '@navet/app/utils/detect-device-tier';
+import { normalizeHeaderGreetingName } from '@navet/app/utils/display-overrides';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { settingsSelectors } from '../selectors';
 import { defaultSettings, useSettingsStore } from '../settings-store';
@@ -36,16 +37,21 @@ describe('useSettingsStore', () => {
 
   it('stores dashboard greeting and entity display overrides without writing provider names', () => {
     useSettingsStore.getState().updateSettings({
-      headerGreetingName: '  Chef  ',
+      headerGreetingName: 'Jane ',
       entityDisplayNames: {
         'light.kitchen': 'Island',
       },
     });
 
-    expect(useSettingsStore.getState().headerGreetingName).toBe('Chef');
+    expect(useSettingsStore.getState().headerGreetingName).toBe('Jane ');
     expect(useSettingsStore.getState().entityDisplayNames).toEqual({
       'home_assistant:light.kitchen': 'Island',
     });
+
+    useSettingsStore.getState().updateSettings({
+      headerGreetingName: normalizeHeaderGreetingName('Jane '),
+    });
+    expect(useSettingsStore.getState().headerGreetingName).toBe('Jane');
 
     useSettingsStore.getState().setEntityDisplayName('light.kitchen', 'Kitchen island');
     expect(useSettingsStore.getState().entityDisplayNames).toEqual({

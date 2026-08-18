@@ -19,7 +19,9 @@ import {
 import {
   HEADER_CUSTOM_TEXT_MAX_LENGTH,
   HEADER_GREETING_NAME_MAX_LENGTH,
+  normalizeHeaderCustomText,
 } from '@navet/app/stores/settings-store';
+import { normalizeHeaderGreetingName } from '@navet/app/utils/display-overrides';
 import { Download, LayoutGrid, Monitor, Scale, Upload } from 'lucide-react';
 import {
   DASHBOARD_PROFILE_MODE_OPTIONS,
@@ -176,6 +178,11 @@ export function SettingsDashboardSection({ controller }: SettingsDashboardSectio
                 onChange={(event) =>
                   controller.updateSettings({ headerCustomText: event.currentTarget.value })
                 }
+                onBlur={() =>
+                  controller.updateSettings({
+                    headerCustomText: normalizeHeaderCustomText(headerCustomText),
+                  })
+                }
                 placeholder={t('settings.dashboard.headerTitle.customPlaceholder')}
                 aria-label={t('settings.dashboard.headerTitle.customText')}
                 className={`h-11 w-full rounded-[16px] border px-4 text-sm outline-none transition-colors ${styles.borderColor} ${styles.softBg} ${styles.textColor}`}
@@ -200,6 +207,11 @@ export function SettingsDashboardSection({ controller }: SettingsDashboardSectio
             value={headerGreetingName}
             onChange={(event) =>
               controller.updateSettings({ headerGreetingName: event.currentTarget.value })
+            }
+            onBlur={() =>
+              controller.updateSettings({
+                headerGreetingName: normalizeHeaderGreetingName(headerGreetingName),
+              })
             }
             placeholder={
               providerUserName?.trim() || t('settings.dashboard.greetingName.placeholder')
