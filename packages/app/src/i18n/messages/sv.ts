@@ -200,6 +200,12 @@ export const svMessages = {
   'settings.dashboard.homeSummaryBar.title': 'Hemöversikt',
   'settings.dashboard.homeSummaryBar.description':
     'Visa kompakta sammanfattningar för klimat, belysning, säkerhet och media ovanför hemdashboarden.',
+  'settings.dashboard.summaryBarScope.title': 'Översiktens omfattning',
+  'settings.dashboard.summaryBarScope.description':
+    'Globalt använder hela hemmet. Lokalt använder bara enheterna på den här översikten eller rumssidan.',
+  'settings.dashboard.summaryBarScope.global': 'Globalt',
+  'settings.dashboard.summaryBarScope.local': 'Lokalt',
+  'settings.dashboard.summaryBarScope.forDashboard': 'Översiktens omfattning för {name}',
   'settings.dashboard.kioskMode.title': 'Kioskläge',
   'settings.dashboard.kioskMode.description':
     'Dölj sidhuvudet och navigationen så att dashboarden kan fylla en väggskärm.',

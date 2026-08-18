@@ -157,6 +157,12 @@ export const zhMessages = {
   'settings.dashboard.homeSummaryBar.title': '首页摘要栏',
   'settings.dashboard.homeSummaryBar.description':
     '在首页仪表板上方显示气候、灯光、安防和媒体的紧凑摘要。',
+  'settings.dashboard.summaryBarScope.title': '摘要栏范围',
+  'settings.dashboard.summaryBarScope.description':
+    '全局使用整个家。局部仅使用该仪表板或房间页上的实体。',
+  'settings.dashboard.summaryBarScope.global': '全局',
+  'settings.dashboard.summaryBarScope.local': '局部',
+  'settings.dashboard.summaryBarScope.forDashboard': '{name} 的摘要栏范围',
   'settings.dashboard.kioskMode.title': '信息亭模式',
   'settings.dashboard.kioskMode.description': '隐藏页眉和导航，让仪表板填满墙面显示屏。',
   'settings.dashboard.kioskMode.recoveryHint':

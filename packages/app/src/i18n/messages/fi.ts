@@ -202,6 +202,12 @@ export const fiMessages = {
   'settings.dashboard.homeSummaryBar.title': 'Yhteenvetopalkki',
   'settings.dashboard.homeSummaryBar.description':
     'Näytä kompaktit energia-, ilmasto-, valo-, turvallisuus-, media- ja rutiiniyhteenvedot kojetaulujen yläpuolella.',
+  'settings.dashboard.summaryBarScope.title': 'Yhteenvetopalkin laajuus',
+  'settings.dashboard.summaryBarScope.description':
+    'Yleinen käyttää koko kotia. Paikallinen käyttää vain tämän kojituspöydän tai huonesivun entiteettejä.',
+  'settings.dashboard.summaryBarScope.global': 'Yleinen',
+  'settings.dashboard.summaryBarScope.local': 'Paikallinen',
+  'settings.dashboard.summaryBarScope.forDashboard': 'Yhteenvetopalkin laajuus kohteelle {name}',
   'settings.dashboard.kioskMode.title': 'Kioskitila',
   'settings.dashboard.kioskMode.description':
     'Piilota otsikko ja navigointikromi, jotta kojelauta voi täyttää seinänäytön.',

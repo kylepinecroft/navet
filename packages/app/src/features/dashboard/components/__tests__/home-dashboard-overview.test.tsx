@@ -232,4 +232,42 @@ describe('HomeDashboardOverview', () => {
     expect(overviewMocks.useHomeEnergySummary).not.toHaveBeenCalled();
     expect(screen.queryByLabelText('Status summary')).not.toBeInTheDocument();
   });
+
+  it('does not mount Home energy summary work when the summary is local', () => {
+    renderWithProviders(
+      <HomeDashboardOverview
+        deviceMap={new Map()}
+        summaryDeviceMap={new Map()}
+        cardSizes={{}}
+        updateCardSize={vi.fn()}
+        isEditMode={false}
+        hiddenEntityCount={0}
+        allCustomCards={[]}
+        homeLayout={{
+          mode: 'flow',
+          showHero: true,
+          cardIds: [],
+          sections: [],
+          cardSectionAssignments: {},
+          cardLayouts: {},
+          cardGridColumns: 12,
+        }}
+        removeHomeCard={vi.fn()}
+        moveHomeCard={vi.fn()}
+        setHomeLayoutMode={vi.fn()}
+        addHomeSection={vi.fn()}
+        addHomeColumnSection={vi.fn()}
+        addHomeSectionBelow={vi.fn()}
+        moveHomeSection={vi.fn()}
+        moveHomeColumn={vi.fn()}
+        renameHomeSection={vi.fn()}
+        removeHomeSection={vi.fn()}
+        resizeHomeSection={vi.fn()}
+        onNavigateSection={vi.fn()}
+        includeHomeEnergySummary={false}
+      />
+    );
+
+    expect(overviewMocks.useHomeEnergySummary).toHaveBeenCalledWith(false);
+  });
 });

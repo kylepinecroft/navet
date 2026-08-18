@@ -32,6 +32,7 @@ import {
   sanitizeDashboardCollection,
   sanitizeDashboardName,
 } from './dashboard-collection';
+import { sanitizeDashboardSummaryBarScope } from './dashboard-summary-scope';
 
 const ACTIVE_DASHBOARD_SESSION_KEY = 'navet-active-dashboard';
 const HOME_LAYOUT_HISTORY_LIMIT = 50;
@@ -74,6 +75,10 @@ interface DashboardCollectionState {
   redoActiveHomeLayout: () => void;
   updateActiveCardSize: (cardId: string, size: CardSize) => void;
   updateActiveCardZone: (cardId: string, zone: ZoneName) => void;
+  updateDashboardSummaryBarScope: (
+    dashboardId: DashboardId,
+    scope: NavetDashboardCollection['dashboardsById'][string]['summaryBarScope']
+  ) => void;
   addActiveCustomCard: (
     type: CardType,
     size: CardSize,
@@ -506,6 +511,20 @@ export const useDashboardCollectionStore = create<DashboardCollectionState>()(
             homeCardZones: { ...definition.homeCardZones, [cardId]: zone },
           })),
         })),
+      updateDashboardSummaryBarScope: (dashboardId, scope) =>
+        set((state) => {
+          const nextScope = sanitizeDashboardSummaryBarScope(scope);
+          const definition = state.collection.dashboardsById[dashboardId];
+          if (!definition || definition.summaryBarScope === nextScope) {
+            return state;
+          }
+          return {
+            collection: updateDefinition(state, dashboardId, (current) => ({
+              ...current,
+              summaryBarScope: nextScope,
+            })),
+          };
+        }),
       addActiveCustomCard: (type, size, room, data) => {
         const card: CustomCard = {
           id: `custom-${Date.now()}-${Math.random().toString(36).slice(2, 11)}`,

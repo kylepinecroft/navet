@@ -20,3 +20,8 @@ export {
   sanitizeDashboardName,
 } from './dashboard-collection';
 export { useDashboardCollectionStore } from './dashboard-collection-store';
+export {
+  type DashboardSummaryBarScope,
+  resolveStatusSummaryDeviceMap,
+  sanitizeDashboardSummaryBarScope,
+} from './dashboard-summary-scope';

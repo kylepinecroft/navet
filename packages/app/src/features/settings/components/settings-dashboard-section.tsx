@@ -10,7 +10,12 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@navet/app/components/ui/alert-dialog';
+import { useDashboardCollectionStore } from '@navet/app/features/dashboard/dashboards/dashboard-collection-store';
 import { DashboardManager } from '@navet/app/features/dashboard/dashboards/dashboard-manager';
+import {
+  type DashboardSummaryBarScope,
+  sanitizeDashboardSummaryBarScope,
+} from '@navet/app/features/dashboard/dashboards/dashboard-summary-scope';
 import { useI18n } from '@navet/app/hooks';
 import {
   activateKeepDeviceAwakeFallback,
@@ -34,6 +39,115 @@ import { SettingsItem, SettingsSectionShell } from './settings-section-shell';
 
 interface SettingsDashboardSectionProps {
   controller: SettingsSectionController;
+}
+
+const SUMMARY_BAR_SCOPE_OPTIONS: Array<{
+  value: DashboardSummaryBarScope;
+  labelKey:
+    | 'settings.dashboard.summaryBarScope.global'
+    | 'settings.dashboard.summaryBarScope.local';
+}> = [
+  { value: 'global', labelKey: 'settings.dashboard.summaryBarScope.global' },
+  { value: 'local', labelKey: 'settings.dashboard.summaryBarScope.local' },
+];
+
+function SummaryBarScopePills({
+  ariaLabel,
+  onChange,
+  value,
+}: {
+  ariaLabel: string;
+  onChange: (scope: DashboardSummaryBarScope) => void;
+  value: DashboardSummaryBarScope;
+}) {
+  const { t } = useI18n();
+
+  return (
+    <fieldset className="w-fit">
+      <legend className="sr-only">{ariaLabel}</legend>
+      <div className="flex flex-wrap gap-2">
+        {SUMMARY_BAR_SCOPE_OPTIONS.map((option) => {
+          const isActive = value === option.value;
+          return (
+            <InteractivePill
+              key={option.value}
+              active={isActive}
+              size="small"
+              onClick={() => {
+                if (!isActive) {
+                  onChange(option.value);
+                }
+              }}
+              aria-pressed={isActive}
+            >
+              {t(option.labelKey)}
+            </InteractivePill>
+          );
+        })}
+      </div>
+    </fieldset>
+  );
+}
+
+function SettingsSummaryBarScopeItem({
+  styles,
+}: {
+  styles: SettingsDashboardSectionProps['controller']['styles'];
+}) {
+  const { t } = useI18n();
+  const collection = useDashboardCollectionStore((state) => state.collection);
+  const updateDashboardSummaryBarScope = useDashboardCollectionStore(
+    (state) => state.updateDashboardSummaryBarScope
+  );
+  const dashboards = collection.order.flatMap((dashboardId) => {
+    const dashboard = collection.dashboardsById[dashboardId];
+    return dashboard ? [dashboard] : [];
+  });
+
+  if (dashboards.length === 0) {
+    return null;
+  }
+
+  return (
+    <SettingsItem
+      title={t('settings.dashboard.summaryBarScope.title')}
+      description={t('settings.dashboard.summaryBarScope.description')}
+      styles={styles}
+    >
+      {dashboards.length === 1 ? (
+        <SummaryBarScopePills
+          ariaLabel={t('settings.dashboard.summaryBarScope.title')}
+          value={sanitizeDashboardSummaryBarScope(dashboards[0]?.summaryBarScope)}
+          onChange={(scope) => {
+            const dashboardId = dashboards[0]?.id;
+            if (dashboardId) {
+              updateDashboardSummaryBarScope(dashboardId, scope);
+            }
+          }}
+        />
+      ) : (
+        <div className="space-y-3">
+          {dashboards.map((dashboard) => (
+            <div
+              key={dashboard.id}
+              className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center sm:justify-between"
+            >
+              <p className={`min-w-0 truncate text-sm font-medium ${styles.textColor}`}>
+                {dashboard.name}
+              </p>
+              <SummaryBarScopePills
+                ariaLabel={t('settings.dashboard.summaryBarScope.forDashboard', {
+                  name: dashboard.name,
+                })}
+                value={sanitizeDashboardSummaryBarScope(dashboard.summaryBarScope)}
+                onChange={(scope) => updateDashboardSummaryBarScope(dashboard.id, scope)}
+              />
+            </div>
+          ))}
+        </div>
+      )}
+    </SettingsItem>
+  );
 }
 
 export function SettingsDashboardSection({ controller }: SettingsDashboardSectionProps) {
@@ -242,6 +356,8 @@ export function SettingsDashboardSection({ controller }: SettingsDashboardSectio
           ariaLabel={t('settings.dashboard.homeSummaryBar.title')}
         />
       </SettingsItem>
+
+      {showHomeSummaryBar ? <SettingsSummaryBarScopeItem styles={styles} /> : null}
 
       <SettingsItem
         title={t('settings.dashboard.kioskMode.title')}

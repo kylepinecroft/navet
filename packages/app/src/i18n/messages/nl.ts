@@ -203,6 +203,12 @@ export const nlMessages = {
   'settings.dashboard.homeSummaryBar.title': 'Samenvattingsbalk',
   'settings.dashboard.homeSummaryBar.description':
     'Toon compacte energie-, klimaat-, verlichting-, beveiligings-, media- en routineoverzichten boven dashboards.',
+  'settings.dashboard.summaryBarScope.title': 'Bereik van de samenvattingsbalk',
+  'settings.dashboard.summaryBarScope.description':
+    'Globaal gebruikt het hele huis. Lokaal gebruikt alleen de entiteiten op dit dashboard of de kamervagina.',
+  'settings.dashboard.summaryBarScope.global': 'Globaal',
+  'settings.dashboard.summaryBarScope.local': 'Lokaal',
+  'settings.dashboard.summaryBarScope.forDashboard': 'Bereik van de samenvattingsbalk voor {name}',
   'settings.dashboard.kioskMode.title': 'Kioskmodus',
   'settings.dashboard.kioskMode.description':
     'Verberg de koptekst en het navigatiechroom zodat het dashboard een wanddisplay kan vullen.',

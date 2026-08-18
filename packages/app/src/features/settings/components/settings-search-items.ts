@@ -153,6 +153,12 @@ const SETTINGS: SearchSettingDefinition[] = [
     descriptionKey: 'settings.dashboard.homeSummaryBar.description',
   },
   {
+    id: 'dashboard-summary-bar-scope',
+    sectionId: 'dashboard',
+    labelKey: 'settings.dashboard.summaryBarScope.title',
+    descriptionKey: 'settings.dashboard.summaryBarScope.description',
+  },
+  {
     id: 'dashboard-kiosk-mode',
     sectionId: 'dashboard',
     labelKey: 'settings.dashboard.kioskMode.title',

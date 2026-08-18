@@ -200,6 +200,12 @@ export const noMessages = {
   'settings.dashboard.homeSummaryBar.title': 'Sammendragslinje',
   'settings.dashboard.homeSummaryBar.description':
     'Vis kompakte energi-, klima-, lys-, sikkerhet-, media- og rutinesammendrag over dashbord.',
+  'settings.dashboard.summaryBarScope.title': 'Omfang for sammendragslinjen',
+  'settings.dashboard.summaryBarScope.description':
+    'Globalt bruker hele hjemmet. Lokalt bruker bare enhetene på dette dashbordet eller romsiden.',
+  'settings.dashboard.summaryBarScope.global': 'Globalt',
+  'settings.dashboard.summaryBarScope.local': 'Lokalt',
+  'settings.dashboard.summaryBarScope.forDashboard': 'Omfang for sammendragslinjen for {name}',
   'settings.dashboard.kioskMode.title': 'Kioskmodus',
   'settings.dashboard.kioskMode.description':
     'Skjul overskriften og navigasjonskromen slik at dashbordet kan fylle en veggskjerm.',

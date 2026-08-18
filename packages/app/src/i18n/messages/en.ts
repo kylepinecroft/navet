@@ -190,6 +190,12 @@ export const enMessages = {
   'settings.dashboard.homeSummaryBar.title': 'Summary bar',
   'settings.dashboard.homeSummaryBar.description':
     'Show compact energy, climate, lights, security, media, and routine summaries above dashboards.',
+  'settings.dashboard.summaryBarScope.title': 'Summary bar scope',
+  'settings.dashboard.summaryBarScope.description':
+    'Global uses the whole home. Local uses only the entities on that dashboard or room page.',
+  'settings.dashboard.summaryBarScope.global': 'Global',
+  'settings.dashboard.summaryBarScope.local': 'Local',
+  'settings.dashboard.summaryBarScope.forDashboard': 'Summary bar scope for {name}',
   'settings.dashboard.kioskMode.title': 'Kiosk mode',
   'settings.dashboard.kioskMode.description':
     'Hide the header and navigation chrome so the dashboard can fill a wall display.',

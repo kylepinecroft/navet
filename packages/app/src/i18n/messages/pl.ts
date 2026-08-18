@@ -201,6 +201,12 @@ export const plMessages = {
   'settings.dashboard.homeSummaryBar.title': 'Pasek podsumowania',
   'settings.dashboard.homeSummaryBar.description':
     'Pokazuj nad panelami zwięzłe podsumowania energii, klimatu, oświetlenia, bezpieczeństwa, multimediów i rutyn.',
+  'settings.dashboard.summaryBarScope.title': 'Zakres paska podsumowania',
+  'settings.dashboard.summaryBarScope.description':
+    'Globalny obejmuje cały dom. Lokalny tylko encje na tej tablicy lub stronie pomieszczenia.',
+  'settings.dashboard.summaryBarScope.global': 'Globalny',
+  'settings.dashboard.summaryBarScope.local': 'Lokalny',
+  'settings.dashboard.summaryBarScope.forDashboard': 'Zakres paska podsumowania dla {name}',
   'settings.dashboard.kioskMode.title': 'Tryb kiosku',
   'settings.dashboard.kioskMode.description':
     'Ukryj nagłówek i nawigację, aby panel wypełniał cały ekran ścienny.',

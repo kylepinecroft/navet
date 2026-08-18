@@ -209,6 +209,12 @@ export const itMessages = {
   'settings.dashboard.homeSummaryBar.title': 'Riepilogo Home',
   'settings.dashboard.homeSummaryBar.description':
     'Mostra riepiloghi compatti per clima, luci, sicurezza e media sopra la dashboard Home.',
+  'settings.dashboard.summaryBarScope.title': 'Ambito della barra di riepilogo',
+  'settings.dashboard.summaryBarScope.description':
+    'Globale usa tutta la casa. Locale usa solo le entità di questa dashboard o pagina della stanza.',
+  'settings.dashboard.summaryBarScope.global': 'Globale',
+  'settings.dashboard.summaryBarScope.local': 'Locale',
+  'settings.dashboard.summaryBarScope.forDashboard': 'Ambito della barra di riepilogo per {name}',
   'settings.dashboard.kioskMode.title': 'Modalità chiosco',
   'settings.dashboard.kioskMode.description':
     'Nasconde intestazione e navigazione per far riempire alla dashboard uno schermo a parete.',

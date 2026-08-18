@@ -199,6 +199,12 @@ export const esMessages = {
   'settings.dashboard.homeSummaryBar.title': 'Resumen de inicio',
   'settings.dashboard.homeSummaryBar.description':
     'Muestra resúmenes compactos de clima, luces, seguridad y medios encima del panel de inicio.',
+  'settings.dashboard.summaryBarScope.title': 'Alcance de la barra de resumen',
+  'settings.dashboard.summaryBarScope.description':
+    'Global usa toda la casa. Local usa solo las entidades de este panel o página de habitación.',
+  'settings.dashboard.summaryBarScope.global': 'Global',
+  'settings.dashboard.summaryBarScope.local': 'Local',
+  'settings.dashboard.summaryBarScope.forDashboard': 'Alcance de la barra de resumen para {name}',
   'settings.dashboard.kioskMode.title': 'Modo kiosco',
   'settings.dashboard.kioskMode.description':
     'Oculta el encabezado y la navegación para que el panel llene una pantalla de pared.',

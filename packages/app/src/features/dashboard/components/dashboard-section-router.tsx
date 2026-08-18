@@ -9,6 +9,11 @@ import { RenderProfiler } from '@navet/app/components/shared/render-profiler';
 import { getThemeSurfaceTokens } from '@navet/app/components/shared/theme/theme-surface-tokens';
 import { ALL_ROOMS_ID, isAllRooms } from '@navet/app/constants/rooms';
 import { getClimateDashboardGroup } from '@navet/app/features/climate/utils/climate-dashboard-group';
+import { useDashboardCollectionStore } from '@navet/app/features/dashboard/dashboards/dashboard-collection-store';
+import {
+  resolveStatusSummaryDeviceMap,
+  sanitizeDashboardSummaryBarScope,
+} from '@navet/app/features/dashboard/dashboards/dashboard-summary-scope';
 import { useRoomWorkspaceStore } from '@navet/app/features/dashboard/rooms/room-workspace-store';
 import { getRoomWorkspaceSectionsV2 } from '@navet/app/features/dashboard/rooms/room-workspace-v2';
 import { buildRoomStatusSummaryItems } from '@navet/app/features/sensors/components/home-status-summary-model';
@@ -89,6 +94,8 @@ export function shouldSubscribeTaskRoutines(
   return activeSection === 'lights' || (activeSection === 'home' && showSummaryBar);
 }
 
+const EMPTY_DASHBOARD_CUSTOM_CARDS: DashboardController['allCustomCards'] = [];
+
 function DashboardSectionRouterComponent({ controller }: DashboardSectionRouterProps) {
   const { t } = useI18n();
   const { theme } = useTheme();
@@ -98,6 +105,16 @@ function DashboardSectionRouterComponent({ controller }: DashboardSectionRouterP
   );
   const kioskMode = useSettingsStore(settingsSelectors.kioskMode);
   const showSummaryBar = useSettingsStore(settingsSelectors.showHomeSummaryBar);
+  const summaryBarScope = useDashboardCollectionStore((state) =>
+    sanitizeDashboardSummaryBarScope(
+      state.collection.dashboardsById[state.activeDashboardId]?.summaryBarScope
+    )
+  );
+  const activeDashboardCustomCards = useDashboardCollectionStore(
+    (state) =>
+      state.collection.dashboardsById[state.activeDashboardId]?.homeCustomCards ??
+      EMPTY_DASHBOARD_CUSTOM_CARDS
+  );
   const roomWorkspace = useRoomWorkspaceStore((state) => state.workspace);
   const activeCustomSidebarActionId = useNavigationStore(
     (state) => state.activeCustomSidebarActionId
@@ -210,6 +227,26 @@ function DashboardSectionRouterComponent({ controller }: DashboardSectionRouterP
         .map((device) => device.id)
     );
   }, [activeRoom, deviceMap]);
+  const summaryDeviceMap = useMemo(
+    () =>
+      resolveStatusSummaryDeviceMap({
+        activeRoom,
+        availableDeviceMap,
+        cardIds: controller.homeLayout.cardIds,
+        customCards: activeDashboardCustomCards,
+        deviceMap,
+        scope: summaryBarScope,
+      }),
+    [
+      activeDashboardCustomCards,
+      activeRoom,
+      availableDeviceMap,
+      controller.homeLayout.cardIds,
+      deviceMap,
+      summaryBarScope,
+    ]
+  );
+  const isLocalSummary = summaryBarScope === 'local';
   const roomStatusSummaryItems = useMemo(() => {
     if (!sectionData.isOverviewSection || isAllRooms(activeRoom) || !showSummaryBar) {
       return [];
@@ -224,7 +261,7 @@ function DashboardSectionRouterComponent({ controller }: DashboardSectionRouterP
       ).length;
 
     return buildRoomStatusSummaryItems(
-      availableDeviceMap,
+      summaryDeviceMap,
       activeRoom,
       {
         climateEntityIds: roomClimateEntityIds,
@@ -235,11 +272,11 @@ function DashboardSectionRouterComponent({ controller }: DashboardSectionRouterP
     );
   }, [
     activeRoom,
-    availableDeviceMap,
     roomClimateEntityIds,
     routines.automations,
     routines.quickActions,
     showSummaryBar,
+    summaryDeviceMap,
     temperatureUnit,
     t,
     sectionData.isOverviewSection,
@@ -550,7 +587,7 @@ function DashboardSectionRouterComponent({ controller }: DashboardSectionRouterP
             <Suspense fallback={<LoadingSpinner message={t('common.loading')} />}>
               <HomeDashboardOverview
                 deviceMap={controller.availableDeviceMap}
-                summaryDeviceMap={controller.availableDeviceMap}
+                summaryDeviceMap={summaryDeviceMap}
                 cardSizes={cardSizes}
                 updateCardSize={updateCardSize}
                 isEditMode={isEditMode}
@@ -578,7 +615,8 @@ function DashboardSectionRouterComponent({ controller }: DashboardSectionRouterP
                 onToggleEditMode={controller.onToggleEditMode}
                 onNavigateSection={controller.setActiveSection}
                 routineCount={totalRoutineCount}
-                securityAlertCount={controller.securityAlertCount}
+                securityAlertCount={isLocalSummary ? undefined : controller.securityAlertCount}
+                includeHomeEnergySummary={!isLocalSummary}
                 densePerformanceMode={controller.densePerformanceMode}
               />
             </Suspense>

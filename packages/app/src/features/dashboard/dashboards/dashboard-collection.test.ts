@@ -46,6 +46,7 @@ describe('dashboard collection contract', () => {
     });
     expect(collection.dashboardsById.home.homeCustomCards).toHaveLength(1);
     expect(collection.dashboardsById.home.homeRoomNames).toBeNull();
+    expect(collection.dashboardsById.home.summaryBarScope).toBe('global');
   });
 
   it('resolves direct links before previews, device assignments, and the workspace default', () => {
@@ -97,6 +98,7 @@ describe('dashboard collection contract', () => {
     });
 
     expect(dashboard.homeLayout.cardIds).toEqual(['homey:light.bed', 'openhab:light.landing']);
+    expect(dashboard.summaryBarScope).toBe('local');
     expect(dashboard.homeCardSizes).toEqual({
       'homey:light.bed': 'small',
       'openhab:light.landing': 'medium',
@@ -139,7 +141,9 @@ describe('dashboard collection contract', () => {
     });
 
     expect(collection.dashboardsById.upstairs.homeRoomNames).toEqual(['Living Room', 'Office']);
+    expect(collection.dashboardsById.upstairs.summaryBarScope).toBe('local');
     expect(copy.homeRoomNames).toEqual(['Living Room', 'Office']);
+    expect(copy.summaryBarScope).toBe('local');
     expect(
       resolveDashboardNavigationRooms(['living room', 'Kitchen', 'Office'], copy.homeRoomNames)
     ).toEqual(['living room', 'Office']);
@@ -212,5 +216,48 @@ describe('dashboard collection contract', () => {
     expect(next.order).toEqual(['home']);
     expect(next.dashboardIdByClientId).toEqual({ sonoff: 'home', phone: 'home' });
     expect(next.dashboardsById.upstairs).toBeUndefined();
+  });
+
+  it('defaults a missing summary bar scope to global and keeps a valid local scope', () => {
+    const fallback = createLegacyDashboardCollection({ homeLayout: null });
+    const collection = sanitizeDashboardCollection(
+      {
+        schemaVersion: 1,
+        defaultDashboardId: 'home',
+        order: ['home', 'upstairs'],
+        dashboardsById: {
+          home: {
+            id: 'home',
+            name: 'Home',
+            icon: 'layout-dashboard',
+            createdAt: '2026-01-01T00:00:00.000Z',
+            updatedAt: '2026-01-01T00:00:00.000Z',
+            homeRoomNames: null,
+            homeLayout: null,
+            homeCardSizes: {},
+            homeCustomCards: [],
+            homeCardZones: {},
+          },
+          upstairs: {
+            id: 'upstairs',
+            name: 'Upstairs',
+            icon: 'layout-dashboard',
+            createdAt: '2026-01-01T00:00:00.000Z',
+            updatedAt: '2026-01-01T00:00:00.000Z',
+            homeRoomNames: ['Bedroom'],
+            homeLayout: null,
+            homeCardSizes: {},
+            homeCustomCards: [],
+            homeCardZones: {},
+            summaryBarScope: 'local',
+          },
+        },
+        dashboardIdByClientId: {},
+      },
+      fallback
+    );
+
+    expect(collection.dashboardsById.home.summaryBarScope).toBe('global');
+    expect(collection.dashboardsById.upstairs.summaryBarScope).toBe('local');
   });
 });

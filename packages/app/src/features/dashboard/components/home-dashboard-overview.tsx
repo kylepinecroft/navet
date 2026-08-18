@@ -21,10 +21,15 @@ const HomeDashboardOverviewEdit = lazy(() => import('./home-dashboard-overview-e
 
 type HomeStatusSummaryProps = Pick<
   HomeDashboardOverviewProps,
-  'onNavigateSection' | 'routineCount' | 'securityAlertCount' | 'summaryDeviceMap'
+  | 'onNavigateSection'
+  | 'routineCount'
+  | 'securityAlertCount'
+  | 'summaryDeviceMap'
+  | 'includeHomeEnergySummary'
 >;
 
 const HomeStatusSummary = memo(function HomeStatusSummary({
+  includeHomeEnergySummary = true,
   onNavigateSection,
   routineCount,
   securityAlertCount,
@@ -36,7 +41,7 @@ const HomeStatusSummary = memo(function HomeStatusSummary({
     settingsSelectors.advancedCustomizationEnabled
   );
   const customSummaryPills = useSettingsStore(settingsSelectors.customSummaryPills);
-  const energySummary = useHomeEnergySummary();
+  const energySummary = useHomeEnergySummary(includeHomeEnergySummary);
   const statusSummaryItems = useMemo(
     () =>
       buildHomeStatusSummaryItems(
@@ -99,6 +104,7 @@ export const HomeDashboardOverview = memo(function HomeDashboardOverview({
   routineCount,
   securityAlertCount,
   densePerformanceMode = false,
+  includeHomeEnergySummary = true,
 }: HomeDashboardOverviewProps) {
   const { t } = useI18n();
   const theme = useThemeMode();
@@ -117,6 +123,7 @@ export const HomeDashboardOverview = memo(function HomeDashboardOverview({
         summaryDeviceMap={summaryDeviceMap}
         routineCount={routineCount}
         securityAlertCount={securityAlertCount}
+        includeHomeEnergySummary={includeHomeEnergySummary}
         onNavigateSection={onNavigateSection}
       />
     ) : null;
