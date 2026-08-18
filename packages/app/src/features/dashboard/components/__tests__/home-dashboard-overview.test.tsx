@@ -48,7 +48,7 @@ vi.mock('@navet/app/stores', async () => {
   };
 });
 
-vi.mock('../hooks/use-home-energy-summary', () => ({
+vi.mock('../../hooks/use-home-energy-summary', () => ({
   useHomeEnergySummary: overviewMocks.useHomeEnergySummary,
 }));
 
