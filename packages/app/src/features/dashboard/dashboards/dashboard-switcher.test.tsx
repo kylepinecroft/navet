@@ -53,8 +53,21 @@ describe('DashboardSwitcherPill', () => {
     const chevron = button.querySelector('[data-dashboard-switcher-chevron]');
     expect(chevron).not.toBeNull();
     fireEvent.pointerDown(chevron as Element);
+    fireEvent.pointerUp(chevron as Element);
+    await waitFor(() => expect(screen.getByRole('menu')).toBeInTheDocument());
+    expect(onShowHome).toHaveBeenCalledOnce();
+  });
+
+  it('does not auto-select a dashboard when opening the active pill menu', async () => {
+    renderWithProviders(<DashboardSwitcherPill active onShowHome={() => {}} />);
+
+    const button = screen.getByRole('button', { name: /Open dashboards/ });
+    fireEvent.pointerDown(button);
+    fireEvent.pointerUp(button);
 
     await waitFor(() => expect(screen.getByRole('menu')).toBeInTheDocument());
+    expect(useDashboardCollectionStore.getState().activeDashboardId).toBe('home');
+    expect(window.location.pathname).not.toBe('/dashboard/upstairs');
   });
 
   it('previews a dashboard without changing the device assignment, then offers explicit use', async () => {

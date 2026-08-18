@@ -917,9 +917,12 @@ const RoomNavGroupItem = memo(function RoomNavGroupItem({
             }
           }}
           onPointerDown={(event) => {
-            if (!isRoomGroupChevronTarget(event.target) && activeRoom !== triggerLabel) {
+            if (isRoomGroupChevronTarget(event.target) || activeRoom === triggerLabel) {
               event.preventDefault();
+              setIsOpen((open) => !open);
+              return;
             }
+            event.preventDefault();
           }}
           size="small"
           variant="ghost"

@@ -222,9 +222,12 @@ export function DashboardSwitcherPill({
           }
         }}
         onPointerDown={(event) => {
-          if (!isDashboardSwitcherChevronTarget(event.target) && !active) {
+          if (isDashboardSwitcherChevronTarget(event.target) || active) {
             event.preventDefault();
+            setIsOpen((open) => !open);
+            return;
           }
+          event.preventDefault();
         }}
         size="small"
         variant="ghost"

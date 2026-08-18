@@ -210,7 +210,7 @@ export function DashboardManager({ styles }: DashboardManagerProps) {
                           <MoreHorizontal className="h-4.5 w-4.5" />
                         </button>
                       </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end" className="w-56">
+                      <DropdownMenuContent align="end" sideOffset={8} className="w-56">
                         <DropdownMenuItem onSelect={() => openDashboardPreview(dashboard.id)}>
                           <LayoutDashboard className="h-4 w-4" />
                           {t('common.open')}
