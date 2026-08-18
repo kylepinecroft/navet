@@ -54,7 +54,7 @@ const STORY_TEXT: Partial<Record<TranslationKey, string>> = {
 const translateHeaderStory: TranslateFn = (key, params) => {
   switch (key) {
     case 'header.greeting.welcome':
-      return `Welcome back, ${params?.name ?? 'Vishal'}!`;
+      return `Welcome back, ${params?.name ?? 'Vishal'}`;
     case 'header.weekLabel':
       return `Week ${params?.week ?? 18}`;
     case 'dashboard.roomNav.reorderDialog.deleteDescription':
