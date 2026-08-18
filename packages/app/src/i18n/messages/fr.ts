@@ -173,6 +173,25 @@ export const frMessages = {
   'settings.dashboard.headerTitle.customPlaceholder': 'Bon retour chez vous',
   'settings.dashboard.headerTitle.customHint':
     'Laissez vide pour revenir à la salutation automatique.',
+  'settings.dashboard.greetingName.title': 'Comment le tableau de bord doit vous appeler',
+  'settings.dashboard.greetingName.description':
+    'Utilisé dans la salutation automatique. Laissez vide pour utiliser votre nom d’utilisateur Home Assistant.',
+  'settings.dashboard.greetingName.placeholder': 'Prénom',
+  'settings.dashboard.greetingName.providerHint':
+    'Laissez vide pour continuer d’utiliser {name} depuis Home Assistant.',
+  'settings.dashboard.greetingName.guestHint':
+    'Aucun nom d’utilisateur Home Assistant n’est encore disponible, la salutation utilise donc un nom générique jusqu’à ce que vous en définissiez un.',
+  'dashboard.roomNav.customizeRooms.title': 'Barre des pièces de l’accueil',
+  'dashboard.roomNav.customizeRooms.description':
+    'Choisissez les pièces affichées dans la barre supérieure de l’accueil. Les pièces masquées restent dans Pièces et peuvent être réaffichées ici.',
+  'dashboard.roomNav.customizeRooms.show': 'Afficher {room}',
+  'dashboard.roomNav.customizeRooms.hide': 'Masquer {room}',
+  'dashboard.roomNav.customizeRooms.empty':
+    'Les pièces apparaissent ici une fois les zones Home Assistant chargées.',
+  'dashboard.roomNav.customizeRooms.visible': 'Visible',
+  'dashboard.roomNav.customizeRooms.hidden': 'Masquée',
+
+  'dashboard.roomNav.customizeRooms.nameLabel': 'Nom de la pièce',
   'settings.dashboard.spaceMode.title': 'Usage de l’espace',
   'settings.dashboard.spaceMode.description':
     'Choisissez entre la mise en page standard du tableau de bord et une version tablette plus dense avec plus de colonnes, des cartes ajustées par zoom et moins de padding latéral.',
@@ -571,6 +590,8 @@ export const frMessages = {
   'dashboard.roomNav.reorderDialog.roomHidden': 'pièce masquée',
   'dashboard.roomNav.doneEditing': 'Terminer l’édition',
   'dashboard.roomNav.customize': 'Personnaliser',
+
+  'dashboard.roomNav.customizeRooms': 'Modifier les pièces',
   'dashboard.roomsWorkspace.title': 'Pièces',
   'dashboard.roomsWorkspace.description':
     'Organisez les pièces, les groupes et les appareils sans ralentir la navigation quotidienne.',
@@ -1747,6 +1768,7 @@ export const frMessages = {
   'entityNameEditor.empty': 'Le nom de la carte ne peut pas etre vide',
   'entityNameEditor.saved': 'Renomme en {name}',
   'entityNameEditor.failed': 'Impossible de renommer la carte',
+  'entityNameEditor.useOriginalName': 'Utiliser le nom d’origine',
   'common.loading': 'Chargement...',
   'common.moreActions': 'Plus d actions',
   'tasks.automation.enabled': 'Activee',

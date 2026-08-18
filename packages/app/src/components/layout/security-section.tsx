@@ -14,6 +14,8 @@ import {
   useI18n,
   useThemeMode,
 } from '@navet/app/hooks';
+import { settingsSelectors } from '@navet/app/stores/selectors';
+import { useSettingsStore } from '@navet/app/stores/settings-store';
 import { Plus, Video } from 'lucide-react';
 import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
@@ -61,6 +63,7 @@ export function SecuritySection({
   const { t } = useI18n();
   const theme = useThemeMode();
   const surface = getThemeSurfaceTokens(theme);
+  const entityDisplayNames = useSettingsStore(settingsSelectors.entityDisplayNames);
   const devices = useDeviceCollectionsByKeys(SECURITY_SECTION_DEVICE_KEYS);
   const alarms = useSecurityAlarmEntities();
   const { isEditMode, toggleEditMode } = useEditMode();
@@ -87,12 +90,12 @@ export function SecuritySection({
     [availableDevices, hiddenEntityIdSet]
   );
   const model = useMemo(
-    () => buildSecurityCameraDashboardModel(visibleDevices, t),
-    [t, visibleDevices]
+    () => buildSecurityCameraDashboardModel(visibleDevices, t, entityDisplayNames),
+    [entityDisplayNames, t, visibleDevices]
   );
   const allEntitiesModel = useMemo(
-    () => buildSecurityCameraDashboardModel(availableDevices, t),
-    [availableDevices, t]
+    () => buildSecurityCameraDashboardModel(availableDevices, t, entityDisplayNames),
+    [availableDevices, entityDisplayNames, t]
   );
   const allSecurityDevices = useMemo(() => allEntitiesModel.allEntities, [allEntitiesModel]);
   const allSecurityDeviceMap = useMemo(

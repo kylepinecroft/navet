@@ -171,6 +171,25 @@ export const plMessages = {
   'settings.dashboard.headerTitle.customPlaceholder': 'Witaj w domu',
   'settings.dashboard.headerTitle.customHint':
     'Pozostaw to pole puste, aby powrócić do automatycznego powitania.',
+  'settings.dashboard.greetingName.title': 'Jak dashboard ma się do ciebie zwracać',
+  'settings.dashboard.greetingName.description':
+    'Używane w automatycznym powitaniu. Zostaw puste, aby użyć nazwy użytkownika Home Assistant.',
+  'settings.dashboard.greetingName.placeholder': 'Imię',
+  'settings.dashboard.greetingName.providerHint':
+    'Zostaw puste, aby nadal używać {name} z Home Assistant.',
+  'settings.dashboard.greetingName.guestHint':
+    'Nie ma jeszcze nazwy użytkownika Home Assistant, więc powitanie używa ogólnej nazwy, dopóki jej nie ustawisz.',
+  'dashboard.roomNav.customizeRooms.title': 'Pasek pomieszczeń na Ekranie głównym',
+  'dashboard.roomNav.customizeRooms.description':
+    'Wybierz, które pomieszczenia mają być widoczne na górnym pasku Ekranu głównego. Ukryte pomieszczenia zostają w Pomieszczeniach i można je tu ponownie pokazać.',
+  'dashboard.roomNav.customizeRooms.show': 'Pokaż {room}',
+  'dashboard.roomNav.customizeRooms.hide': 'Ukryj {room}',
+  'dashboard.roomNav.customizeRooms.empty':
+    'Pomieszczenia pojawią się tutaj po wczytaniu obszarów Home Assistant.',
+  'dashboard.roomNav.customizeRooms.visible': 'Widoczne',
+  'dashboard.roomNav.customizeRooms.hidden': 'Ukryte',
+
+  'dashboard.roomNav.customizeRooms.nameLabel': 'Nazwa pomieszczenia',
   'settings.dashboard.spaceMode.title': 'Wykorzystanie przestrzeni',
   'settings.dashboard.spaceMode.description':
     'Wybierz standardowy układ panelu albo gęstszy układ tabletowy z większą liczbą kolumn, kartami dopasowanymi do miejsca i mniejszymi marginesami bocznymi.',
@@ -656,6 +675,8 @@ export const plMessages = {
   'dashboard.roomNav.reorderDialog.roomHidden': 'ukryte pomieszczenie',
   'dashboard.roomNav.doneEditing': 'Zakończ edycję',
   'dashboard.roomNav.customize': 'Dostosuj',
+
+  'dashboard.roomNav.customizeRooms': 'Edytuj pomieszczenia',
   'dashboard.roomsWorkspace.title': 'Pomieszczenia',
   'dashboard.roomsWorkspace.description':
     'Porządkuj pomieszczenia, grupy i urządzenia bez spowalniania codziennej nawigacji.',
@@ -1823,6 +1844,7 @@ export const plMessages = {
   'entityNameEditor.empty': 'Nazwa karty nie może być pusta',
   'entityNameEditor.saved': 'Zmieniono nazwę na {name}',
   'entityNameEditor.failed': 'Nie udało się zmienić nazwy karty',
+  'entityNameEditor.useOriginalName': 'Użyj oryginalnej nazwy',
   'common.loading': 'Ładowanie...',
   'common.moreActions': 'Więcej akcji',
   'tasks.automation.enabled': 'Włączona',

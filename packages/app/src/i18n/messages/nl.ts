@@ -173,6 +173,25 @@ export const nlMessages = {
   'settings.dashboard.headerTitle.customPlaceholder': 'Welkom thuis',
   'settings.dashboard.headerTitle.customHint':
     'Laat het leeg om terug te vallen op de automatische begroeting.',
+  'settings.dashboard.greetingName.title': 'Hoe het dashboard je moet noemen',
+  'settings.dashboard.greetingName.description':
+    'Gebruikt in de automatische begroeting. Laat leeg om je Home Assistant-gebruikersnaam te gebruiken.',
+  'settings.dashboard.greetingName.placeholder': 'Voornaam',
+  'settings.dashboard.greetingName.providerHint':
+    'Laat leeg om {name} van Home Assistant te blijven gebruiken.',
+  'settings.dashboard.greetingName.guestHint':
+    'Er is nog geen Home Assistant-gebruikersnaam beschikbaar, dus de begroeting gebruikt een algemene naam tot je er een instelt.',
+  'dashboard.roomNav.customizeRooms.title': 'Kamerbalk op Home',
+  'dashboard.roomNav.customizeRooms.description':
+    'Kies welke kamers in de bovenste balk van Home verschijnen. Verborgen kamers blijven in Kamers en kunnen hier weer worden getoond.',
+  'dashboard.roomNav.customizeRooms.show': '{room} tonen',
+  'dashboard.roomNav.customizeRooms.hide': '{room} verbergen',
+  'dashboard.roomNav.customizeRooms.empty':
+    'Kamers verschijnen hier nadat Home Assistant-zones zijn geladen.',
+  'dashboard.roomNav.customizeRooms.visible': 'Zichtbaar',
+  'dashboard.roomNav.customizeRooms.hidden': 'Verborgen',
+
+  'dashboard.roomNav.customizeRooms.nameLabel': 'Kamernaam',
   'settings.dashboard.spaceMode.title': 'Gebruik van ruimte',
   'settings.dashboard.spaceMode.description':
     'Kies tussen de standaard dashboardindeling en een compactere tabletindeling met meer kolommen, zoom-to-fit-kaarten en strakkere zijvulling.',
@@ -664,6 +683,8 @@ export const nlMessages = {
   'dashboard.roomNav.reorderDialog.roomHidden': 'verborgen kamer',
   'dashboard.roomNav.doneEditing': 'Klaar met bewerken',
   'dashboard.roomNav.customize': 'Pas aan',
+
+  'dashboard.roomNav.customizeRooms': 'Kamers bewerken',
   'dashboard.roomsWorkspace.title': 'Kamers',
   'dashboard.roomsWorkspace.description':
     'Orden kamers, groepen en apparaten zonder de dagelijkse navigatie te vertragen.',
@@ -1838,6 +1859,7 @@ export const nlMessages = {
   'entityNameEditor.empty': 'Kaartnaam mag niet leeg zijn',
   'entityNameEditor.saved': 'Hernoemd naar {name}',
   'entityNameEditor.failed': 'Kan de naam van de kaart niet wijzigen',
+  'entityNameEditor.useOriginalName': 'Oorspronkelijke naam gebruiken',
   'common.loading': 'Laden...',
   'common.moreActions': 'Meer acties',
   'tasks.automation.enabled': 'Ingeschakeld',

@@ -171,6 +171,25 @@ export const ptMessages = {
   'settings.dashboard.headerTitle.dateTime': 'Data e hora',
   'settings.dashboard.headerTitle.customPlaceholder': 'Bem-vindo para casa',
   'settings.dashboard.headerTitle.customHint': 'Deixe em branco para voltar à saudação automática.',
+  'settings.dashboard.greetingName.title': 'Como o painel deve chamar você',
+  'settings.dashboard.greetingName.description':
+    'Usado na saudação automática. Deixe em branco para usar o nome de usuário do Home Assistant.',
+  'settings.dashboard.greetingName.placeholder': 'Nome',
+  'settings.dashboard.greetingName.providerHint':
+    'Deixe em branco para continuar usando {name} do Home Assistant.',
+  'settings.dashboard.greetingName.guestHint':
+    'Ainda não há um nome de usuário do Home Assistant, então a saudação usa um nome genérico até você definir um.',
+  'dashboard.roomNav.customizeRooms.title': 'Barra de cômodos na Início',
+  'dashboard.roomNav.customizeRooms.description':
+    'Escolha quais cômodos aparecem na barra superior da Início. Cômodos ocultos permanecem em Cômodos e podem ser mostrados de novo aqui.',
+  'dashboard.roomNav.customizeRooms.show': 'Mostrar {room}',
+  'dashboard.roomNav.customizeRooms.hide': 'Ocultar {room}',
+  'dashboard.roomNav.customizeRooms.empty':
+    'Os cômodos aparecem aqui depois que as áreas do Home Assistant carregam.',
+  'dashboard.roomNav.customizeRooms.visible': 'Visível',
+  'dashboard.roomNav.customizeRooms.hidden': 'Oculto',
+
+  'dashboard.roomNav.customizeRooms.nameLabel': 'Nome do cômodo',
   'settings.dashboard.spaceMode.title': 'Uso do espaço',
   'settings.dashboard.spaceMode.description':
     'Escolha entre o layout padrão do painel e um layout de tablet mais denso com mais colunas, cartões com zoom adaptativo e menos padding lateral.',
@@ -566,6 +585,8 @@ export const ptMessages = {
   'dashboard.roomNav.reorderDialog.roomHidden': 'cômodo oculto',
   'dashboard.roomNav.doneEditing': 'Concluir edição',
   'dashboard.roomNav.customize': 'Personalizar',
+
+  'dashboard.roomNav.customizeRooms': 'Editar cômodos',
   'dashboard.roomsWorkspace.title': 'Cômodos',
   'dashboard.roomsWorkspace.description':
     'Organize cômodos, grupos e dispositivos sem deixar a navegação diária mais lenta.',
@@ -1730,6 +1751,7 @@ export const ptMessages = {
   'entityNameEditor.empty': 'O nome do cartão não pode ficar vazio',
   'entityNameEditor.saved': 'Renomeado para {name}',
   'entityNameEditor.failed': 'Não foi possível renomear o cartão',
+  'entityNameEditor.useOriginalName': 'Usar o nome original',
   'common.loading': 'Carregando...',
   'common.moreActions': 'Mais ações',
   'tasks.automation.enabled': 'Habilitada',

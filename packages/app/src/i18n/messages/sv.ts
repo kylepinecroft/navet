@@ -170,6 +170,25 @@ export const svMessages = {
   'settings.dashboard.headerTitle.customPlaceholder': 'Välkommen hem',
   'settings.dashboard.headerTitle.customHint':
     'Lämna tomt för att falla tillbaka till den automatiska hälsningen.',
+  'settings.dashboard.greetingName.title': 'Vad dashboarden ska kalla dig',
+  'settings.dashboard.greetingName.description':
+    'Används i den automatiska hälsningen. Lämna tomt för att använda ditt Home Assistant-användarnamn.',
+  'settings.dashboard.greetingName.placeholder': 'Förnamn',
+  'settings.dashboard.greetingName.providerHint':
+    'Lämna tomt för att fortsätta använda {name} från Home Assistant.',
+  'settings.dashboard.greetingName.guestHint':
+    'Inget Home Assistant-användarnamn finns ännu, så hälsningen använder ett generiskt namn tills du anger ett.',
+  'dashboard.roomNav.customizeRooms.title': 'Hem-raden för rum',
+  'dashboard.roomNav.customizeRooms.description':
+    'Välj vilka rum som visas i hemvyn längst upp. Dolda rum finns kvar under Rum och kan visas igen här.',
+  'dashboard.roomNav.customizeRooms.show': 'Visa {room}',
+  'dashboard.roomNav.customizeRooms.hide': 'Dölj {room}',
+  'dashboard.roomNav.customizeRooms.empty':
+    'Rum visas här när Home Assistant-områden har lästs in.',
+  'dashboard.roomNav.customizeRooms.visible': 'Synligt',
+  'dashboard.roomNav.customizeRooms.hidden': 'Dolt',
+
+  'dashboard.roomNav.customizeRooms.nameLabel': 'Rumsnamn',
   'settings.dashboard.spaceMode.title': 'Ytanvändning',
   'settings.dashboard.spaceMode.description':
     'Välj mellan standardlayouten för dashboarden och en tätare surfplattelayout med fler kolumner, zoom-anpassade kort och mindre sidopadding.',
@@ -564,6 +583,8 @@ export const svMessages = {
   'dashboard.roomNav.reorderDialog.roomHidden': 'dolt rum',
   'dashboard.roomNav.doneEditing': 'Klar med redigering',
   'dashboard.roomNav.customize': 'Anpassa',
+
+  'dashboard.roomNav.customizeRooms': 'Redigera rum',
   'dashboard.roomsWorkspace.title': 'Rum',
   'dashboard.roomsWorkspace.description':
     'Ordna rum, grupper och enheter utan att göra den dagliga navigeringen långsammare.',
@@ -1718,6 +1739,7 @@ export const svMessages = {
   'entityNameEditor.empty': 'Kortnamnet får inte vara tomt',
   'entityNameEditor.saved': 'Bytte namn till {name}',
   'entityNameEditor.failed': 'Kunde inte byta namn på kortet',
+  'entityNameEditor.useOriginalName': 'Använd ursprungligt namn',
   'common.loading': 'Laddar...',
   'common.moreActions': 'Fler åtgärder',
   'tasks.automation.enabled': 'Aktiv',

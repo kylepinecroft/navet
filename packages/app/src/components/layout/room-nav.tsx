@@ -15,6 +15,7 @@ import {
   DashboardSwitcherPill,
   useDashboardSwitcher,
 } from '@navet/app/features/dashboard/dashboards/dashboard-switcher';
+import { RoomBarCustomizeDialog } from '@navet/app/features/dashboard/rooms/components/room-bar-customize-dialog';
 import { RoomSymbolIcon } from '@navet/app/features/dashboard/rooms/components/room-symbol-icon';
 import { useI18n, useIntegrationStore, useTheme } from '@navet/app/hooks';
 import { integrationSelectors } from '@navet/app/stores/selectors';
@@ -25,6 +26,7 @@ import {
   Layers3,
   LayoutGrid,
   type Lightbulb,
+  Pencil,
   Plus,
   SlidersHorizontal,
 } from 'lucide-react';
@@ -333,6 +335,7 @@ export const RoomNav = memo(function RoomNav({
   const { activeDashboard, dashboards } = useDashboardSwitcher();
   const hasMultipleDashboards = dashboards.length > 1;
   const [isReorderDialogOpen, setIsReorderDialogOpen] = useState(false);
+  const [isRoomBarCustomizeOpen, setIsRoomBarCustomizeOpen] = useState(false);
   const [roomLayout, setRoomLayout] = useState<RoomLayoutState>({
     visibleRooms: [],
     overflowRooms: [],
@@ -716,6 +719,18 @@ export const RoomNav = memo(function RoomNav({
           </div>
 
           <div className="flex shrink-0 items-center gap-1.5 pl-1.5 md:gap-2 md:pl-2">
+            {isEditMode ? (
+              <InteractivePill
+                onClick={() => setIsRoomBarCustomizeOpen(true)}
+                intent="action"
+                size="small"
+                className={actionPillClassName}
+                aria-label={t('dashboard.roomNav.customizeRooms')}
+              >
+                <Pencil className={`h-4 w-4 ${textSecondary}`} />
+              </InteractivePill>
+            ) : null}
+
             {isEditMode && showAllViewGrouping ? (
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
@@ -840,6 +855,10 @@ export const RoomNav = memo(function RoomNav({
           onHiddenRoomsChange={onHiddenRoomsChange}
         />
       ) : null}
+      <RoomBarCustomizeDialog
+        isOpen={isEditMode && isRoomBarCustomizeOpen}
+        onOpenChange={setIsRoomBarCustomizeOpen}
+      />
     </>
   );
 });

@@ -9,6 +9,7 @@ import { homeyService } from '@navet/app/services/homey.service';
 import { useEntityRoomOverridesStore } from '@navet/app/stores/entity-room-overrides-store';
 import { homeAssistantStore } from '@navet/app/stores/home-assistant-store';
 import { integrationStore } from '@navet/app/stores/integration-store';
+import { useSettingsStore } from '@navet/app/stores/settings-store';
 import { renderHookWithProviders } from '@navet/app/test/render';
 import { resetAppStores } from '@navet/app/test/store-reset';
 import type { DeviceCollection } from '@navet/app/types/device.types';
@@ -291,6 +292,43 @@ describe('useDevices', () => {
       expect.objectContaining({
         id: 'homey:switch_1',
         providerId: 'homey',
+      }),
+    ]);
+  });
+
+  it('applies dashboard entity display names on top of provider names', async () => {
+    await resetAppStores();
+
+    integrationStore.setState({
+      providerDeviceCollectionsByProviderId: {
+        home_assistant: {
+          ...createEmptyDeviceCollection(),
+          lights: [
+            {
+              id: 'home_assistant:light.kitchen',
+              nativeId: 'light.kitchen',
+              canonicalId: 'home_assistant:light.kitchen',
+              providerId: 'home_assistant',
+              name: 'Kitchen Light',
+              room: 'Kitchen',
+              size: 'small',
+              state: true,
+              brightness: 100,
+              temp: 3200,
+            },
+          ],
+        },
+      },
+      selectedProviderIds: ['home_assistant'],
+    });
+    useSettingsStore.getState().setEntityDisplayName('light.kitchen', 'Island');
+
+    const { result } = renderHookWithProviders(() => useDevices());
+
+    expect(result.current.lights).toEqual([
+      expect.objectContaining({
+        id: 'home_assistant:light.kitchen',
+        name: 'Island',
       }),
     ]);
   });

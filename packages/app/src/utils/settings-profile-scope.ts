@@ -5,6 +5,10 @@ import {
   normalizeCustomSummaryPills,
 } from '@navet/app/utils/custom-extensions';
 import { detectDeviceTier } from '@navet/app/utils/detect-device-tier';
+import {
+  normalizeHeaderGreetingName,
+  sanitizeEntityDisplayNames,
+} from '@navet/app/utils/display-overrides';
 import { normalizePersistedEntityRecord } from '@navet/app/utils/provider-entity-id';
 
 export const SETTINGS_PROFILE_SCHEMA_VERSION = 1 as const;
@@ -23,6 +27,8 @@ export const SETTINGS_PROFILE_CLASSIFICATION = {
   language: 'account',
   headerTitleMode: 'device',
   headerCustomText: 'device',
+  headerGreetingName: 'shared',
+  entityDisplayNames: 'shared',
   showNotifications: 'account',
   showWeatherInHeader: 'shared',
   showHomeSummaryBar: 'shared',
@@ -224,6 +230,12 @@ function sanitizeSettingValue(key: keyof UserSettings, value: unknown): unknown 
     key === 'defaultView'
   ) {
     return typeof value === 'string' ? value : undefined;
+  }
+  if (key === 'headerGreetingName') {
+    return typeof value === 'string' ? normalizeHeaderGreetingName(value) : undefined;
+  }
+  if (key === 'entityDisplayNames') {
+    return sanitizeEntityDisplayNames(value);
   }
 
   return undefined;

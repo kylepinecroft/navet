@@ -307,6 +307,23 @@ describe('useHeaderController', () => {
     expect(result.current.headerCustomText).toBe('');
   });
 
+  it('uses a dashboard greeting override instead of the Home Assistant user name', () => {
+    integrationStore.setState({
+      ...integrationStore.getState(),
+      currentUser: {
+        id: 'user-1',
+        name: 'Jane Doe',
+        email: 'jane@example.com',
+        avatarUrl: null,
+      },
+    });
+    useSettingsStore.getState().updateSettings({ headerGreetingName: 'Chef' });
+
+    const { result } = renderHookWithProviders(() => useHeaderController());
+
+    expect(result.current.firstName).toBe('Chef');
+  });
+
   it('normalizes direct Home Assistant avatar URLs for the current provider', () => {
     integrationStore.setState({
       ...integrationStore.getState(),

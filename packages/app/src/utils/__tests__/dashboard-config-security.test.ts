@@ -357,6 +357,38 @@ describe('dashboard-config import hardening', () => {
     expect(useSettingsStore.getState().showHomeSummaryBar).toBe(false);
   });
 
+  it('round-trips dashboard display overrides in shared settings', () => {
+    useSettingsStore.getState().updateSettings({
+      headerGreetingName: 'Chef',
+      entityDisplayNames: { 'light.kitchen': 'Island' },
+    });
+
+    const exported = exportDashboardConfig();
+
+    expect(exported.settings.headerGreetingName).toBe('Chef');
+    expect(exported.settings.entityDisplayNames).toEqual({
+      'home_assistant:light.kitchen': 'Island',
+    });
+
+    useSettingsStore.getState().updateSettings({
+      headerGreetingName: '',
+      entityDisplayNames: {},
+    });
+
+    importDashboardConfig({
+      ...baseConfig,
+      settings: {
+        headerGreetingName: 'Chef',
+        entityDisplayNames: { 'light.kitchen': 'Island' },
+      },
+    });
+
+    expect(useSettingsStore.getState().headerGreetingName).toBe('Chef');
+    expect(useSettingsStore.getState().entityDisplayNames).toEqual({
+      'home_assistant:light.kitchen': 'Island',
+    });
+  });
+
   it('exports shared settings while preserving fixed device settings', () => {
     useSettingsStore.getState().updateSettings({
       dashboardSpaceMode: 'more_space',

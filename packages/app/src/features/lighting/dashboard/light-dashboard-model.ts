@@ -149,7 +149,7 @@ export function buildLightDashboardModel({
     const next: LightDashboardItem = {
       id: device.id,
       providerId: entity?.providerId ?? device.providerId,
-      name: entity?.name ?? device.name,
+      name: device.name,
       room,
       isOn: entity ? entity.primaryState === 'on' || entity.primaryState === true : device.state,
       available: entity ? entity.availability === 'available' : true,

@@ -120,6 +120,8 @@ export const settingsSelectors = {
   language: (state: SettingsState) => state.language,
   headerTitleMode: (state: SettingsState) => state.headerTitleMode,
   headerCustomText: (state: SettingsState) => state.headerCustomText,
+  headerGreetingName: (state: SettingsState) => state.headerGreetingName,
+  entityDisplayNames: (state: SettingsState) => state.entityDisplayNames,
   showNotifications: (state: SettingsState) => state.showNotifications,
   showWeatherInHeader: (state: SettingsState) => state.showWeatherInHeader,
   showHomeSummaryBar: (state: SettingsState) => state.showHomeSummaryBar,
@@ -168,6 +170,7 @@ export const settingsSelectors = {
   updateCameraWebRtcStreamSource: (state: SettingsState) => state.updateCameraWebRtcStreamSource,
   updateCameraDirectStreamUrl: (state: SettingsState) => state.updateCameraDirectStreamUrl,
   updateCameraFitMode: (state: SettingsState) => state.updateCameraFitMode,
+  setEntityDisplayName: (state: SettingsState) => state.setEntityDisplayName,
   resetSettings: (state: SettingsState) => state.resetSettings,
 
   // Combined selectors
@@ -175,6 +178,7 @@ export const settingsSelectors = {
     language: state.language,
     headerTitleMode: state.headerTitleMode,
     headerCustomText: state.headerCustomText,
+    headerGreetingName: state.headerGreetingName,
     showHomeSummaryBar: state.showHomeSummaryBar,
     keepDeviceAwake: state.keepDeviceAwake,
     use24HourTime: state.use24HourTime,

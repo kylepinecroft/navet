@@ -9,6 +9,11 @@ import {
 } from '@navet/app/utils/custom-extensions';
 import { detectDeviceTier } from '@navet/app/utils/detect-device-tier';
 import {
+  normalizeEntityDisplayName,
+  normalizeHeaderGreetingName,
+  sanitizeEntityDisplayNames,
+} from '@navet/app/utils/display-overrides';
+import {
   readLocalStorageWithMigration,
   removeLocalStorageWithMigration,
   writeLocalStorageWithMigration,
@@ -26,6 +31,10 @@ export type HeaderTitleMode = 'auto_greeting' | 'custom_text' | 'clock';
 export type DashboardSpaceMode = 'default' | 'more_space';
 export type DashboardProfileMode = 'standard' | 'wall_display' | 'bedside' | 'custom';
 export const HEADER_CUSTOM_TEXT_MAX_LENGTH = 40;
+export {
+  ENTITY_DISPLAY_NAME_MAX_LENGTH,
+  HEADER_GREETING_NAME_MAX_LENGTH,
+} from '@navet/app/utils/display-overrides';
 export type CameraViewMode = 'live' | 'auto' | 'snapshot';
 export type CameraDashboardViewMode = CameraViewMode;
 export type CameraStreamPreference = 'auto' | PlatformCameraTransport;
@@ -48,6 +57,8 @@ export interface UserSettings {
   language: AppLanguage;
   headerTitleMode: HeaderTitleMode;
   headerCustomText: string;
+  headerGreetingName: string;
+  entityDisplayNames: Record<string, string>;
   showNotifications: boolean;
   showWeatherInHeader: boolean;
   showHomeSummaryBar: boolean;
@@ -89,6 +100,7 @@ interface SettingsState extends UserSettings {
   updateCameraWebRtcStreamSource: (entityId: string, source: CameraWebRtcStreamSource) => void;
   updateCameraDirectStreamUrl: (entityId: string, url: string) => void;
   updateCameraFitMode: (entityId: string, mode: CameraFitMode) => void;
+  setEntityDisplayName: (entityId: string, name: string | null) => void;
   applyImportedSettings: (settings: UserSettings) => void;
   resetSettings: () => void;
 }
@@ -99,6 +111,8 @@ export const defaultSettings: UserSettings = {
   language: getNavigatorLanguage(),
   headerTitleMode: 'auto_greeting',
   headerCustomText: '',
+  headerGreetingName: '',
+  entityDisplayNames: {},
   showNotifications: true,
   showWeatherInHeader: true,
   showHomeSummaryBar: true,
@@ -340,6 +354,14 @@ export const useSettingsStore = create<SettingsState>()(
             newSettings.headerCustomText !== undefined
               ? normalizeHeaderCustomText(newSettings.headerCustomText)
               : state.headerCustomText,
+          headerGreetingName:
+            newSettings.headerGreetingName !== undefined
+              ? normalizeHeaderGreetingName(newSettings.headerGreetingName)
+              : state.headerGreetingName,
+          entityDisplayNames:
+            newSettings.entityDisplayNames !== undefined
+              ? sanitizeEntityDisplayNames(newSettings.entityDisplayNames)
+              : state.entityDisplayNames,
           dashboardSpaceMode:
             newSettings.dashboardSpaceMode !== undefined &&
             isDashboardSpaceMode(newSettings.dashboardSpaceMode)
@@ -442,6 +464,19 @@ export const useSettingsStore = create<SettingsState>()(
             [ensureCanonicalEntityId(entityId)]: mode,
           },
         })),
+      setEntityDisplayName: (entityId, name) =>
+        set((state) => {
+          const canonicalEntityId = ensureCanonicalEntityId(entityId);
+          const nextNames = { ...state.entityDisplayNames };
+          const nextName = normalizeEntityDisplayName(name);
+          if (nextName) {
+            nextNames[canonicalEntityId] = nextName;
+          } else {
+            delete nextNames[canonicalEntityId];
+            delete nextNames[entityId];
+          }
+          return { entityDisplayNames: nextNames };
+        }),
       applyImportedSettings: (importedSettings) => {
         const supportedSettings = pickKnownSettings(importedSettings);
         return set(() => ({
@@ -451,6 +486,8 @@ export const useSettingsStore = create<SettingsState>()(
             ? supportedSettings.headerTitleMode
             : defaultSettings.headerTitleMode,
           headerCustomText: normalizeHeaderCustomText(supportedSettings.headerCustomText),
+          headerGreetingName: normalizeHeaderGreetingName(supportedSettings.headerGreetingName),
+          entityDisplayNames: sanitizeEntityDisplayNames(supportedSettings.entityDisplayNames),
           dashboardSpaceMode: isDashboardSpaceMode(supportedSettings.dashboardSpaceMode)
             ? supportedSettings.dashboardSpaceMode
             : defaultSettings.dashboardSpaceMode,
@@ -521,6 +558,8 @@ export const useSettingsStore = create<SettingsState>()(
             ? next.headerTitleMode
             : current.headerTitleMode,
           headerCustomText: normalizeHeaderCustomText(next.headerCustomText),
+          headerGreetingName: normalizeHeaderGreetingName(next.headerGreetingName),
+          entityDisplayNames: sanitizeEntityDisplayNames(next.entityDisplayNames),
           dashboardSpaceMode: isDashboardSpaceMode(next.dashboardSpaceMode)
             ? next.dashboardSpaceMode
             : current.dashboardSpaceMode,

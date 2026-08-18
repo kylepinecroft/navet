@@ -12,9 +12,11 @@ import { useCallback, useMemo } from 'react';
 import { useEntityRoomOverridesStore } from '../stores/entity-room-overrides-store';
 import type { IntegrationStore } from '../stores/integration-store';
 import { integrationSelectors } from '../stores/selectors';
+import { useSettingsStore } from '../stores/settings-store';
 import type { DeviceCollection, SensorDevice } from '../types/device.types';
 import type { IntegrationProviderId } from '../types/provider';
 import { getAllRooms } from '../utils/device-location';
+import { getEntityDisplayNameOverride, resolveEntityDisplayName } from '../utils/display-overrides';
 import { createProviderScopedId } from '../utils/provider-ids';
 import { areArraysEqual } from '../utils/structural-equality';
 import { useIntegrationStore } from './use-integration-store';
@@ -154,6 +156,125 @@ function applyRoomOverridesToDevices<
   });
 
   return nextDevices ?? devices;
+}
+
+function applyEntityDisplayNameOverridesToDevices<
+  T extends {
+    id: string;
+    name: string;
+    canonicalId?: string;
+    nativeId?: string;
+    providerId?: IntegrationProviderId;
+  },
+>(devices: T[], entityDisplayNames: Record<string, string>): T[] {
+  if (Object.keys(entityDisplayNames).length === 0) {
+    return devices;
+  }
+
+  let nextDevices: T[] | null = null;
+
+  devices.forEach((device, index) => {
+    const override = getEntityDisplayNameOverride(entityDisplayNames, device.id, {
+      canonicalId: device.canonicalId,
+      nativeId: device.nativeId,
+      providerId: device.providerId,
+    });
+    const nextName = resolveEntityDisplayName(device.name, override);
+    if (nextName === device.name) {
+      return;
+    }
+
+    if (!nextDevices) {
+      nextDevices = [...devices];
+    }
+
+    nextDevices[index] = { ...device, name: nextName };
+  });
+
+  return nextDevices ?? devices;
+}
+
+function applyEntityDisplayNameOverrides(
+  collection: DeviceCollection,
+  entityDisplayNames: Record<string, string>
+): DeviceCollection {
+  if (Object.keys(entityDisplayNames).length === 0) {
+    return collection;
+  }
+
+  const lights = applyEntityDisplayNameOverridesToDevices(collection.lights, entityDisplayNames);
+  const fans = applyEntityDisplayNameOverridesToDevices(collection.fans, entityDisplayNames);
+  const climate = applyEntityDisplayNameOverridesToDevices(collection.climate, entityDisplayNames);
+  const legacyClimateDevices = applyEntityDisplayNameOverridesToDevices(
+    collection.hvac,
+    entityDisplayNames
+  );
+  const media = applyEntityDisplayNameOverridesToDevices(collection.media, entityDisplayNames);
+  const weather = applyEntityDisplayNameOverridesToDevices(collection.weather, entityDisplayNames);
+  const switches = applyEntityDisplayNameOverridesToDevices(
+    collection.switches,
+    entityDisplayNames
+  );
+  const helpers = applyEntityDisplayNameOverridesToDevices(collection.helpers, entityDisplayNames);
+  const covers = applyEntityDisplayNameOverridesToDevices(collection.covers, entityDisplayNames);
+  const locks = applyEntityDisplayNameOverridesToDevices(collection.locks, entityDisplayNames);
+  const scenes = applyEntityDisplayNameOverridesToDevices(collection.scenes, entityDisplayNames);
+  const persons = applyEntityDisplayNameOverridesToDevices(collection.persons, entityDisplayNames);
+  const sensors = applyEntityDisplayNameOverridesToDevices(collection.sensors, entityDisplayNames);
+  const vacuums = applyEntityDisplayNameOverridesToDevices(collection.vacuums, entityDisplayNames);
+  const calendars = applyEntityDisplayNameOverridesToDevices(
+    collection.calendars,
+    entityDisplayNames
+  );
+  const cameras = applyEntityDisplayNameOverridesToDevices(collection.cameras, entityDisplayNames);
+  const groupedSensors = applyEntityDisplayNameOverridesToDevices(
+    collection['grouped-sensors'],
+    entityDisplayNames
+  );
+
+  const unchanged =
+    lights === collection.lights &&
+    fans === collection.fans &&
+    climate === collection.climate &&
+    legacyClimateDevices === collection.hvac &&
+    media === collection.media &&
+    weather === collection.weather &&
+    switches === collection.switches &&
+    helpers === collection.helpers &&
+    covers === collection.covers &&
+    locks === collection.locks &&
+    scenes === collection.scenes &&
+    persons === collection.persons &&
+    sensors === collection.sensors &&
+    vacuums === collection.vacuums &&
+    calendars === collection.calendars &&
+    cameras === collection.cameras &&
+    groupedSensors === collection['grouped-sensors'];
+
+  if (unchanged) {
+    return collection;
+  }
+
+  return {
+    ...collection,
+    lights,
+    fans,
+    climate,
+    hvac: legacyClimateDevices,
+    media,
+    weather,
+    switches,
+    helpers,
+    covers,
+    locks,
+    scenes,
+    persons,
+    sensors,
+    vacuums,
+    calendars,
+    cameras,
+    'grouped-sensors': groupedSensors,
+  };
 }
 
 function applyRoomOverrides(
@@ -466,6 +587,7 @@ export const useDeviceCollectionsByKeys = (
   );
   const roomWorkspace = useRoomWorkspaceStore((state) => state.workspace);
   const roomIdsByEntityId = useEntityRoomOverridesStore((state) => state.roomIdsByEntityId);
+  const entityDisplayNames = useSettingsStore((state) => state.entityDisplayNames);
   const roomPlacementLookup = useMemo(
     () => buildRoomPlacementLookup(normalizedRoomsByCanonicalId, roomWorkspace),
     [normalizedRoomsByCanonicalId, roomWorkspace]
@@ -504,7 +626,7 @@ export const useDeviceCollectionsByKeys = (
       collection.weather = weather;
     }
 
-    return collection;
+    return applyEntityDisplayNameOverrides(collection, entityDisplayNames);
   }, [
     calendars,
     enabled,
@@ -514,6 +636,7 @@ export const useDeviceCollectionsByKeys = (
     roomPlacementLookup,
     selectedProviderIds,
     weather,
+    entityDisplayNames,
   ]);
 };
 
@@ -541,6 +664,7 @@ export const useAggregatedDevices = (options?: UseDevicesOptions): DeviceCollect
   );
   const roomWorkspace = useRoomWorkspaceStore((state) => state.workspace);
   const roomIdsByEntityId = useEntityRoomOverridesStore((state) => state.roomIdsByEntityId);
+  const entityDisplayNames = useSettingsStore((state) => state.entityDisplayNames);
   const roomPlacementLookup = useMemo(
     () => buildRoomPlacementLookup(normalizedRoomsByCanonicalId, roomWorkspace),
     [normalizedRoomsByCanonicalId, roomWorkspace]
@@ -569,7 +693,10 @@ export const useAggregatedDevices = (options?: UseDevicesOptions): DeviceCollect
     collection.calendars = calendars;
     collection.weather = weather;
 
-    return applyRoomOverrides(collection, roomIdsByEntityId, roomPlacementLookup);
+    return applyEntityDisplayNameOverrides(
+      applyRoomOverrides(collection, roomIdsByEntityId, roomPlacementLookup),
+      entityDisplayNames
+    );
   }, [
     calendars,
     enabled,
@@ -577,6 +704,7 @@ export const useAggregatedDevices = (options?: UseDevicesOptions): DeviceCollect
     roomPlacementLookup,
     selectedProviderCollections,
     weather,
+    entityDisplayNames,
   ]);
 };
 export const useDevices = (options?: UseDevicesOptions): DeviceCollection =>

@@ -171,6 +171,14 @@ export const enMessages = {
   'settings.dashboard.headerTitle.customPlaceholder': 'Welcome home',
   'settings.dashboard.headerTitle.customHint':
     'Leave it blank to fall back to the automatic greeting.',
+  'settings.dashboard.greetingName.title': 'What to call you',
+  'settings.dashboard.greetingName.description':
+    'Used in the automatic greeting. Leave blank to use your Home Assistant user name.',
+  'settings.dashboard.greetingName.placeholder': 'First name',
+  'settings.dashboard.greetingName.providerHint':
+    'Leave blank to keep using {name} from Home Assistant.',
+  'settings.dashboard.greetingName.guestHint':
+    'No Home Assistant user name is available yet, so the greeting uses a generic name until you set one.',
   'settings.dashboard.spaceMode.title': 'Space usage',
   'settings.dashboard.spaceMode.description':
     'Choose between the standard dashboard layout and a denser tablet layout with more columns, zoom-to-fit cards, and tighter side padding.',
@@ -655,6 +663,17 @@ export const enMessages = {
   'dashboard.roomNav.reorderDialog.roomHidden': 'hidden room',
   'dashboard.roomNav.doneEditing': 'Done Editing',
   'dashboard.roomNav.customize': 'Customize',
+  'dashboard.roomNav.customizeRooms': 'Edit rooms',
+  'dashboard.roomNav.customizeRooms.title': 'Home room bar',
+  'dashboard.roomNav.customizeRooms.description':
+    'Choose which rooms appear in the Home top bar, and what they are called.',
+  'dashboard.roomNav.customizeRooms.show': 'Show {room}',
+  'dashboard.roomNav.customizeRooms.hide': 'Hide {room}',
+  'dashboard.roomNav.customizeRooms.empty':
+    'Rooms appear here once Home Assistant areas are available.',
+  'dashboard.roomNav.customizeRooms.visible': 'Visible',
+  'dashboard.roomNav.customizeRooms.hidden': 'Hidden',
+  'dashboard.roomNav.customizeRooms.nameLabel': 'Room name',
   'dashboard.roomsWorkspace.title': 'Rooms',
   'dashboard.roomsWorkspace.description':
     'Organize rooms, groups, and devices without slowing down everyday navigation.',
@@ -1806,6 +1825,7 @@ export const enMessages = {
   'entityNameEditor.empty': 'Card name cannot be empty',
   'entityNameEditor.saved': 'Renamed to {name}',
   'entityNameEditor.failed': 'Failed to rename card',
+  'entityNameEditor.useOriginalName': 'Use original name',
   'common.loading': 'Loading...',
   'common.moreActions': 'More actions',
   'tasks.automation.enabled': 'Enabled',

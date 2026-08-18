@@ -4,8 +4,12 @@ import { navetTypographyTokens } from '@navet/app/components/system/tokens';
 import { cn } from '@navet/app/components/ui/utils';
 import { useI18n, useIntegrationStore, useTheme } from '@navet/app/hooks';
 import type { ThemeType } from '@navet/app/hooks/use-theme';
-import { integrationAdminService } from '@navet/app/services/integration-admin.service';
 import { integrationSelectors } from '@navet/app/stores/selectors';
+import { useSettingsStore } from '@navet/app/stores/settings-store';
+import {
+  getEntityDisplayNameOverride,
+  isSyntheticDisplayOverrideId,
+} from '@navet/app/utils/display-overrides';
 import { getProviderEntityTypeLabel } from '@navet/app/utils/provider-entity-label';
 import * as Dialog from '@radix-ui/react-dialog';
 import { Check, type LucideIcon, X } from 'lucide-react';
@@ -106,12 +110,32 @@ export const CardDialogHeader = memo(function CardDialogHeader({
   const [draftTitle, setDraftTitle] = useState(title);
   const [isSavingTitle, setIsSavingTitle] = useState(false);
   const canEditTitle = Boolean(editableTitle && (entityId || onTitleChange));
+  const currentProviderId = useIntegrationStore(integrationSelectors.currentProviderId);
   const providerSessions = useIntegrationStore(integrationSelectors.providerSessions);
+  const providerEntity = useIntegrationStore(
+    (state) =>
+      entityId
+        ? integrationSelectors.providerEntityByLookup(currentProviderId, entityId)(state)
+        : null,
+    Object.is
+  );
+  const entityDisplayNames = useSettingsStore((state) => state.entityDisplayNames);
+  const setEntityDisplayName = useSettingsStore((state) => state.setEntityDisplayName);
+  const providerTitle = providerEntity?.name?.trim() || title;
+  const isSyntheticEntity = Boolean(entityId && isSyntheticDisplayOverrideId(entityId));
+  const displayNameOverride = entityId
+    ? getEntityDisplayNameOverride(entityDisplayNames, entityId, {
+        canonicalId: providerEntity?.canonicalId,
+        nativeId: providerEntity?.externalId,
+        providerId: providerEntity?.providerId,
+      })
+    : undefined;
+  const hasDisplayNameOverride = Boolean(displayNameOverride);
   const connectedProviderCount = Object.keys(providerSessions).length;
   const resolvedDescription =
     getProviderEntityTypeLabel(entityId, description, connectedProviderCount > 1) ?? description;
   const roomSelector =
-    showRoomSelector && entityId ? (
+    showRoomSelector && entityId && !isSyntheticEntity ? (
       <EntityRoomSelector
         entityId={entityId}
         compact
@@ -179,7 +203,8 @@ export const CardDialogHeader = memo(function CardDialogHeader({
       if (onTitleChange) {
         await onTitleChange(nextTitle);
       } else if (entityId) {
-        await integrationAdminService.updateEntityName(entityId, nextTitle);
+        const originalName = providerTitle.trim();
+        setEntityDisplayName(entityId, nextTitle === originalName ? null : nextTitle);
       }
       setDisplayTitle(nextTitle);
       if (entityId && !onTitleChange) {
@@ -195,6 +220,21 @@ export const CardDialogHeader = memo(function CardDialogHeader({
     } finally {
       setIsSavingTitle(false);
     }
+  };
+
+  const resetTitleToProvider = () => {
+    if (!entityId || onTitleChange) {
+      return;
+    }
+
+    setEntityDisplayName(entityId, null);
+    if (!isSyntheticEntity) {
+      setDisplayTitle(providerTitle);
+      toast.success(t('entityNameEditor.saved', { name: providerTitle }));
+    } else {
+      toast.success(t('entityNameEditor.useOriginalName'));
+    }
+    setIsEditingTitle(false);
   };
 
   return (
@@ -310,6 +350,24 @@ export const CardDialogHeader = memo(function CardDialogHeader({
                   >
                     {editLabel}
                   </button>
+                  {hasDisplayNameOverride && !onTitleChange ? (
+                    <>
+                      <span aria-hidden="true" className={descriptionSeparatorClassName}>
+                        •
+                      </span>
+                      <button
+                        type="button"
+                        className={cn(
+                          'shrink-0 text-inherit [font:inherit] transition-colors',
+                          editLinkClassName
+                        )}
+                        aria-label={t('entityNameEditor.useOriginalName')}
+                        onClick={resetTitleToProvider}
+                      >
+                        {t('entityNameEditor.useOriginalName')}
+                      </button>
+                    </>
+                  ) : null}
                 </>
               ) : null}
             </div>

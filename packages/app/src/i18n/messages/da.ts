@@ -170,6 +170,24 @@ export const daMessages = {
   'settings.dashboard.headerTitle.customPlaceholder': 'Velkommen hjem',
   'settings.dashboard.headerTitle.customHint':
     'Lad det stå tomt for at falde tilbage til den automatiske hilsen.',
+  'settings.dashboard.greetingName.title': 'Hvad dashboardet skal kalde dig',
+  'settings.dashboard.greetingName.description':
+    'Bruges i den automatiske hilsen. Lad feltet være tomt for at bruge dit Home Assistant-brugernavn.',
+  'settings.dashboard.greetingName.placeholder': 'Fornavn',
+  'settings.dashboard.greetingName.providerHint':
+    'Lad feltet være tomt for at fortsætte med at bruge {name} fra Home Assistant.',
+  'settings.dashboard.greetingName.guestHint':
+    'Der er endnu intet Home Assistant-brugernavn, så hilsenen bruger et generisk navn, indtil du angiver et.',
+  'dashboard.roomNav.customizeRooms.title': 'Rumbjælke på Hjem',
+  'dashboard.roomNav.customizeRooms.description':
+    'Vælg hvilke rum der vises i den øverste bjælke på Hjem. Skjulte rum forbliver under Rum og kan vises igen her.',
+  'dashboard.roomNav.customizeRooms.show': 'Vis {room}',
+  'dashboard.roomNav.customizeRooms.hide': 'Skjul {room}',
+  'dashboard.roomNav.customizeRooms.empty': 'Rum vises her, når Home Assistant-områder er indlæst.',
+  'dashboard.roomNav.customizeRooms.visible': 'Synligt',
+  'dashboard.roomNav.customizeRooms.hidden': 'Skjult',
+
+  'dashboard.roomNav.customizeRooms.nameLabel': 'Rumnavn',
   'settings.dashboard.spaceMode.title': 'Pladsforbrug',
   'settings.dashboard.spaceMode.description':
     'Vælg mellem standard-dashboard-layoutet og et tættere tablet-layout med flere søjler, zoom-til-pas-kort og strammere sidepolstring.',
@@ -659,6 +677,8 @@ export const daMessages = {
   'dashboard.roomNav.reorderDialog.roomHidden': 'skjult rum',
   'dashboard.roomNav.doneEditing': 'Færdig med redigering',
   'dashboard.roomNav.customize': 'Tilpas',
+
+  'dashboard.roomNav.customizeRooms': 'Rediger rum',
   'dashboard.roomsWorkspace.title': 'Værelser',
   'dashboard.roomsWorkspace.description':
     'Organiser værelser, grupper og enheder uden at gøre den daglige navigation langsommere.',
@@ -1820,6 +1840,7 @@ export const daMessages = {
   'entityNameEditor.empty': 'Kortnavnet må ikke være tomt',
   'entityNameEditor.saved': 'Omdøbt til {name}',
   'entityNameEditor.failed': 'Kortet kunne ikke omdøbes',
+  'entityNameEditor.useOriginalName': 'Brug oprindeligt navn',
   'common.loading': 'Indlæser...',
   'common.moreActions': 'Flere handlinger',
   'tasks.automation.enabled': 'Aktiveret',

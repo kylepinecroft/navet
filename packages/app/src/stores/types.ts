@@ -76,6 +76,8 @@ interface UserSettings {
   language: AppLanguage;
   headerTitleMode: HeaderTitleMode;
   headerCustomText: string;
+  headerGreetingName: string;
+  entityDisplayNames: Record<string, string>;
   showNotifications: boolean;
   showWeatherInHeader: boolean;
   showHomeSummaryBar: boolean;
@@ -117,6 +119,7 @@ export interface SettingsState extends UserSettings {
   updateCameraWebRtcStreamSource: (entityId: string, source: CameraWebRtcStreamSource) => void;
   updateCameraDirectStreamUrl: (entityId: string, url: string) => void;
   updateCameraFitMode: (entityId: string, mode: CameraFitMode) => void;
+  setEntityDisplayName: (entityId: string, name: string | null) => void;
   applyImportedSettings: (settings: UserSettings) => void;
   resetSettings: () => void;
 }
