@@ -122,6 +122,7 @@ function createHeaderStoryController(args: {
     dividerColor: surface.textMuted,
     firstName: 'Vishal',
     headerCustomText: '',
+    headerGreetingName: '',
     headerTitleMode: 'auto_greeting',
     handleClearSearch: () => setSearchQuery(''),
     handleSearchChange: (value: string) => setSearchQuery(value),

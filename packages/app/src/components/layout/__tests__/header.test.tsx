@@ -29,6 +29,7 @@ function createController(overrides: Partial<HeaderController> = {}): HeaderCont
     dividerColor: surface.textMuted,
     firstName: 'Jane',
     headerCustomText: '',
+    headerGreetingName: '',
     headerTitleMode: 'clock',
     handleClearSearch: vi.fn(),
     handleSearchChange: vi.fn(),
