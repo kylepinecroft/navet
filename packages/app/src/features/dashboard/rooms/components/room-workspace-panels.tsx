@@ -1308,6 +1308,7 @@ export function RoomDetailsPanel({
   accentColor,
   showInlineSaveBar = false,
 }: WorkspacePanelProps) {
+  const { theme } = useTheme();
   const [activeSection, setActiveSection] = useState<'settings' | 'devices'>('devices');
   const settingsPanelId = useId();
   const devicesPanelId = useId();
@@ -1410,6 +1411,19 @@ export function RoomDetailsPanel({
                 >
                   {room.nameValidationMessage}
                 </p>
+              ) : null}
+              {room.canResetName && actions.onResetRoomName ? (
+                <button
+                  type="button"
+                  className={cn(
+                    'mt-2 min-h-11 text-sm underline-offset-2 hover:underline',
+                    surface.textSecondary,
+                    getThemeFocusRingClassName(theme)
+                  )}
+                  onClick={() => actions.onResetRoomName?.(room.id)}
+                >
+                  {labels.useOriginalName}
+                </button>
               ) : null}
             </div>
 

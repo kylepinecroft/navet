@@ -45,6 +45,7 @@ import {
   renameRoomWorkspaceRoomV2,
   reorderRoomWorkspaceGroupsV2,
   reorderRoomWorkspaceRoomsV2,
+  resetRoomWorkspaceRoomNameV2,
   setRoomWorkspaceFavoriteRankV2,
   setRoomWorkspaceGroupSymbolV2,
   setRoomWorkspaceRoomImageV2,
@@ -229,6 +230,19 @@ function createDiscoveredRooms(
     .sort((left, right) => left.sourceRef.canonicalId.localeCompare(right.sourceRef.canonicalId));
 }
 
+function getProviderRoomDisplayName(
+  room: RoomWorkspaceRoomV2,
+  roomsByCanonicalId: Record<string, NavetProviderRoom>
+): string | undefined {
+  for (const sourceRef of room.sourceRefs) {
+    const providerName = roomsByCanonicalId[sourceRef.canonicalId]?.name?.trim();
+    if (providerName) {
+      return providerName;
+    }
+  }
+  return undefined;
+}
+
 function areWorkspacesEqual(left: RoomWorkspaceV2 | null, right: RoomWorkspaceV2 | null): boolean {
   return JSON.stringify(left) === JSON.stringify(right);
 }
@@ -272,34 +286,9 @@ function buildWorkspaceChanges({
   const groupChanged =
     JSON.stringify(committedWorkspace?.groups ?? []) !== JSON.stringify(draftWorkspace.groups);
   const placementCount = Object.keys(pendingPlacements).length;
-  const providerRenameCount = draftWorkspace.rooms.filter((room) => {
-    const previous = committedRooms.get(room.id);
-    const sourceRef = room.sourceRefs.length === 1 ? room.sourceRefs[0] : null;
-    return (
-      previous?.displayName !== room.displayName &&
-      sourceRef !== null &&
-      getProviderRoomManagementCapabilities(sourceRef.providerId).rename
-    );
-  }).length;
   const localChangeCount = createdCount + editedCount + removedCount + (groupChanged ? 1 : 0);
-  const providerChangeCount =
-    providerRenameCount + placementCount + pendingProviderDeletions.length;
+  const providerChangeCount = placementCount + pendingProviderDeletions.length;
   const providerChangeDetails: string[] = [];
-
-  for (const room of draftWorkspace.rooms) {
-    const previous = committedRooms.get(room.id);
-    const sourceRef = room.sourceRefs.length === 1 ? room.sourceRefs[0] : null;
-    if (
-      previous !== undefined &&
-      previous.displayName !== room.displayName &&
-      sourceRef !== null &&
-      getProviderRoomManagementCapabilities(sourceRef.providerId).rename
-    ) {
-      providerChangeDetails.push(
-        `${providerLabel(sourceRef.providerId)} · ${previous.displayName} → ${room.displayName}`
-      );
-    }
-  }
 
   for (const [entityId, targetRoomId] of Object.entries(pendingPlacements)) {
     const entity = entitiesByCanonicalId[entityId];
@@ -665,6 +654,9 @@ export function useRoomWorkspaceController({
         statusTone: room.metadata.visibility === 'hidden' ? 'neutral' : undefined,
         isVisible: room.metadata.visibility === 'visible',
         isFavorite: room.metadata.favoriteRank !== undefined,
+        canResetName:
+          room.metadata.nameMode === 'custom' &&
+          Boolean(getProviderRoomDisplayName(room, normalizedRoomsByCanonicalId)),
         canDelete:
           (room.origin === 'navet' && room.sourceRefs.length === 0) || canDeleteProviderRoom,
         canMerge: draftWorkspace.rooms.length > 1,
@@ -676,6 +668,7 @@ export function useRoomWorkspaceController({
     draftWorkspace,
     filteredRooms,
     manageableRoomById,
+    normalizedRoomsByCanonicalId,
     roomEntityCounts,
     roomNameDrafts,
     t,
@@ -1120,34 +1113,7 @@ export function useRoomWorkspaceController({
     const successfulEntityIds = new Set<string>();
     const successfulDeletionRoomIds = new Set<RoomWorkspaceRoomId>();
     const index = buildRoomWorkspaceIndexV2(draftWorkspace);
-    const committedIndex = committedWorkspace
-      ? buildRoomWorkspaceIndexV2(committedWorkspace)
-      : null;
     let stepIndex = 0;
-
-    for (const room of draftWorkspace.rooms) {
-      const committedRoom = committedIndex?.roomById.get(room.id);
-      if (
-        !committedRoom ||
-        committedRoom.displayName === room.displayName ||
-        room.sourceRefs.length !== 1
-      ) {
-        continue;
-      }
-
-      const sourceRef = room.sourceRefs[0];
-      if (!getProviderRoomManagementCapabilities(sourceRef.providerId).rename) {
-        continue;
-      }
-
-      appendProviderStep(stepsByProvider, sourceRef.providerId, {
-        stepId: `rename-${stepIndex}`,
-        operation: 'rename',
-        roomId: sourceRef.canonicalId,
-        name: room.displayName,
-      });
-      stepIndex += 1;
-    }
 
     for (const [entityId, targetRoomId] of Object.entries(pendingPlacements)) {
       const entity = entitiesByCanonicalId[entityId];
@@ -1283,7 +1249,6 @@ export function useRoomWorkspaceController({
     setIsSaving(false);
   }, [
     clearRoomOverride,
-    committedWorkspace,
     draftWorkspace,
     entitiesByCanonicalId,
     hasValidationErrors,
@@ -1389,6 +1354,32 @@ export function useRoomWorkspaceController({
         setDraftWorkspace((current) =>
           current ? renameRoomWorkspaceRoomV2(current, roomIdV2, name) : current
         );
+        setSaveOutcome({ kind: 'idle' });
+      },
+      onResetRoomName: (roomId) => {
+        const roomIdV2 = roomId as RoomWorkspaceRoomId;
+        setRoomNameDrafts((current) => {
+          if (!(roomIdV2 in current)) {
+            return current;
+          }
+          const next = { ...current };
+          delete next[roomIdV2];
+          return next;
+        });
+        setDraftWorkspace((current) => {
+          if (!current) {
+            return current;
+          }
+          const room = current.rooms.find((candidate) => candidate.id === roomIdV2);
+          if (!room) {
+            return current;
+          }
+          const providerName = getProviderRoomDisplayName(room, normalizedRoomsByCanonicalId);
+          if (!providerName) {
+            return current;
+          }
+          return resetRoomWorkspaceRoomNameV2(current, roomIdV2, providerName);
+        });
         setSaveOutcome({ kind: 'idle' });
       },
       onRoomGroupChange: (roomId, groupId) => {
@@ -1533,6 +1524,7 @@ export function useRoomWorkspaceController({
       handleSave,
       hasUnsavedChanges,
       hideDashboardEntity,
+      normalizedRoomsByCanonicalId,
       orderedRooms,
       selectedDeviceIds,
       selectedRoomId,

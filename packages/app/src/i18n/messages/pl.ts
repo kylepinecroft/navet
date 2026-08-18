@@ -709,6 +709,7 @@ export const plMessages = {
   'dashboard.roomsWorkspace.back': 'Wstecz',
   'dashboard.roomsWorkspace.retry': 'Spróbuj ponownie',
   'dashboard.roomsWorkspace.roomNameLabel': 'Nazwa pomieszczenia',
+  'dashboard.roomsWorkspace.useOriginalName': 'Użyj oryginalnej nazwy',
   'dashboard.roomsWorkspace.roomNamePlaceholder': 'Wpisz nazwę pomieszczenia',
   'dashboard.roomsWorkspace.visibilityLabel': 'Pokaż w nawigacji pomieszczeń',
   'dashboard.roomsWorkspace.visibilityDescription':

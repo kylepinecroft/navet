@@ -706,6 +706,7 @@ export const enMessages = {
   'dashboard.roomsWorkspace.back': 'Back',
   'dashboard.roomsWorkspace.retry': 'Try again',
   'dashboard.roomsWorkspace.roomNameLabel': 'Room name',
+  'dashboard.roomsWorkspace.useOriginalName': 'Use original name',
   'dashboard.roomsWorkspace.roomNamePlaceholder': 'Enter a room name',
   'dashboard.roomsWorkspace.visibilityLabel': 'Show in room navigation',
   'dashboard.roomsWorkspace.visibilityDescription':

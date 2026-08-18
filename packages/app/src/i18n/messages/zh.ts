@@ -343,6 +343,7 @@ export const zhMessages = {
   'dashboard.roomsWorkspace.back': '返回',
   'dashboard.roomsWorkspace.retry': '重试',
   'dashboard.roomsWorkspace.roomNameLabel': '房间名称',
+  'dashboard.roomsWorkspace.useOriginalName': '使用原名称',
   'dashboard.roomsWorkspace.roomNamePlaceholder': '输入房间名称',
   'dashboard.roomsWorkspace.visibilityLabel': '在房间导航中显示',
   'dashboard.roomsWorkspace.visibilityDescription': '管理住宅时仍可访问隐藏的房间。',

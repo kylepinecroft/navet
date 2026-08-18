@@ -92,6 +92,7 @@ function buildRoomWorkspaceLabels(t: ReturnType<typeof useI18n>['t']): RoomWorks
     back: t('dashboard.roomsWorkspace.back'),
     retry: t('dashboard.roomsWorkspace.retry'),
     roomNameLabel: t('dashboard.roomsWorkspace.roomNameLabel'),
+    useOriginalName: t('dashboard.roomsWorkspace.useOriginalName'),
     roomNamePlaceholder: t('dashboard.roomsWorkspace.roomNamePlaceholder'),
     groupLabel: t('dashboard.roomsWorkspace.createRoom.groupLabel'),
     ungroupedGroup: t('dashboard.roomsWorkspace.createRoom.ungrouped'),

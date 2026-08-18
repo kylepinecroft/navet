@@ -710,6 +710,7 @@ export const noMessages = {
   'dashboard.roomsWorkspace.back': 'Tilbake',
   'dashboard.roomsWorkspace.retry': 'Prøv igjen',
   'dashboard.roomsWorkspace.roomNameLabel': 'Romnavn',
+  'dashboard.roomsWorkspace.useOriginalName': 'Bruk opprinnelig navn',
   'dashboard.roomsWorkspace.roomNamePlaceholder': 'Skriv inn et romnavn',
   'dashboard.roomsWorkspace.visibilityLabel': 'Vis i romnavigasjonen',
   'dashboard.roomsWorkspace.visibilityDescription':

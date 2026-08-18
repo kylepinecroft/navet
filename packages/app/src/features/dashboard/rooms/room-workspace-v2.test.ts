@@ -22,6 +22,7 @@ import {
   renameRoomWorkspaceRoomV2,
   reorderRoomWorkspaceGroupsV2,
   reorderRoomWorkspaceRoomsV2,
+  resetRoomWorkspaceRoomNameV2,
   setRoomWorkspaceFavoriteRankV2,
   setRoomWorkspaceGroupSymbolV2,
   setRoomWorkspaceRoomImageV2,
@@ -239,6 +240,34 @@ describe('room workspace V2 identity and migration', () => {
       id: roomId,
       displayName: 'Cooking',
       metadata: { nameMode: 'custom' },
+    });
+  });
+
+  it('follows provider discovery again after a room name reset', () => {
+    const initial = migrateLegacyRoomWorkspaceV2({
+      discoveredRooms: [discoveredRoom('Kitchen', 'home_assistant', 'area_kitchen')],
+      idFactory: createDeterministicIdFactory(),
+    });
+    const roomId = initial.rooms[0]?.id as RoomWorkspaceRoomId;
+    const renamed = renameRoomWorkspaceRoomV2(initial, roomId, 'Cooking');
+    const reset = resetRoomWorkspaceRoomNameV2(renamed, roomId, 'Kitchen');
+
+    expect(reset.rooms[0]).toMatchObject({
+      id: roomId,
+      displayName: 'Kitchen',
+      metadata: { nameMode: 'provider' },
+    });
+
+    const reconciled = reconcileRoomWorkspaceV2(
+      reset,
+      [discoveredRoom('Galley', 'home_assistant', 'area_kitchen')],
+      { idFactory: createDeterministicIdFactory() }
+    );
+
+    expect(reconciled.rooms[0]).toMatchObject({
+      id: roomId,
+      displayName: 'Galley',
+      metadata: { nameMode: 'provider' },
     });
   });
 

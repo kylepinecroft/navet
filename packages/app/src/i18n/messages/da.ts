@@ -711,6 +711,7 @@ export const daMessages = {
   'dashboard.roomsWorkspace.back': 'Tilbage',
   'dashboard.roomsWorkspace.retry': 'Prøv igen',
   'dashboard.roomsWorkspace.roomNameLabel': 'Værelsesnavn',
+  'dashboard.roomsWorkspace.useOriginalName': 'Brug originalt navn',
   'dashboard.roomsWorkspace.roomNamePlaceholder': 'Indtast et værelsesnavn',
   'dashboard.roomsWorkspace.visibilityLabel': 'Vis i værelsesnavigationen',
   'dashboard.roomsWorkspace.visibilityDescription':

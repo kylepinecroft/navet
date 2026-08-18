@@ -658,6 +658,7 @@ export const itMessages = {
   'dashboard.roomsWorkspace.back': 'Indietro',
   'dashboard.roomsWorkspace.retry': 'Riprova',
   'dashboard.roomsWorkspace.roomNameLabel': 'Nome della stanza',
+  'dashboard.roomsWorkspace.useOriginalName': 'Usa il nome originale',
   'dashboard.roomsWorkspace.roomNamePlaceholder': 'Inserisci un nome per la stanza',
   'dashboard.roomsWorkspace.visibilityLabel': 'Mostra nella navigazione delle stanze',
   'dashboard.roomsWorkspace.visibilityDescription':

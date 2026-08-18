@@ -1191,6 +1191,26 @@ export function renameRoomWorkspaceRoomV2(
   }));
 }
 
+export function resetRoomWorkspaceRoomNameV2(
+  value: unknown,
+  roomId: RoomWorkspaceRoomId,
+  providerDisplayName: string
+): RoomWorkspaceV2 {
+  const safeDisplayName = sanitizeText(providerDisplayName, MAX_NAME_LENGTH);
+  if (!safeDisplayName) {
+    return parseRoomWorkspaceV2(value) ?? createEmptyRoomWorkspaceV2();
+  }
+
+  return updateWorkspaceRoom(value, roomId, (room) => ({
+    ...room,
+    displayName: safeDisplayName,
+    metadata: {
+      ...room.metadata,
+      nameMode: 'provider',
+    },
+  }));
+}
+
 export function setRoomWorkspaceVisibilityV2(
   value: unknown,
   roomId: RoomWorkspaceRoomId,

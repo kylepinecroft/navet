@@ -626,6 +626,7 @@ export const deMessages = {
   'dashboard.roomsWorkspace.back': 'Zurück',
   'dashboard.roomsWorkspace.retry': 'Erneut versuchen',
   'dashboard.roomsWorkspace.roomNameLabel': 'Raumname',
+  'dashboard.roomsWorkspace.useOriginalName': 'Originalnamen verwenden',
   'dashboard.roomsWorkspace.roomNamePlaceholder': 'Raumnamen eingeben',
   'dashboard.roomsWorkspace.visibilityLabel': 'In der Raumnavigation anzeigen',
   'dashboard.roomsWorkspace.visibilityDescription':

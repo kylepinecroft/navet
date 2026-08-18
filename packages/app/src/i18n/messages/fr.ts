@@ -624,6 +624,7 @@ export const frMessages = {
   'dashboard.roomsWorkspace.back': 'Retour',
   'dashboard.roomsWorkspace.retry': 'Réessayer',
   'dashboard.roomsWorkspace.roomNameLabel': 'Nom de la pièce',
+  'dashboard.roomsWorkspace.useOriginalName': 'Utiliser le nom d’origine',
   'dashboard.roomsWorkspace.roomNamePlaceholder': 'Saisissez un nom de pièce',
   'dashboard.roomsWorkspace.visibilityLabel': 'Afficher dans la navigation des pièces',
   'dashboard.roomsWorkspace.visibilityDescription':

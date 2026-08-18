@@ -713,6 +713,7 @@ export const fiMessages = {
   'dashboard.roomsWorkspace.back': 'Takaisin',
   'dashboard.roomsWorkspace.retry': 'Yritä uudelleen',
   'dashboard.roomsWorkspace.roomNameLabel': 'Huoneen nimi',
+  'dashboard.roomsWorkspace.useOriginalName': 'Käytä alkuperäistä nimeä',
   'dashboard.roomsWorkspace.roomNamePlaceholder': 'Anna huoneen nimi',
   'dashboard.roomsWorkspace.visibilityLabel': 'Näytä huonevalikossa',
   'dashboard.roomsWorkspace.visibilityDescription':

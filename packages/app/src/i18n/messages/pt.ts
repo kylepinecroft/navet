@@ -619,6 +619,7 @@ export const ptMessages = {
   'dashboard.roomsWorkspace.back': 'Voltar',
   'dashboard.roomsWorkspace.retry': 'Tentar novamente',
   'dashboard.roomsWorkspace.roomNameLabel': 'Nome do cômodo',
+  'dashboard.roomsWorkspace.useOriginalName': 'Usar nome original',
   'dashboard.roomsWorkspace.roomNamePlaceholder': 'Digite um nome para o cômodo',
   'dashboard.roomsWorkspace.visibilityLabel': 'Mostrar na navegação de cômodos',
   'dashboard.roomsWorkspace.visibilityDescription':

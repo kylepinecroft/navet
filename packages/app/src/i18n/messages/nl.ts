@@ -717,6 +717,7 @@ export const nlMessages = {
   'dashboard.roomsWorkspace.back': 'Terug',
   'dashboard.roomsWorkspace.retry': 'Opnieuw proberen',
   'dashboard.roomsWorkspace.roomNameLabel': 'Kamernaam',
+  'dashboard.roomsWorkspace.useOriginalName': 'Oorspronkelijke naam gebruiken',
   'dashboard.roomsWorkspace.roomNamePlaceholder': 'Voer een kamernaam in',
   'dashboard.roomsWorkspace.visibilityLabel': 'Tonen in kamernavigatie',
   'dashboard.roomsWorkspace.visibilityDescription':

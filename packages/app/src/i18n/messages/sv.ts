@@ -616,6 +616,7 @@ export const svMessages = {
   'dashboard.roomsWorkspace.back': 'Tillbaka',
   'dashboard.roomsWorkspace.retry': 'Försök igen',
   'dashboard.roomsWorkspace.roomNameLabel': 'Rummets namn',
+  'dashboard.roomsWorkspace.useOriginalName': 'Använd ursprungligt namn',
   'dashboard.roomsWorkspace.roomNamePlaceholder': 'Ange ett rumsnamn',
   'dashboard.roomsWorkspace.visibilityLabel': 'Visa i rumsnavigeringen',
   'dashboard.roomsWorkspace.visibilityDescription':

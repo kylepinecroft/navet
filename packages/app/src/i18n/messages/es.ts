@@ -620,6 +620,7 @@ export const esMessages = {
   'dashboard.roomsWorkspace.back': 'Atrás',
   'dashboard.roomsWorkspace.retry': 'Intentar de nuevo',
   'dashboard.roomsWorkspace.roomNameLabel': 'Nombre de la habitación',
+  'dashboard.roomsWorkspace.useOriginalName': 'Usar nombre original',
   'dashboard.roomsWorkspace.roomNamePlaceholder': 'Escribe un nombre de habitación',
   'dashboard.roomsWorkspace.visibilityLabel': 'Mostrar en la navegación de habitaciones',
   'dashboard.roomsWorkspace.visibilityDescription':

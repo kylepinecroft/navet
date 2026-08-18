@@ -57,6 +57,7 @@ export const roomWorkspaceEnglishLabels: RoomWorkspaceLabels = {
   back: 'Back',
   retry: 'Try again',
   roomNameLabel: 'Room name',
+  useOriginalName: 'Use original name',
   roomNamePlaceholder: 'Enter a room name',
   groupLabel: 'Group',
   ungroupedGroup: 'No group',
@@ -431,6 +432,14 @@ function WorkspaceStory({ layout, initialViewModel, phoneFrame = false }: Worksp
           ],
           rooms: current.rooms.map((room) =>
             room.id === roomId ? { ...room, name, nameDraft: name } : room
+          ),
+          hasUnsavedChanges: true,
+        })),
+      onResetRoomName: (roomId) =>
+        setModel((current) => ({
+          ...current,
+          rooms: current.rooms.map((room) =>
+            room.id === roomId ? { ...room, canResetName: false } : room
           ),
           hasUnsavedChanges: true,
         })),
@@ -886,23 +895,19 @@ export const PendingProviderChanges: Story = {
       mode: 'manage',
       stage: 'impact-review',
       hasUnsavedChanges: true,
-      unsavedChangeCount: 2,
+      unsavedChangeCount: 1,
       changes: [
         {
           id: 'provider-changes',
           title: 'In connected systems',
-          description: '2 provider changes',
-          details: [
-            'Home Assistant · Kitchen → Kitchen & dining',
-            'Home Assistant · Ceiling light: Kitchen → Office',
-          ],
+          description: '1 provider change',
+          details: ['Home Assistant · Ceiling light: Kitchen → Office'],
         },
       ],
     },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
-    await expect(canvas.getByText('Home Assistant · Kitchen → Kitchen & dining')).toBeVisible();
     await expect(
       canvas.getByText('Home Assistant · Ceiling light: Kitchen → Office')
     ).toBeVisible();
