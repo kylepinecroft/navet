@@ -281,6 +281,8 @@ describe('dashboard-config import hardening', () => {
       cardIds: ['light.kitchen'],
       sections: [],
       cardSectionAssignments: {},
+      cardLayouts: {},
+      cardGridColumns: 12,
     });
 
     const exported = exportDashboardConfig();
@@ -291,6 +293,8 @@ describe('dashboard-config import hardening', () => {
       cardIds: ['home_assistant:light.kitchen'],
       sections: [],
       cardSectionAssignments: {},
+      cardLayouts: {},
+      cardGridColumns: 12,
     });
     expect(exported.homeDashboardLayout).not.toHaveProperty('state');
     expect(exported.homeDashboardLayout).not.toHaveProperty('version');

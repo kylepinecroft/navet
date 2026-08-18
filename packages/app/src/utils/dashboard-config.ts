@@ -255,6 +255,8 @@ export const exportDashboardConfig = (): DashboardConfigPayload => {
       cardIds: homeDashboardLayoutState.cardIds,
       sections: homeDashboardLayoutState.sections,
       cardSectionAssignments: homeDashboardLayoutState.cardSectionAssignments,
+      cardLayouts: homeDashboardLayoutState.cardLayouts,
+      cardGridColumns: homeDashboardLayoutState.cardGridColumns,
     },
     roomWorkspace: roomWorkspace ?? undefined,
     roomOrder: pruneEmptyArray(parseStoredJson<string[]>(STORAGE_KEYS.roomOrder, [])),
