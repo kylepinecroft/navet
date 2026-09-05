@@ -203,6 +203,12 @@ export const deMessages = {
   'settings.dashboard.homeSummaryBar.title': 'Home-Zusammenfassung',
   'settings.dashboard.homeSummaryBar.description':
     'Zeigt kompakte Zusammenfassungen für Klima, Licht, Sicherheit und Medien über dem Home-Dashboard.',
+  'settings.dashboard.summaryBarScope.title': 'Umfang der Zusammenfassungsleiste',
+  'settings.dashboard.summaryBarScope.description':
+    'Global verwendet das ganze Zuhause. Lokal nur die Entitäten auf diesem Dashboard oder der Raumseite.',
+  'settings.dashboard.summaryBarScope.global': 'Global',
+  'settings.dashboard.summaryBarScope.local': 'Lokal',
+  'settings.dashboard.summaryBarScope.forDashboard': 'Umfang der Zusammenfassungsleiste für {name}',
   'settings.dashboard.kioskMode.title': 'Kioskmodus',
   'settings.dashboard.kioskMode.description':
     'Blendet Kopfzeile und Navigation aus, damit das Dashboard eine Wandanzeige ausfüllen kann.',

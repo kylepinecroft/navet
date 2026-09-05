@@ -318,6 +318,7 @@ describe('dashboard-config import hardening', () => {
       'Office',
       'Guest Room',
     ]);
+    expect(exported.dashboards?.dashboardsById.upstairs.summaryBarScope).toBe('local');
 
     useDashboardCollectionStore.getState().resetCollection();
     importDashboardConfig({
@@ -328,6 +329,9 @@ describe('dashboard-config import hardening', () => {
     expect(
       useDashboardCollectionStore.getState().collection.dashboardsById.upstairs.homeRoomNames
     ).toEqual(['Living Room', 'Office', 'Guest Room']);
+    expect(
+      useDashboardCollectionStore.getState().collection.dashboardsById.upstairs.summaryBarScope
+    ).toBe('local');
   });
 
   it('exports locked card ids with dashboard entity state', () => {

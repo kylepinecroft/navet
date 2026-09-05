@@ -120,4 +120,21 @@ describe('useHomeEnergySummary', () => {
     });
     expect(mocks.useEnergyStatisticsToday).toHaveBeenLastCalledWith({}, false);
   });
+
+  it('does not load whole-home energy when the summary is local', () => {
+    const { result } = renderHook(() => useHomeEnergySummary(false));
+
+    act(() => undefined);
+
+    expect(result.current).toEqual({
+      gridImportTodayKWh: undefined,
+      isConfigured: false,
+    });
+    expect(mocks.getSourceConfig).not.toHaveBeenCalled();
+    expect(mocks.useProviderEntitySnapshotRecord).toHaveBeenLastCalledWith([], {
+      enabled: false,
+      providerId: 'home_assistant',
+    });
+    expect(mocks.useEnergyStatisticsToday).toHaveBeenLastCalledWith({}, false);
+  });
 });

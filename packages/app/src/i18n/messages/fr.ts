@@ -203,6 +203,12 @@ export const frMessages = {
   'settings.dashboard.homeSummaryBar.title': 'Résumé accueil',
   'settings.dashboard.homeSummaryBar.description':
     'Affiche des résumés compacts pour climat, éclairage, sécurité et médias au-dessus du tableau de bord d’accueil.',
+  'settings.dashboard.summaryBarScope.title': 'Portée de la barre de résumé',
+  'settings.dashboard.summaryBarScope.description':
+    'Global utilise toute la maison. Local n’utilise que les entités de ce tableau de bord ou de cette pièce.',
+  'settings.dashboard.summaryBarScope.global': 'Global',
+  'settings.dashboard.summaryBarScope.local': 'Local',
+  'settings.dashboard.summaryBarScope.forDashboard': 'Portée de la barre de résumé pour {name}',
   'settings.dashboard.kioskMode.title': 'Mode kiosque',
   'settings.dashboard.kioskMode.description':
     'Masque l’en-tête et la navigation pour que le tableau de bord remplisse un écran mural.',

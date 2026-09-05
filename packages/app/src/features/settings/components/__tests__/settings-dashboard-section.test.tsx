@@ -163,4 +163,52 @@ describe('SettingsDashboardSection', () => {
     expect(assignments['sonoff-upstairs']).toBe('upstairs');
     expect(assignments[currentClientId]).toBeUndefined();
   });
+
+  it('lets a dashboard use a local summary bar', () => {
+    renderWithProviders(<TestSection />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Local' }));
+
+    expect(
+      useDashboardCollectionStore.getState().collection.dashboardsById.home.summaryBarScope
+    ).toBe('local');
+  });
+
+  it('scopes the summary bar independently for each dashboard', () => {
+    const home = createDashboardDefinition({ id: 'home', name: 'Home' });
+    const upstairs = createDashboardDefinition({ id: 'upstairs', name: 'Upstairs lights' });
+    useDashboardCollectionStore.setState({
+      collection: sanitizeDashboardCollection(
+        {
+          schemaVersion: 1,
+          defaultDashboardId: 'home',
+          order: ['home', 'upstairs'],
+          dashboardsById: { home, upstairs },
+          dashboardIdByClientId: {},
+        },
+        createLegacyDashboardCollection({ homeLayout: null })
+      ),
+      activeDashboardId: 'home',
+    });
+
+    renderWithProviders(<TestSection />);
+
+    fireEvent.click(
+      within(
+        screen.getByRole('group', { name: 'Summary bar scope for Upstairs lights' })
+      ).getByRole('button', { name: 'Local' })
+    );
+
+    const collection = useDashboardCollectionStore.getState().collection;
+    expect(collection.dashboardsById.home.summaryBarScope).toBe('global');
+    expect(collection.dashboardsById.upstairs.summaryBarScope).toBe('local');
+  });
+
+  it('hides summary bar scope when the summary bar is off', () => {
+    useSettingsStore.getState().updateSettings({ showHomeSummaryBar: false });
+
+    renderWithProviders(<TestSection />);
+
+    expect(screen.queryByText('Summary bar scope')).not.toBeInTheDocument();
+  });
 });

@@ -8,6 +8,10 @@ import type {
 } from '../stores/home-dashboard-layout-store';
 import { normalizeLayout } from '../utils/layout-migration';
 import { ZONE_ORDERED, type ZoneName } from '../zones/zone-types';
+import {
+  type DashboardSummaryBarScope,
+  sanitizeDashboardSummaryBarScope,
+} from './dashboard-summary-scope';
 
 export const DASHBOARD_COLLECTION_SCHEMA_VERSION = 1 as const;
 export const DEFAULT_DASHBOARD_ID = 'home' as const;
@@ -28,6 +32,7 @@ export interface NavetDashboardDefinition {
   homeCardSizes: Record<string, CardSize>;
   homeCustomCards: CustomCard[];
   homeCardZones: Record<string, ZoneName>;
+  summaryBarScope: DashboardSummaryBarScope;
 }
 
 export interface NavetDashboardCollection {
@@ -285,9 +290,11 @@ export function createDashboardDefinition(input: DashboardCreateInput): NavetDas
   let homeCustomCards: CustomCard[] = [];
   let homeCardZones: Record<string, ZoneName> = {};
   let homeRoomNames: string[] | null = null;
+  let summaryBarScope: DashboardSummaryBarScope = 'global';
 
   if (source.kind === 'copy') {
     homeRoomNames = sanitizeDashboardRoomNames(source.dashboard.homeRoomNames);
+    summaryBarScope = sanitizeDashboardSummaryBarScope(source.dashboard.summaryBarScope);
     homeLayout = clone(source.dashboard.homeLayout);
     homeCardSizes = clone(source.dashboard.homeCardSizes);
     homeCustomCards = clone(source.dashboard.homeCustomCards).map((card) => ({
@@ -328,6 +335,7 @@ export function createDashboardDefinition(input: DashboardCreateInput): NavetDas
       ])
     );
   } else if (source.kind === 'rooms') {
+    summaryBarScope = 'local';
     homeRoomNames = sanitizeDashboardRoomNames(source.roomNames) ?? [];
     const rooms = new Set(homeRoomNames);
     const selectedIds = new Set(source.selectedCardIds ?? []);
@@ -362,6 +370,7 @@ export function createDashboardDefinition(input: DashboardCreateInput): NavetDas
     homeCardSizes,
     homeCustomCards,
     homeCardZones,
+    summaryBarScope,
   };
 }
 
@@ -447,6 +456,7 @@ export function sanitizeDashboardCollection(
           homeCardSizes: sanitizeCardSizes(rawDefinition.homeCardSizes, allowedIds),
           homeCustomCards,
           homeCardZones: sanitizeCardZones(rawDefinition.homeCardZones, allowedIds),
+          summaryBarScope: sanitizeDashboardSummaryBarScope(rawDefinition.summaryBarScope),
         };
         return [[id, definition] as const];
       })

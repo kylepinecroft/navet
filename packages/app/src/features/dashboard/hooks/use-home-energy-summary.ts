@@ -39,17 +39,17 @@ function isMissingEnergyPreferences(error: unknown) {
  * hook also subscribes to every entity, battery devices, load history, and several statistic
  * periods; mounting that pipeline on Home makes unrelated entity ticks unnecessarily expensive.
  */
-export function useHomeEnergySummary(): HomeEnergySummary {
+export function useHomeEnergySummary(enabled = true): HomeEnergySummary {
   const currentProviderId = useIntegrationStore(integrationSelectors.currentProviderId);
   const currentProviderRuntime = useIntegrationStore(
     providerRuntimeSelectors.currentProviderRuntime
   );
-  const enabled =
-    currentProviderId === 'home_assistant' && currentProviderRuntime.connected === true;
+  const enabledForProvider =
+    enabled && currentProviderId === 'home_assistant' && currentProviderRuntime.connected === true;
   const [sourceConfig, setSourceConfig] = useState<EnergySourceConfig | null>(null);
 
   useEffect(() => {
-    if (!enabled) {
+    if (!enabledForProvider) {
       setSourceConfig(null);
       return;
     }
@@ -87,7 +87,7 @@ export function useHomeEnergySummary(): HomeEnergySummary {
     return () => {
       cancelled = true;
     };
-  }, [enabled]);
+  }, [enabledForProvider]);
 
   const gridImportEntityId = sourceConfig?.gridImportEnergyEntityId;
   const gridImportEntityIds = useMemo(
@@ -95,7 +95,7 @@ export function useHomeEnergySummary(): HomeEnergySummary {
     [gridImportEntityId]
   );
   const entitySnapshots = useProviderEntitySnapshotRecord(gridImportEntityIds, {
-    enabled: enabled && Boolean(gridImportEntityId),
+    enabled: enabledForProvider && Boolean(gridImportEntityId),
     providerId: 'home_assistant',
   });
   const gridImportEntity = gridImportEntityId ? entitySnapshots[gridImportEntityId] : undefined;
@@ -111,7 +111,7 @@ export function useHomeEnergySummary(): HomeEnergySummary {
   );
   const todayStatistics = useEnergyStatisticsToday(
     energyStatisticUnits,
-    enabled && Boolean(gridImportEntityId)
+    enabledForProvider && Boolean(gridImportEntityId)
   );
   const isConfigured = hasEnergySourceConfig(sourceConfig);
   const gridImportTodayKWh =

@@ -201,6 +201,12 @@ export const ptMessages = {
   'settings.dashboard.homeSummaryBar.title': 'Resumo inicial',
   'settings.dashboard.homeSummaryBar.description':
     'Mostra resumos compactos de clima, luzes, segurança e mídia acima do dashboard inicial.',
+  'settings.dashboard.summaryBarScope.title': 'Âmbito da barra de resumo',
+  'settings.dashboard.summaryBarScope.description':
+    'Global usa a casa inteira. Local usa só as entidades neste painel ou página do cômodo.',
+  'settings.dashboard.summaryBarScope.global': 'Global',
+  'settings.dashboard.summaryBarScope.local': 'Local',
+  'settings.dashboard.summaryBarScope.forDashboard': 'Âmbito da barra de resumo para {name}',
   'settings.dashboard.kioskMode.title': 'Modo quiosque',
   'settings.dashboard.kioskMode.description':
     'Oculta o cabeçalho e a navegação para o dashboard preencher uma tela de parede.',

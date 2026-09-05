@@ -199,6 +199,12 @@ export const daMessages = {
   'settings.dashboard.homeSummaryBar.title': 'Oversigtsbjælke',
   'settings.dashboard.homeSummaryBar.description':
     'Vis kompakt energi, klima, lys, sikkerhed, medier og rutineoversigter over dashboards.',
+  'settings.dashboard.summaryBarScope.title': 'Omfang af oversigtsbjælken',
+  'settings.dashboard.summaryBarScope.description':
+    'Globalt bruger hele hjemmet. Lokalt bruger kun enhederne på dette dashboard eller rumside.',
+  'settings.dashboard.summaryBarScope.global': 'Globalt',
+  'settings.dashboard.summaryBarScope.local': 'Lokalt',
+  'settings.dashboard.summaryBarScope.forDashboard': 'Omfang af oversigtsbjælken for {name}',
   'settings.dashboard.kioskMode.title': 'Kiosktilstand',
   'settings.dashboard.kioskMode.description':
     'Skjul headeren og navigationskrom, så instrumentbrættet kan fylde en vægskærm.',

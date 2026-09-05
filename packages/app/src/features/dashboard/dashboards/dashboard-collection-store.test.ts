@@ -161,4 +161,12 @@ describe('dashboard collection store', () => {
 
     expect(useDashboardCollectionStore.getState().layoutHistory.past).toEqual([]);
   });
+
+  it('updates summary bar scope for a specific dashboard', () => {
+    useDashboardCollectionStore.getState().updateDashboardSummaryBarScope('upstairs', 'local');
+
+    const collection = useDashboardCollectionStore.getState().collection;
+    expect(collection.dashboardsById.home.summaryBarScope).toBe('global');
+    expect(collection.dashboardsById.upstairs.summaryBarScope).toBe('local');
+  });
 });
