@@ -1,5 +1,5 @@
 import { getStoryDocsDescription } from '@navet/app/storybook/story-docs';
-import type { Meta, StoryObj } from '@storybook/react';
+import type { Meta, StoryObj } from '@storybook/react-vite';
 import { BellOff, MoreHorizontal, Settings2 } from 'lucide-react';
 import { IconButton } from './index';
 
@@ -17,7 +17,7 @@ const meta = {
   },
   argTypes: {
     icon: { control: false },
-    size: { control: 'select', options: ['compact', 'small', 'default'] },
+    size: { control: 'select', options: ['compact', 'small', 'default', 'touch'] },
     variant: { control: 'select', options: ['subtle', 'ghost', 'secondary'] },
   },
   parameters: {
@@ -52,13 +52,18 @@ export const Sizes: Story = {
         label="Open room settings"
         icon={<Settings2 className="h-4 w-4" aria-hidden="true" />}
       />
+      <IconButton
+        label="Open touch-forward settings"
+        icon={<Settings2 className="h-4 w-4" aria-hidden="true" />}
+        size="touch"
+      />
     </div>
   ),
   parameters: {
     docs: {
       description: {
         story:
-          'Supported hit-target tiers for dense toolbars, compact card actions, and standard dialog controls.',
+          'The shared 36 px compact/small, 40 px default, and exceptional 42 px touch-forward icon-button tiers.',
       },
     },
   },

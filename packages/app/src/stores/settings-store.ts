@@ -63,6 +63,7 @@ export interface UserSettings {
   showNotifications: boolean;
   showWeatherInHeader: boolean;
   showHomeSummaryBar: boolean;
+  choresEnabled: boolean;
   keepDeviceAwake: boolean;
   use24HourTime: boolean;
   temperatureUnit: 'celsius' | 'fahrenheit';
@@ -86,6 +87,8 @@ export interface UserSettings {
   cameraDirectStreamUrls: Record<string, string>;
   cameraFitMode: CameraFitMode;
   cameraFitModes: Record<string, CameraFitMode>;
+  cameraFullscreenHiddenAccessoryIds: Record<string, string[]>;
+  cameraFullscreenVisibleAccessoryIds: Record<string, string[]>;
   ambientLightBleed: boolean;
   weatherForecastMode: WeatherForecastMode;
   weatherMetricIds: WeatherMetricId[];
@@ -102,6 +105,11 @@ interface SettingsState extends UserSettings {
   updateCameraDirectStreamUrl: (entityId: string, url: string) => void;
   updateCameraFitMode: (entityId: string, mode: CameraFitMode) => void;
   setEntityDisplayName: (entityId: string, name: string | null) => void;
+  updateCameraFullscreenAccessoryVisibility: (
+    cameraEntityId: string,
+    accessoryEntityId: string,
+    visible: boolean
+  ) => void;
   applyImportedSettings: (settings: UserSettings) => void;
   resetSettings: () => void;
 }
@@ -117,6 +125,7 @@ export const defaultSettings: UserSettings = {
   showNotifications: true,
   showWeatherInHeader: true,
   showHomeSummaryBar: true,
+  choresEnabled: true,
   keepDeviceAwake: false,
   use24HourTime: false,
   temperatureUnit: 'fahrenheit',
@@ -140,6 +149,8 @@ export const defaultSettings: UserSettings = {
   cameraDirectStreamUrls: {},
   cameraFitMode: 'cover',
   cameraFitModes: {},
+  cameraFullscreenHiddenAccessoryIds: {},
+  cameraFullscreenVisibleAccessoryIds: {},
   ambientLightBleed: true,
   weatherForecastMode: 'weekly',
   weatherMetricIds: ['precipitation', 'humidity', 'wind'],
@@ -327,6 +338,30 @@ function normalizeCameraFitModes(value: unknown): Record<string, CameraFitMode> 
   );
 }
 
+function normalizeCameraFullscreenHiddenAccessoryIds(value: unknown): Record<string, string[]> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return {};
+  }
+
+  return normalizePersistedEntityRecord(
+    Object.fromEntries(
+      Object.entries(value).flatMap(([cameraEntityId, accessoryIds]) => {
+        if (!Array.isArray(accessoryIds)) return [];
+        const normalizedIds = Array.from(
+          new Set(
+            accessoryIds
+              .filter((entry): entry is string => typeof entry === 'string' && entry.length > 0)
+              .map((entry) => ensureCanonicalEntityId(entry))
+          )
+        );
+        return normalizedIds.length > 0 ? [[cameraEntityId, normalizedIds]] : [];
+      })
+    )
+  );
+}
+
+const normalizeCameraFullscreenVisibleAccessoryIds = normalizeCameraFullscreenHiddenAccessoryIds;
+
 const knownSettingsKeys = new Set<keyof UserSettings>(
   Object.keys(defaultSettings) as Array<keyof UserSettings>
 );
@@ -420,6 +455,18 @@ export const useSettingsStore = create<SettingsState>()(
             newSettings.cameraFitModes !== undefined
               ? normalizeCameraFitModes(newSettings.cameraFitModes)
               : state.cameraFitModes,
+          cameraFullscreenHiddenAccessoryIds:
+            newSettings.cameraFullscreenHiddenAccessoryIds !== undefined
+              ? normalizeCameraFullscreenHiddenAccessoryIds(
+                  newSettings.cameraFullscreenHiddenAccessoryIds
+                )
+              : state.cameraFullscreenHiddenAccessoryIds,
+          cameraFullscreenVisibleAccessoryIds:
+            newSettings.cameraFullscreenVisibleAccessoryIds !== undefined
+              ? normalizeCameraFullscreenVisibleAccessoryIds(
+                  newSettings.cameraFullscreenVisibleAccessoryIds
+                )
+              : state.cameraFullscreenVisibleAccessoryIds,
           customSidebarActions:
             newSettings.customSidebarActions !== undefined
               ? normalizeCustomSidebarActions(newSettings.customSidebarActions)
@@ -486,6 +533,22 @@ export const useSettingsStore = create<SettingsState>()(
           }
           return { entityDisplayNames: nextNames };
         }),
+      updateCameraFullscreenAccessoryVisibility: (cameraEntityId, accessoryEntityId, visible) =>
+        set((state) => {
+          const cameraId = ensureCanonicalEntityId(cameraEntityId);
+          const accessoryId = ensureCanonicalEntityId(accessoryEntityId);
+          const currentVisibleIds = state.cameraFullscreenVisibleAccessoryIds[cameraId] ?? [];
+          const nextVisibleIds = visible
+            ? Array.from(new Set([...currentVisibleIds, accessoryId]))
+            : currentVisibleIds.filter((id) => id !== accessoryId);
+          const nextByCamera = { ...state.cameraFullscreenVisibleAccessoryIds };
+          if (nextVisibleIds.length > 0) {
+            nextByCamera[cameraId] = nextVisibleIds;
+          } else {
+            delete nextByCamera[cameraId];
+          }
+          return { cameraFullscreenVisibleAccessoryIds: nextByCamera };
+        }),
       applyImportedSettings: (importedSettings) => {
         const supportedSettings = pickKnownSettings(importedSettings);
         return set(() => ({
@@ -528,6 +591,12 @@ export const useSettingsStore = create<SettingsState>()(
             ? supportedSettings.cameraFitMode
             : defaultSettings.cameraFitMode,
           cameraFitModes: normalizeCameraFitModes(supportedSettings.cameraFitModes),
+          cameraFullscreenHiddenAccessoryIds: normalizeCameraFullscreenHiddenAccessoryIds(
+            supportedSettings.cameraFullscreenHiddenAccessoryIds
+          ),
+          cameraFullscreenVisibleAccessoryIds: normalizeCameraFullscreenVisibleAccessoryIds(
+            supportedSettings.cameraFullscreenVisibleAccessoryIds
+          ),
           customSidebarActions: normalizeCustomSidebarActions(
             supportedSettings.customSidebarActions
           ),
@@ -596,6 +665,12 @@ export const useSettingsStore = create<SettingsState>()(
             ? next.cameraFitMode
             : current.cameraFitMode,
           cameraFitModes: normalizeCameraFitModes(next.cameraFitModes),
+          cameraFullscreenHiddenAccessoryIds: normalizeCameraFullscreenHiddenAccessoryIds(
+            next.cameraFullscreenHiddenAccessoryIds
+          ),
+          cameraFullscreenVisibleAccessoryIds: normalizeCameraFullscreenVisibleAccessoryIds(
+            next.cameraFullscreenVisibleAccessoryIds
+          ),
           customSidebarActions: normalizeCustomSidebarActions(next.customSidebarActions),
           customSummaryPills: normalizeCustomSummaryPills(next.customSummaryPills),
         };

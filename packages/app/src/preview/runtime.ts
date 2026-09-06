@@ -1,3 +1,4 @@
+import previewMediaArtwork from '@assets/reference/media/artworks-original.avif';
 import { mapNavetEntitiesToDeviceCollection } from '@navet/app/core/navet-device-collections';
 import { setProviderPackageRegistrationOverride } from '@navet/app/provider-package-registry';
 import { resetProviderRuntimeRegistrationCache } from '@navet/app/provider-runtime-registry';
@@ -7,10 +8,13 @@ import { createProviderScopedId } from '@navet/app/utils/provider-ids';
 import type { NavetProviderContract } from '@navet/core/provider-contract';
 import type {
   PlatformAutomationDetails,
+  PlatformEntityHistoriesRequest,
+  PlatformEntityHistorySeries,
   PlatformMediaBrowseResult,
   PlatformTaskRuntimeSnapshot,
 } from '@navet/core/provider-feature-models';
 import type {
+  ProviderHistoryFeatureService,
   ProviderLightFeatureService,
   ProviderMediaFeatureService,
   ProviderSecurityFeatureService,
@@ -62,6 +66,40 @@ interface PreviewRuntimeState {
 
 const PREVIEW_PROVIDER_ID = 'home_assistant';
 const PREVIEW_TIMESTAMP = '2026-05-16T08:00:00.000Z';
+const PREVIEW_SECURITY_HISTORY: Record<string, Array<{ minutesAgo: number; state: string }>> = {
+  'lock.front_door': [
+    { minutesAgo: 82, state: 'unlocked' },
+    { minutesAgo: 72, state: 'locked' },
+  ],
+  'lock.back_door': [
+    { minutesAgo: 66, state: 'locked' },
+    { minutesAgo: 58, state: 'unlocked' },
+  ],
+  'binary_sensor.patio_door': [
+    { minutesAgo: 48, state: 'off' },
+    { minutesAgo: 46, state: 'on' },
+  ],
+  'binary_sensor.entry_motion': [
+    { minutesAgo: 39, state: 'off' },
+    { minutesAgo: 37, state: 'on' },
+  ],
+  'binary_sensor.garden_motion': [
+    { minutesAgo: 32, state: 'off' },
+    { minutesAgo: 30, state: 'on' },
+  ],
+  'binary_sensor.garage_vibration': [
+    { minutesAgo: 25, state: 'off' },
+    { minutesAgo: 23, state: 'on' },
+  ],
+  'binary_sensor.hall_occupancy': [
+    { minutesAgo: 18, state: 'off' },
+    { minutesAgo: 16, state: 'on' },
+  ],
+  'binary_sensor.driveway_motion': [
+    { minutesAgo: 10, state: 'off' },
+    { minutesAgo: 8, state: 'on' },
+  ],
+};
 const PREVIEW_HOME_ASSISTANT_CONFIG = {
   unit_system: {
     temperature: 'C',
@@ -432,6 +470,8 @@ function createPreviewScenario(): PreviewRuntimeScenario {
         title: 'Morning Mix',
         artist: 'Navet Radio',
         entityType: 'Speaker',
+        entityPicture: previewMediaArtwork,
+        entity_picture: previewMediaArtwork,
         source: 'Spotify',
         sourceList: ['Spotify', 'AirPlay', 'Radio'],
         volume: 42,
@@ -1494,6 +1534,37 @@ const previewSecurityFeatureService: ProviderSecurityFeatureService = {
     })),
 };
 
+function createPreviewSecurityHistory({
+  entityIds,
+  startTime,
+  endTime,
+}: PlatformEntityHistoriesRequest): PlatformEntityHistorySeries[] {
+  const parsedEndTime = endTime ? Date.parse(endTime) : Number.NaN;
+  const endTimeMs = Number.isFinite(parsedEndTime) ? parsedEndTime : Date.now();
+  const parsedStartTime = Date.parse(startTime);
+  const startTimeMs = Number.isFinite(parsedStartTime)
+    ? parsedStartTime
+    : endTimeMs - 24 * 60 * 60 * 1000;
+
+  return entityIds.map((entityId) => ({
+    entityId,
+    points: (PREVIEW_SECURITY_HISTORY[entityId] ?? [])
+      .map(({ minutesAgo, state }) => ({
+        state,
+        changedAt: new Date(endTimeMs - minutesAgo * 60 * 1000).toISOString(),
+      }))
+      .filter(({ changedAt }) => {
+        const changedAtMs = Date.parse(changedAt);
+        return changedAtMs >= startTimeMs && changedAtMs <= endTimeMs;
+      }),
+  }));
+}
+
+const previewHistoryFeatureService: ProviderHistoryFeatureService = {
+  getMessageClient: () => null,
+  getEntityHistories: async (request) => createPreviewSecurityHistory(request),
+};
+
 const previewTaskFeatureService: ProviderTaskFeatureService = {
   getTaskRuntimeSnapshot: () => getActiveScenario()?.taskRuntime ?? createTaskRuntimeSnapshot(),
   subscribeTaskRuntimeSnapshot: (listener) =>
@@ -1600,10 +1671,12 @@ const previewProviderPackageRegistration: ProviderPackageRegistration = {
       weather: true,
       notifications: false,
       tasks: true,
+      conversation: false,
     },
     lightFeatureService: previewLightFeatureService,
     mediaFeatureService: previewMediaFeatureService,
     securityFeatureService: previewSecurityFeatureService,
+    historyFeatureService: previewHistoryFeatureService,
     taskFeatureService: previewTaskFeatureService,
     entityRuntimeService: createPreviewEntityRuntimeService({
       defaultConfig: PREVIEW_HOME_ASSISTANT_CONFIG,

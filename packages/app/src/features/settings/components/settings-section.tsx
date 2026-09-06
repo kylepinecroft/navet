@@ -12,6 +12,11 @@ import {
 } from 'lucide-react';
 import { startTransition, useEffect, useMemo, useRef, useState } from 'react';
 import { useSettingsSectionController } from '../hooks/use-settings-section-controller';
+import {
+  SETTINGS_DETAIL_HISTORY_KEY,
+  SETTINGS_TAB_STORAGE_KEY,
+  type SettingsTabId,
+} from '../settings-navigation';
 import { SettingsAppearanceSection } from './settings-appearance-section';
 import { SettingsDashboardSection } from './settings-dashboard-section';
 import { SettingsExperimentalSection } from './settings-experimental-section';
@@ -24,23 +29,11 @@ import { createSettingsSearchItems } from './settings-search-items';
 import { SettingsEmbeddedSurface } from './settings-section-shell';
 import { SettingsSystemSection } from './settings-system-section';
 
-type SettingsTabId =
-  | 'appearance'
-  | 'localization'
-  | 'interaction'
-  | 'dashboard'
-  | 'habits'
-  | 'experimental'
-  | 'system'
-  | 'project';
-
 interface SettingsSectionProps {
   hiddenTabs?: SettingsTabId[];
   layout?: 'auto' | 'desktop' | 'mobile';
 }
 
-const SETTINGS_TAB_STORAGE_KEY = 'navet-settings-active-tab';
-const SETTINGS_DETAIL_HISTORY_KEY = 'navetSettingsDetail';
 const EMPTY_HIDDEN_TABS: SettingsTabId[] = [];
 
 export function SettingsSection({
@@ -56,6 +49,7 @@ export function SettingsSection({
   const [mobileDetailOpen, setMobileDetailOpen] = useState(false);
   const [pendingSearchTarget, setPendingSearchTarget] = useState<string | null>(null);
   const settingsRootRef = useRef<HTMLDivElement | null>(null);
+
   const navItems = useMemo(
     () =>
       [

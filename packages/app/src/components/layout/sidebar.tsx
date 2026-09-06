@@ -37,6 +37,7 @@ import {
   DoorOpen,
   LogOut,
   type LucideIcon,
+  MessageCircle,
   PanelLeftClose,
   PanelLeftOpen,
   Pencil,
@@ -47,6 +48,7 @@ import {
 import { lazy, memo, type RefObject, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { ImageWithFallback } from '../figma/ImageWithFallback';
+import { HeaderAssistAction } from './header-assist-action';
 import type { MobileRoomNavigation } from './mobile-room-dropdown';
 import { getVisibleRoomNavRooms } from './room-nav.utils';
 import {
@@ -113,8 +115,9 @@ export const Sidebar = memo(function Sidebar({
       setActiveCustomSidebarAction: state.setActiveCustomSidebarAction,
     }))
   );
-  const { effectsQuality, lowPowerMode } = useSettingsStore(
+  const { choresEnabled, effectsQuality, lowPowerMode } = useSettingsStore(
     useShallow((state) => ({
+      choresEnabled: state.choresEnabled,
       effectsQuality: state.effectsQuality,
       lowPowerMode: state.lowPowerMode,
     }))
@@ -179,12 +182,12 @@ export const Sidebar = memo(function Sidebar({
 
   const menuItems = useMemo(
     () =>
-      getSectionNavigationItems(t).map((item) => ({
+      getSectionNavigationItems(t, choresEnabled).map((item) => ({
         id: item.section,
         ...item,
         onClick: () => setActiveSection(item.section),
       })),
-    [setActiveSection, t]
+    [choresEnabled, setActiveSection, t]
   );
   const customMenuItems = useMemo(
     () =>
@@ -244,11 +247,11 @@ export const Sidebar = memo(function Sidebar({
     isShortDesktopViewport || customMenuItems.length + (canAddCustomSidebarAction ? 1 : 0) >= 4;
   const dockItems = useMemo(
     () =>
-      getOrderedSectionNavigationItems(t, MOBILE_SECTION_DOCK_ORDER).map((item) => ({
+      getOrderedSectionNavigationItems(t, MOBILE_SECTION_DOCK_ORDER, choresEnabled).map((item) => ({
         ...item,
         onClick: () => setActiveSection(item.section),
       })),
-    [setActiveSection, t]
+    [choresEnabled, setActiveSection, t]
   );
   const HomeAssistantSidebarIcon =
     homeAssistantShell.isKioskEnabled === true ? PanelLeftOpen : PanelLeftClose;
@@ -585,6 +588,21 @@ export const Sidebar = memo(function Sidebar({
                 pill={getMobileTabPill(isMobileSearchOpen)}
                 ariaExpanded={isMobileSearchOpen}
               />
+              {isMobile ? (
+                <HeaderAssistAction
+                  renderTrigger={({ isOpen, onClick }) => (
+                    <MobileDockButton
+                      icon={MessageCircle}
+                      isActive={isOpen}
+                      label={t('widgets.assist.title')}
+                      onClick={onClick}
+                      pill={getMobileTabPill(isOpen)}
+                      ariaExpanded={isOpen}
+                      ariaHasPopup="dialog"
+                    />
+                  )}
+                />
+              ) : null}
             </div>
           </div>
         )}
@@ -596,6 +614,7 @@ export const Sidebar = memo(function Sidebar({
 
       <MobileSectionOrbitSheet
         activeSection={activeSection}
+        choresEnabled={choresEnabled}
         hasCustomActiveDestination={activeCustomSidebarActionId !== null}
         customItems={customMenuItems}
         homeAssistantAction={
@@ -651,6 +670,7 @@ export const Sidebar = memo(function Sidebar({
 
 function MobileDockButton({
   ariaExpanded,
+  ariaHasPopup,
   icon: Icon,
   isActive,
   label,
@@ -658,6 +678,7 @@ function MobileDockButton({
   pill,
 }: {
   ariaExpanded?: boolean;
+  ariaHasPopup?: 'dialog';
   icon: LucideIcon;
   isActive: boolean;
   label: string;
@@ -668,6 +689,7 @@ function MobileDockButton({
     <button
       onClick={onClick}
       aria-expanded={ariaExpanded}
+      aria-haspopup={ariaHasPopup}
       aria-label={label}
       aria-current={isActive ? 'page' : undefined}
       type="button"

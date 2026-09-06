@@ -7,7 +7,7 @@ editUrl: https://github.com/awesomestvi/navet/edit/main/docs/how-to/quick-start/
 This guide starts after Navet has connected to a provider. In about 15 minutes you will confirm that
 your home loaded, learn the main navigation, and make one useful change to Home.
 
-![Navet Home with the section navigation, room navigation, summary bar, and cards identified.](/docs/how-to/quick-start/first-15-minutes-overview.webp)
+![The current Navet Home dashboard with section navigation, room navigation, status summary, and responsive cards.](/docs/how-to/quick-start/first-15-minutes-overview.webp)
 
 ## 1. Check that your home loaded
 
@@ -26,7 +26,7 @@ If rooms or devices are absent, do not rebuild them immediately. Follow
 Use the section navigation to move between:
 
 - **Home** for the editable room-first overview.
-- **Energy**, **Climate**, **Security**, **Lights**, **Media**, and **Tasks** for focused views.
+- **Energy**, **Climate**, **Security**, **Lights**, **Media**, and **Household** for focused views.
 - **Settings** for appearance, dashboard behavior, providers, connected screens, and backup.
 
 Not every provider supplies every advanced section. An empty or unavailable section can be a

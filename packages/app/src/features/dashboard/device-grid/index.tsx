@@ -1,10 +1,16 @@
-import type { CardSize } from '@navet/app/components/shared/card-size-selector';
+import {
+  type CardSize,
+  getCardSpanClass,
+  getResponsiveCardSize,
+} from '@navet/app/components/shared/card-size-selector';
+import { cn } from '@navet/app/components/ui/utils';
 import { useSearch } from '@navet/app/hooks';
 import { useBreakpointCols } from '@navet/app/hooks/use-breakpoint-cols';
 import { type CSSProperties, memo, useCallback, useDeferredValue, useMemo } from 'react';
 import { DashboardCardItem } from '../components/dashboard-card-item';
 import { DashboardEditActions } from '../components/dashboard-edit-actions';
 import { useFitDashboardGrid } from '../hooks/use-fit-dashboard-grid';
+import { packDashboardGridItems } from './device-grid-layout';
 import type { DeviceGridProps } from './types';
 
 /**
@@ -27,11 +33,19 @@ export const DeviceGrid = memo(function DeviceGrid({
   densePerformanceMode = false,
   optimizeOffscreenPaint = false,
   getDeviceHeaderSubtitle,
+  supplementalCards = [],
 }: DeviceGridProps) {
   const { isSearchActive, filteredDeviceIds } = useSearch();
   const breakpointCols = useBreakpointCols();
-  const { outerRef, innerRef, outerContainerStyle, innerContainerStyle, isAutoScaled, gridStyle } =
-    useFitDashboardGrid(breakpointCols);
+  const {
+    outerRef,
+    innerRef,
+    outerContainerStyle,
+    innerContainerStyle,
+    isAutoScaled,
+    gridStyle,
+    renderedGridCols,
+  } = useFitDashboardGrid(breakpointCols);
   const deferredFilteredDeviceIds = useDeferredValue(filteredDeviceIds);
   const shouldOptimizeOffscreenPaint = optimizeOffscreenPaint && !isEditMode;
 
@@ -76,6 +90,37 @@ export const DeviceGrid = memo(function DeviceGrid({
         .filter((item): item is NonNullable<typeof item> => item !== null),
     [customCardMap, deviceMap, displayedCardIds]
   );
+  const gridLayoutItems = useMemo(
+    () => [
+      ...(!isSearchActive
+        ? supplementalCards.map((card) => ({
+            id: `supplemental-${card.id}`,
+            size: getResponsiveCardSize(card.size, breakpointCols),
+          }))
+        : []),
+      ...allCards.map((item) => {
+        if (item.type === 'device') {
+          const device = deviceMap.get(item.id);
+          const size = cardSizes[item.id] || (device?.size as CardSize) || 'small';
+          return {
+            id: `device-${item.id}`,
+            size: getResponsiveCardSize(size, breakpointCols),
+          };
+        }
+
+        const size = cardSizes[item.card.id] || item.card.size;
+        return {
+          id: `card-${item.card.id}`,
+          size: getResponsiveCardSize(size, breakpointCols),
+        };
+      }),
+    ],
+    [allCards, breakpointCols, cardSizes, deviceMap, isSearchActive, supplementalCards]
+  );
+  const gridPlacements = useMemo(
+    () => packDashboardGridItems(gridLayoutItems, renderedGridCols),
+    [gridLayoutItems, renderedGridCols]
+  );
 
   const gridContent = (
     <div
@@ -90,32 +135,58 @@ export const DeviceGrid = memo(function DeviceGrid({
         className={`w-full${isAutoScaled ? ' absolute left-0 top-0 origin-top-left' : ''}`}
         style={innerContainerStyle}
       >
-        <div
-          className="grid w-full grid-flow-row-dense gap-3 md:gap-3 lg:gap-4"
-          style={gridStyle as CSSProperties}
-        >
+        <div className="grid w-full gap-3 md:gap-3 lg:gap-4" style={gridStyle as CSSProperties}>
+          {!isSearchActive
+            ? supplementalCards.map((card) => (
+                <div
+                  key={`supplemental-${card.id}`}
+                  className={cn(
+                    getCardSpanClass(getResponsiveCardSize(card.size, breakpointCols)),
+                    '[&>*]:h-full'
+                  )}
+                  style={{
+                    gridColumnStart: gridPlacements.get(`supplemental-${card.id}`)?.column,
+                    gridRowStart: gridPlacements.get(`supplemental-${card.id}`)?.row,
+                  }}
+                >
+                  {card.content}
+                </div>
+              ))
+            : null}
           {allCards.map((item) => {
             if (item.type === 'device') {
               const device = deviceMap.get(item.id);
               if (!device?.id) return null;
 
               const size = cardSizes[device.id] || (device.size as CardSize);
+              const resolvedGridSize = getResponsiveCardSize(size, breakpointCols);
+              const gridItemId = `device-${device.id}`;
 
               return (
-                <DashboardCardItem
-                  key={`device-${device.id}`}
-                  id={device.id}
-                  device={device}
-                  size={size}
-                  isEditMode={isEditMode}
-                  handleSizeChange={handleSizeChange}
-                  onRemoveEntity={onRemoveEntity}
-                  allowEntityRemoval={allowEntityRemoval}
-                  usesHideAction={usesHideAction}
-                  densePerformanceMode={densePerformanceMode}
-                  optimizeOffscreenPaint={shouldOptimizeOffscreenPaint}
-                  headerSubtitleOverride={getDeviceHeaderSubtitle?.(device)}
-                />
+                <div
+                  key={gridItemId}
+                  id={`dashboard-entity-${encodeURIComponent(device.id)}`}
+                  data-dashboard-entity-id={device.id}
+                  className={cn(getCardSpanClass(resolvedGridSize), '[&>*]:h-full')}
+                  style={{
+                    gridColumnStart: gridPlacements.get(gridItemId)?.column,
+                    gridRowStart: gridPlacements.get(gridItemId)?.row,
+                  }}
+                >
+                  <DashboardCardItem
+                    id={device.id}
+                    device={device}
+                    size={size}
+                    isEditMode={isEditMode}
+                    handleSizeChange={handleSizeChange}
+                    onRemoveEntity={onRemoveEntity}
+                    allowEntityRemoval={allowEntityRemoval}
+                    usesHideAction={usesHideAction}
+                    densePerformanceMode={densePerformanceMode}
+                    optimizeOffscreenPaint={shouldOptimizeOffscreenPaint}
+                    headerSubtitleOverride={getDeviceHeaderSubtitle?.(device)}
+                  />
+                </div>
               );
             }
 
@@ -123,23 +194,33 @@ export const DeviceGrid = memo(function DeviceGrid({
             if (!card?.id) return null;
 
             const size = cardSizes[card.id] || card.size;
+            const resolvedGridSize = getResponsiveCardSize(size, breakpointCols);
+            const gridItemId = `card-${card.id}`;
 
             return (
-              <DashboardCardItem
-                key={`card-${card.id}`}
-                id={card.id}
-                card={card}
-                size={size}
-                isEditMode={isEditMode}
-                handleSizeChange={handleSizeChange}
-                onDeleteCard={onDeleteCard}
-                onUpdateCard={onUpdateCard}
-                onRemoveEntity={onRemoveEntity}
-                allowEntityRemoval={allowEntityRemoval}
-                usesHideAction={usesHideAction}
-                densePerformanceMode={densePerformanceMode}
-                optimizeOffscreenPaint={shouldOptimizeOffscreenPaint}
-              />
+              <div
+                key={gridItemId}
+                className={cn(getCardSpanClass(resolvedGridSize), '[&>*]:h-full')}
+                style={{
+                  gridColumnStart: gridPlacements.get(gridItemId)?.column,
+                  gridRowStart: gridPlacements.get(gridItemId)?.row,
+                }}
+              >
+                <DashboardCardItem
+                  id={card.id}
+                  card={card}
+                  size={size}
+                  isEditMode={isEditMode}
+                  handleSizeChange={handleSizeChange}
+                  onDeleteCard={onDeleteCard}
+                  onUpdateCard={onUpdateCard}
+                  onRemoveEntity={onRemoveEntity}
+                  allowEntityRemoval={allowEntityRemoval}
+                  usesHideAction={usesHideAction}
+                  densePerformanceMode={densePerformanceMode}
+                  optimizeOffscreenPaint={shouldOptimizeOffscreenPaint}
+                />
+              </div>
             );
           })}
         </div>

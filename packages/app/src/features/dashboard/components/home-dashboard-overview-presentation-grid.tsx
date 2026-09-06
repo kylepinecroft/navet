@@ -3,6 +3,7 @@ import {
   getCardSpanClass,
   getResponsiveCardSize,
 } from '@navet/app/components/shared/card-size-selector';
+import { cn } from '@navet/app/components/ui/utils';
 import { useBreakpointCols } from '@navet/app/hooks/use-breakpoint-cols';
 import type { DeviceWithType } from '@navet/app/types/device.types';
 import { memo, useMemo } from 'react';
@@ -53,6 +54,7 @@ export const PresentationCardGrid = memo(function PresentationCardGrid({
   const snapColumns = cardGridColumns ?? CARD_LAYOUT_COLUMNS;
   const snapDesktop = snapPlacement && !isPhone;
   const {
+    gridPlacements,
     gridStyle,
     innerContainerStyle,
     innerRef,
@@ -130,18 +132,25 @@ export const PresentationCardGrid = memo(function PresentationCardGrid({
             }
 
             const size = cardSizes[cardId] ?? entry.size;
+            const resolvedGridSize = getResponsiveCardSize(size, breakpointCols);
             const origin = placementLayouts?.[cardId];
             const snapStyle =
               origin && placementLayouts
-                ? getSnapCardStyle(
-                    origin,
-                    cardSpanForSize(getResponsiveCardSize(size, breakpointCols), renderedGridCols)
-                  )
+                ? getSnapCardStyle(origin, cardSpanForSize(resolvedGridSize, renderedGridCols))
                 : undefined;
-            const spanClass = origin ? undefined : getCardSpanClass(size);
+            const placement = origin ? undefined : gridPlacements.get(cardId);
+            const spanClass = origin
+              ? 'h-full min-h-0'
+              : cn(getCardSpanClass(resolvedGridSize), '[&>*]:h-full');
+            const cellStyle = origin
+              ? snapStyle
+              : {
+                  gridColumnStart: placement?.column,
+                  gridRowStart: placement?.row,
+                };
 
             return (
-              <div key={cardId} className={origin ? 'h-full min-h-0' : spanClass} style={snapStyle}>
+              <div key={cardId} className={spanClass} style={cellStyle}>
                 {!isCustomCard(entry) ? (
                   <DashboardCardItem
                     id={cardId}

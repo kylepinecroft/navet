@@ -32,6 +32,7 @@ interface CardDialogHeaderProps {
   showRoomSelector?: boolean;
   forceDarkRoomSelector?: boolean;
   roomSelectorFallbackRoomName?: string;
+  roomSelectorClassName?: string;
   roomSelectorCompactContentStyle?: CSSProperties;
   editableTitle?: boolean;
   onTitleChange?: (title: string) => void | Promise<void>;
@@ -82,6 +83,7 @@ interface CardDialogChoicePillProps
 interface CardDialogDoneFooterProps {
   label: string;
   className?: string;
+  style?: CSSProperties;
 }
 
 export const CardDialogHeader = memo(function CardDialogHeader({
@@ -92,6 +94,7 @@ export const CardDialogHeader = memo(function CardDialogHeader({
   showRoomSelector = true,
   forceDarkRoomSelector = false,
   roomSelectorFallbackRoomName,
+  roomSelectorClassName,
   roomSelectorCompactContentStyle,
   editableTitle = true,
   onTitleChange,
@@ -139,13 +142,15 @@ export const CardDialogHeader = memo(function CardDialogHeader({
       <EntityRoomSelector
         entityId={entityId}
         compact
+        compactVariant="plain"
         forceDark={forceDarkRoomSelector}
         fallbackRoomName={roomSelectorFallbackRoomName}
         compactContentStyle={roomSelectorCompactContentStyle}
-        className="shrink-0"
+        className={cn('shrink-0', roomSelectorClassName)}
       />
     ) : null;
   const editLabel = t('entityNameEditor.edit', { name: '' }).trim();
+  const resolvedEyebrow = eyebrow ?? roomSelector;
   const titleClassName = theme === 'light' ? 'text-slate-950' : 'text-white';
   const descriptionClassName = theme === 'light' ? 'text-slate-700' : 'text-white/82';
   const descriptionSeparatorClassName = theme === 'light' ? 'text-slate-400' : 'text-white/40';
@@ -238,14 +243,14 @@ export const CardDialogHeader = memo(function CardDialogHeader({
   };
 
   return (
-    <div className={cn('mb-4 flex items-start justify-between gap-4', className)}>
+    <div className={cn('mb-4 flex items-start justify-between gap-4 max-sm:pr-14', className)}>
       <div className="min-w-0">
-        {eyebrow}
+        {resolvedEyebrow}
         <div
           className={cn(
             'flex min-w-0 items-center',
             isEditingTitle ? 'gap-4' : 'gap-2',
-            eyebrow ? 'mt-1' : undefined
+            resolvedEyebrow ? 'mt-1' : undefined
           )}
         >
           <Dialog.Title asChild>
@@ -292,7 +297,7 @@ export const CardDialogHeader = memo(function CardDialogHeader({
                 <button
                   type="button"
                   className={cn(
-                    'flex h-8 w-8 items-center justify-center rounded-full border transition-colors disabled:cursor-not-allowed disabled:opacity-50',
+                    'flex h-9 w-9 items-center justify-center rounded-full border transition-colors disabled:cursor-not-allowed disabled:opacity-50',
                     actionButtonClassName
                   )}
                   aria-label={t('entityNameEditor.save')}
@@ -305,7 +310,7 @@ export const CardDialogHeader = memo(function CardDialogHeader({
                 <button
                   type="button"
                   className={cn(
-                    'flex h-8 w-8 items-center justify-center rounded-full border transition-colors disabled:cursor-not-allowed disabled:opacity-50',
+                    'flex h-9 w-9 items-center justify-center rounded-full border transition-colors disabled:cursor-not-allowed disabled:opacity-50',
                     actionButtonClassName
                   )}
                   aria-label={t('common.cancel')}
@@ -323,7 +328,7 @@ export const CardDialogHeader = memo(function CardDialogHeader({
           <Dialog.Description asChild>
             <div
               className={cn(
-                '-mt-0.5 flex min-w-0 flex-wrap items-start gap-1.5',
+                '-mt-0.5 flex min-w-0 flex-wrap items-center gap-1.5',
                 'text-sm font-medium',
                 descriptionClassName
               )}
@@ -342,7 +347,7 @@ export const CardDialogHeader = memo(function CardDialogHeader({
                   <button
                     type="button"
                     className={cn(
-                      'shrink-0 text-inherit [font:inherit] transition-colors',
+                      "relative inline-flex h-7 shrink-0 items-center text-inherit [font:inherit] transition-colors after:absolute after:inset-x-0 after:-inset-y-2 after:content-['']",
                       editLinkClassName
                     )}
                     aria-label={t('entityNameEditor.edit', { name: displayTitle })}
@@ -382,13 +387,13 @@ export const CardDialogHeader = memo(function CardDialogHeader({
           isEditingTitle ? 'max-sm:hidden' : undefined
         )}
       >
-        {!eyebrow ? roomSelector : null}
         {trailing}
         <Dialog.Close asChild>
           <button
             type="button"
+            data-cover-sheet-inline-dismiss
             className={cn(
-              'flex h-[38px] w-[38px] shrink-0 items-center justify-center rounded-full border transition-colors',
+              'flex h-10 w-10 shrink-0 items-center justify-center rounded-full border transition-colors',
               actionButtonClassName
             )}
             aria-label={t('common.close')}
@@ -403,11 +408,7 @@ export const CardDialogHeader = memo(function CardDialogHeader({
 });
 
 export function CardDialogBody({ children, className }: CardDialogBodyProps) {
-  return (
-    <div className={cn('w-full min-w-0 p-6 max-sm:px-3.5 max-sm:pt-2 max-sm:pb-3', className)}>
-      {children}
-    </div>
-  );
+  return <div className={cn('w-full min-w-0 p-6 max-sm:p-4', className)}>{children}</div>;
 }
 
 export const CardDialogSection = memo(function CardDialogSection({
@@ -517,7 +518,7 @@ export function CardDialogFooter({
   return (
     <div
       className={cn(
-        'mt-6 flex justify-end max-sm:pb-[calc(env(safe-area-inset-bottom,0px)+0.5rem)]',
+        'mt-6 flex flex-nowrap items-center justify-end gap-2 max-sm:pb-[calc(env(safe-area-inset-bottom,0px)+0.5rem)] [&>*:first-child:not(:only-child)]:mr-auto',
         className
       )}
     >
@@ -526,11 +527,11 @@ export function CardDialogFooter({
   );
 }
 
-export function CardDialogDoneFooter({ label, className }: CardDialogDoneFooterProps) {
+export function CardDialogDoneFooter({ label, className, style }: CardDialogDoneFooterProps) {
   return (
     <CardDialogFooter>
       <Dialog.Close asChild>
-        <Button variant="soft" size="small" className={className}>
+        <Button variant="soft" className={className} style={style}>
           {label}
         </Button>
       </Dialog.Close>

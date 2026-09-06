@@ -1,19 +1,45 @@
 import { HeaderSearchInput } from '@navet/app/components/layout/header-search-input';
-import { CardDialogHeader } from '@navet/app/components/patterns';
+import { CardDialogHeader, NavigationWorkspace } from '@navet/app/components/patterns';
 import {
   BaseCardDialog,
   Button,
+  coverSheetHeaderClassName,
   DialogFooter,
+  IconButton,
   InteractivePill,
 } from '@navet/app/components/primitives';
 import { type CardSize, getCardSizeRatio } from '@navet/app/components/shared/card-size-selector';
 import { getAddCardDialogSurfaceTokens } from '@navet/app/components/shared/theme/add-card-dialog-surface-tokens';
 import { getThemeSurfaceTokens } from '@navet/app/components/shared/theme/theme-surface-tokens';
+import { getThemeFocusRingClassName } from '@navet/app/components/system/tokens';
+import { getUiKitGlassSurfaceFoundationStyle } from '@navet/app/components/system/tokens/ui-kit-surfaces';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuTrigger,
+} from '@navet/app/components/ui/dropdown-menu';
+import { cn } from '@navet/app/components/ui/utils';
 import { isAllRooms } from '@navet/app/constants/rooms';
 import { type ThemeType, useI18n } from '@navet/app/hooks';
-import { ArrowLeft, Layers2, Sparkles } from 'lucide-react';
+import {
+  ArrowDownAZ,
+  ArrowLeft,
+  ArrowUpDown,
+  ArrowUpZA,
+  ChevronRight,
+  Layers2,
+  ListFilter,
+  Sparkles,
+} from 'lucide-react';
 import { useState } from 'react';
-import { type DashboardLibraryCard, DashboardLibraryList } from '../dashboard-library-list';
+import {
+  type DashboardLibraryCard,
+  type DashboardLibraryEntityType,
+  DashboardLibraryList,
+} from '../dashboard-library-list';
 import type { CardTemplate, CardTemplateId } from './types';
 
 function cardSizeKey(size: CardSize): `dashboard.addCard.size.${CardSize}` {
@@ -32,6 +58,14 @@ interface AddCardDialogViewProps {
   hasLibraryQuery: boolean;
   libraryCount: number;
   filteredLibraryCards: DashboardLibraryCard[];
+  libraryEntityTypes: DashboardLibraryEntityType[];
+  selectedLibraryEntityType: string | null;
+  setSelectedLibraryEntityType: (entityType: string | null) => void;
+  libraryRooms: string[];
+  selectedLibraryRoom: string | null;
+  setSelectedLibraryRoom: (room: string | null) => void;
+  librarySortDirection: 'asc' | 'desc' | null;
+  setLibrarySortDirection: (direction: 'asc' | 'desc' | null) => void;
   theme: ThemeType;
   primaryColor: string;
   cardTemplates: CardTemplate[];
@@ -56,6 +90,14 @@ export function AddCardDialogView({
   hasLibraryQuery,
   libraryCount,
   filteredLibraryCards,
+  libraryEntityTypes,
+  selectedLibraryEntityType,
+  setSelectedLibraryEntityType,
+  libraryRooms,
+  selectedLibraryRoom,
+  setSelectedLibraryRoom,
+  librarySortDirection,
+  setLibrarySortDirection,
   theme,
   primaryColor,
   cardTemplates,
@@ -82,7 +124,20 @@ export function AddCardDialogView({
   const inactiveSizeSwatchBg = dialogSurface.inactiveSizeSwatchBg;
   const cardBg = surface.panelMuted;
   const cardsTabActive = activeTab === 'cards';
+  const libraryEntityCount = libraryEntityTypes.reduce((total, type) => total + type.count, 0);
   const searchCountLabel = t('dashboard.addCard.librarySummary.available', { count: libraryCount });
+  const SortIcon =
+    librarySortDirection === 'asc'
+      ? ArrowDownAZ
+      : librarySortDirection === 'desc'
+        ? ArrowUpZA
+        : ArrowUpDown;
+  const sortStateLabel =
+    librarySortDirection === 'asc'
+      ? t('dashboard.addCard.sort.ascending')
+      : librarySortDirection === 'desc'
+        ? t('dashboard.addCard.sort.descending')
+        : t('dashboard.addCard.sort.default');
   const selectedTemplate = cardTemplates.find((template) => template.id === selectedType);
   const sizeOptions = selectedTemplate?.supportedSizes ?? [];
   const roomLabel = isAllRooms(currentRoom) ? t('dashboard.addCard.allRooms') : currentRoom;
@@ -92,7 +147,7 @@ export function AddCardDialogView({
 
   return (
     <BaseCardDialog
-      variant="modal"
+      variant="fullscreen"
       isOpen={open}
       onOpenChange={(nextOpen) => {
         if (!nextOpen) {
@@ -103,238 +158,391 @@ export function AddCardDialogView({
       description={heroTitle}
       theme={theme}
       disableOpenAutoFocus
-      maxWidth="md"
-      height="capped"
-      bodyPadding={false}
-      shellBodyClassName="flex min-h-0 flex-1 flex-col"
+      contentClassName={`md:left-1/2 md:right-auto md:w-[calc(100%-4rem)] md:max-w-[1200px] md:-translate-x-1/2 ${surface.shellPanel} ${surface.border}`}
+      contentStyle={getUiKitGlassSurfaceFoundationStyle(theme)}
+      shellBodyClassName="h-full min-h-0"
     >
-      <div className="max-h-[85vh] w-full min-w-0 overflow-y-auto">
-        <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-          <div
-            className={`sticky top-0 z-10 px-4 pt-2 sm:px-5 sm:pt-5 ${
-              theme === 'glass' ? 'bg-transparent' : 'bg-inherit/95 backdrop-blur-xl'
-            }`}
-          >
-            <CardDialogHeader
-              title={t('dashboard.addCard.title')}
-              description={heroTitle}
-              theme={theme}
-              editableTitle={false}
-              showRoomSelector={false}
-              className="mb-0"
-            />
+      <NavigationWorkspace.Frame
+        aria-label={t('dashboard.addCard.title')}
+        className="h-full max-h-full rounded-none border-0 bg-none bg-transparent shadow-none"
+      >
+        <NavigationWorkspace.Header
+          data-add-card-header
+          className={cn(
+            coverSheetHeaderClassName,
+            'z-10 shrink-0 border-b pt-[calc(env(safe-area-inset-top,0px)+0.75rem)]',
+            borderColor,
+            theme === 'glass' ? 'bg-transparent' : 'bg-inherit/95 backdrop-blur-xl'
+          )}
+        >
+          <CardDialogHeader
+            title={t('dashboard.addCard.title')}
+            description={heroTitle}
+            theme={theme}
+            editableTitle={false}
+            showRoomSelector={false}
+            className="mb-0"
+          />
 
-            {showCardsTab ? (
-              <div className="mt-3 flex flex-wrap gap-2">
-                <InteractivePill
-                  active={activeTab === 'cards'}
-                  icon={Layers2}
-                  intent="navigation"
-                  size="compact"
-                  onClick={() => setActiveTab('cards')}
-                  className="justify-start rounded-full px-3.5 text-left"
-                >
-                  <span className="text-sm font-semibold">{t('dashboard.addCard.tab.cards')}</span>
-                </InteractivePill>
+          {showCardsTab ? (
+            <div className="mt-3 flex flex-wrap gap-2 md:hidden">
+              <InteractivePill
+                active={activeTab === 'cards'}
+                icon={Layers2}
+                intent="navigation"
+                size="compact"
+                onClick={() => {
+                  setActiveTab('cards');
+                  setSelectedLibraryEntityType(null);
+                }}
+                className="justify-start rounded-full px-3.5 text-left"
+              >
+                <span className="font-normal">{t('dashboard.addCard.tab.cards')}</span>
+              </InteractivePill>
 
-                <InteractivePill
-                  active={activeTab === 'widgets'}
-                  icon={Sparkles}
-                  intent="navigation"
-                  size="compact"
-                  onClick={() => setActiveTab('widgets')}
-                  className="justify-start rounded-full px-3.5 text-left"
-                >
-                  <span className="text-sm font-semibold">
-                    {t('dashboard.addCard.tab.widgets')}
-                  </span>
-                </InteractivePill>
-              </div>
-            ) : null}
-          </div>
+              <InteractivePill
+                active={activeTab === 'widgets'}
+                icon={Sparkles}
+                intent="navigation"
+                size="compact"
+                onClick={() => setActiveTab('widgets')}
+                className="justify-start rounded-full px-3.5 text-left"
+              >
+                <span className="font-normal">{t('dashboard.addCard.tab.widgets')}</span>
+              </InteractivePill>
+            </div>
+          ) : null}
+        </NavigationWorkspace.Header>
 
-          <div
-            className={
-              activeTab === 'cards'
-                ? 'min-h-0 flex-1 overflow-y-auto px-4 py-4 sm:px-5 sm:py-5'
-                : 'px-4 py-4 sm:px-5 sm:py-5'
-            }
-          >
-            {activeTab === 'cards' ? (
-              <div className="space-y-4">
-                <div className="relative">
-                  <HeaderSearchInput
-                    activeColorValue={accent}
-                    hoverBg={hoverBg}
-                    inputBg={cardBg}
-                    isSearchActive={hasLibraryQuery}
-                    isSearchFocused={isSearchFocused}
-                    onBlur={() => setIsSearchFocused(false)}
-                    onChange={setLibraryQuery}
-                    onClear={() => setLibraryQuery('')}
-                    onFocus={() => setIsSearchFocused(true)}
-                    placeholder={t('dashboard.addCard.searchPlaceholder')}
-                    query={libraryQuery}
-                    textPrimary={textColor}
-                    textSecondary={mutedColor}
-                    widthClassName={`rounded-[18px] pr-34 sm:pr-40 ${borderColor}`}
-                  />
-                  {!hasLibraryQuery ? (
-                    <span
-                      className={`pointer-events-none absolute right-4 top-1/2 hidden -translate-y-1/2 text-[0.7rem] font-medium sm:block ${mutedColor}`}
-                    >
-                      {searchCountLabel}
-                    </span>
-                  ) : null}
-                </div>
-
-                <DashboardLibraryList
-                  cards={filteredLibraryCards}
-                  surface={surface}
-                  accentColor={accent}
-                  iconBackground={dialogSurface.iconBackground}
-                  tileBackground={cardBg}
-                  tileBorder={dialogSurface.tileBorder}
-                  emptyText={t('dashboard.addCard.libraryEmpty')}
-                  onAdd={handleAddFromLibrary}
-                  height={360}
-                />
-              </div>
-            ) : (
-              <div className="max-sm:max-h-[24rem] max-sm:overflow-y-auto">
-                {selectedTemplate ? (
-                  <div className="animate-in slide-in-from-right-4 fade-in space-y-5 duration-200">
-                    <button
-                      type="button"
-                      onClick={() => setSelectedType(null)}
-                      className={`inline-flex items-center gap-2 rounded-full border px-3 py-2 text-xs font-semibold transition-colors ${borderColor} ${cardBg} ${hoverBg} ${textColor}`}
-                    >
-                      <ArrowLeft className="h-3.5 w-3.5" />
-                      {t('dashboard.onboarding.back')}
-                    </button>
-
-                    <div
-                      className="flex items-center gap-3.5 rounded-[18px] border px-3.5 py-3"
-                      style={{
-                        backgroundColor: cardBg,
-                        borderColor: dialogSurface.tileBorder,
+        <NavigationWorkspace.Body
+          className={
+            showCardsTab ? 'grid-cols-1 md:grid-cols-[16rem_minmax(0,1fr)]' : 'grid-cols-1'
+          }
+        >
+          {showCardsTab ? (
+            <NavigationWorkspace.Sidebar className="hidden md:block">
+              <NavigationWorkspace.ScrollArea className="p-4">
+                <nav aria-label={t('dashboard.addCard.title')} className="grid gap-1">
+                  <NavigationWorkspace.Item
+                    active={cardsTabActive && selectedLibraryEntityType === null}
+                    accentColor={accent}
+                  >
+                    <NavigationWorkspace.ItemButton
+                      aria-current={
+                        cardsTabActive && selectedLibraryEntityType === null ? 'page' : undefined
+                      }
+                      onClick={() => {
+                        setActiveTab('cards');
+                        setSelectedLibraryEntityType(null);
                       }}
                     >
-                      <div
-                        className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg"
-                        style={{ backgroundColor: dialogSurface.iconBackground, color: accent }}
+                      <NavigationWorkspace.ItemIcon>
+                        <Layers2 className="h-4 w-4" />
+                      </NavigationWorkspace.ItemIcon>
+                      <NavigationWorkspace.ItemText
+                        title={
+                          <span className="font-normal">{t('dashboard.addCard.tab.cards')}</span>
+                        }
+                        description={t('dashboard.addCard.librarySummary.available', {
+                          count: libraryEntityCount,
+                        })}
+                      />
+                    </NavigationWorkspace.ItemButton>
+                  </NavigationWorkspace.Item>
+
+                  {libraryEntityTypes.map((entityType) => {
+                    const EntityTypeIcon = entityType.icon ?? Layers2;
+                    const active = cardsTabActive && selectedLibraryEntityType === entityType.key;
+
+                    return (
+                      <NavigationWorkspace.Item
+                        key={entityType.key}
+                        active={active}
+                        accentColor={accent}
                       >
-                        <span className="[&_svg]:h-4 [&_svg]:w-4">{selectedTemplate.icon}</span>
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <h3 className={`truncate text-sm font-semibold ${textColor}`}>
-                          {t(selectedTemplate.nameKey)}
-                        </h3>
-                        <p className={`mt-1.5 text-xs ${mutedColor}`}>
-                          {t(selectedTemplate.descriptionKey)}
-                        </p>
-                      </div>
+                        <NavigationWorkspace.ItemButton
+                          aria-current={active ? 'page' : undefined}
+                          onClick={() => {
+                            setActiveTab('cards');
+                            setSelectedLibraryEntityType(entityType.key);
+                          }}
+                        >
+                          <NavigationWorkspace.ItemIcon>
+                            <EntityTypeIcon className="h-4 w-4" />
+                          </NavigationWorkspace.ItemIcon>
+                          <NavigationWorkspace.ItemText
+                            title={entityType.label}
+                            description={t('dashboard.addCard.librarySummary.available', {
+                              count: entityType.count,
+                            })}
+                          />
+                        </NavigationWorkspace.ItemButton>
+                      </NavigationWorkspace.Item>
+                    );
+                  })}
+
+                  <NavigationWorkspace.Separator className="my-2" />
+
+                  <NavigationWorkspace.Item active={!cardsTabActive} accentColor={accent}>
+                    <NavigationWorkspace.ItemButton
+                      aria-current={!cardsTabActive ? 'page' : undefined}
+                      onClick={() => setActiveTab('widgets')}
+                    >
+                      <NavigationWorkspace.ItemIcon>
+                        <Sparkles className="h-4 w-4" />
+                      </NavigationWorkspace.ItemIcon>
+                      <NavigationWorkspace.ItemText
+                        title={
+                          <span className="font-normal">{t('dashboard.addCard.tab.widgets')}</span>
+                        }
+                      />
+                    </NavigationWorkspace.ItemButton>
+                  </NavigationWorkspace.Item>
+                </nav>
+              </NavigationWorkspace.ScrollArea>
+            </NavigationWorkspace.Sidebar>
+          ) : null}
+
+          <NavigationWorkspace.Content className="flex min-h-0 flex-col px-4 py-4 sm:px-5 sm:py-5">
+            <div className="min-h-0 flex-1">
+              {activeTab === 'cards' ? (
+                <div className="flex h-full min-h-0 flex-col">
+                  <div className="flex shrink-0 items-center gap-2.5">
+                    <div className="relative min-w-0 flex-1">
+                      <HeaderSearchInput
+                        activeColorValue={accent}
+                        hoverBg={hoverBg}
+                        inputBg={cardBg}
+                        isSearchActive={hasLibraryQuery}
+                        isSearchFocused={isSearchFocused}
+                        onBlur={() => setIsSearchFocused(false)}
+                        onChange={setLibraryQuery}
+                        onClear={() => setLibraryQuery('')}
+                        onFocus={() => setIsSearchFocused(true)}
+                        placeholder={t('dashboard.addCard.searchPlaceholder')}
+                        query={libraryQuery}
+                        textPrimary={textColor}
+                        textSecondary={mutedColor}
+                        widthClassName={`rounded-[18px] placeholder:font-normal sm:pr-40 ${borderColor}`}
+                      />
+                      {!hasLibraryQuery ? (
+                        <span
+                          className={`pointer-events-none absolute right-4 top-1/2 hidden -translate-y-1/2 text-[0.7rem] font-medium sm:block ${mutedColor}`}
+                        >
+                          {searchCountLabel}
+                        </span>
+                      ) : null}
                     </div>
 
-                    <h3 className={`text-sm font-medium ${textColor}`}>
-                      {t('dashboard.addCard.chooseSize')}
-                    </h3>
-                    <div className="grid grid-cols-3 gap-3 sm:grid-cols-4">
-                      {sizeOptions.map((size) => (
-                        <button
-                          type="button"
-                          key={size}
-                          onClick={() => setSelectedSize(size)}
-                          className={`rounded-[20px] border p-3 transition-[color,background-color,border-color,box-shadow,opacity,transform,filter] ${hoverBg}`}
-                          style={{
-                            borderColor:
-                              selectedSize === size ? `${accent}55` : dialogSurface.tileBorder,
-                            backgroundColor: selectedSize === size ? `${accent}10` : cardBg,
-                          }}
+                    <IconButton
+                      label={`${t('dashboard.addCard.sort.label')}: ${sortStateLabel}`}
+                      icon={<SortIcon className="h-4 w-4" aria-hidden="true" />}
+                      size="small"
+                      variant={librarySortDirection === null ? 'subtle' : 'secondary'}
+                      data-sort-direction={librarySortDirection ?? 'none'}
+                      aria-pressed={librarySortDirection !== null}
+                      onClick={() =>
+                        setLibrarySortDirection(
+                          librarySortDirection === null
+                            ? 'asc'
+                            : librarySortDirection === 'asc'
+                              ? 'desc'
+                              : null
+                        )
+                      }
+                      className="shrink-0"
+                    />
+
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <IconButton
+                          label={
+                            selectedLibraryRoom
+                              ? `${t('dashboard.addCard.filter.label')}: ${selectedLibraryRoom}`
+                              : t('dashboard.addCard.filter.label')
+                          }
+                          icon={<ListFilter className="h-4 w-4" aria-hidden="true" />}
+                          size="small"
+                          variant={selectedLibraryRoom === null ? 'subtle' : 'secondary'}
+                          className="shrink-0"
+                        />
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end" sideOffset={8} className="min-w-48">
+                        <DropdownMenuLabel>{t('dashboard.addCard.filter.label')}</DropdownMenuLabel>
+                        <DropdownMenuRadioGroup
+                          value={selectedLibraryRoom ?? '__all__'}
+                          onValueChange={(room) =>
+                            setSelectedLibraryRoom(room === '__all__' ? null : room)
+                          }
                         >
-                          <div className="text-center">
-                            <div
-                              className="mx-auto mb-2.5 flex h-12 items-center justify-center rounded-[14px]"
-                              style={{ backgroundColor: sizePreviewTileBg }}
-                            >
-                              <div
-                                className="rounded"
-                                style={{
-                                  ...(() => {
-                                    const { cols, rows } = getCardSizeRatio(size);
-                                    return { width: cols * 18, height: rows * 18 };
-                                  })(),
-                                  backgroundColor:
-                                    selectedSize === size ? accent : inactiveSizeSwatchBg,
-                                }}
-                              />
-                            </div>
-                            <p className={`text-xs font-medium ${textColor}`}>
-                              {t(cardSizeKey(size))}
-                            </p>
-                          </div>
-                        </button>
-                      ))}
-                    </div>
+                          <DropdownMenuRadioItem value="__all__">
+                            {t('dashboard.addCard.tab.cards')}
+                          </DropdownMenuRadioItem>
+                          {libraryRooms.map((room) => (
+                            <DropdownMenuRadioItem key={room} value={room}>
+                              {room}
+                            </DropdownMenuRadioItem>
+                          ))}
+                        </DropdownMenuRadioGroup>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
                   </div>
-                ) : (
-                  <div className="animate-in slide-in-from-left-4 fade-in duration-200">
-                    <h3 className={`mb-3 text-sm font-medium ${textColor}`}>
-                      {t('dashboard.addCard.chooseType')}
-                    </h3>
-                    <div className="grid grid-cols-1 gap-2.5">
-                      {cardTemplates.map((template) => (
-                        <button
-                          type="button"
-                          key={template.id}
-                          onClick={() => {
-                            setSelectedType(template.id);
-                            setSelectedSize(template.defaultSize);
-                          }}
-                          className={`flex w-full items-center gap-3.5 rounded-[18px] border px-3.5 py-3 text-left transition-colors ${hoverBg}`}
-                          style={{
-                            backgroundColor: cardBg,
-                            borderColor: dialogSurface.tileBorder,
-                          }}
-                        >
-                          <div
-                            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg"
-                            style={{ backgroundColor: dialogSurface.iconBackground }}
+
+                  <div className="min-h-0 flex-1 pt-3">
+                    <DashboardLibraryList
+                      cards={filteredLibraryCards}
+                      surface={surface}
+                      addLabel={t('dashboard.addEntity.action')}
+                      emptyText={t('dashboard.addCard.libraryEmpty')}
+                      onAdd={handleAddFromLibrary}
+                      fillAvailable
+                    />
+                  </div>
+                </div>
+              ) : (
+                <div className="h-full min-h-0 overflow-y-auto">
+                  {selectedTemplate ? (
+                    <div className="animate-in slide-in-from-right-4 fade-in mx-auto max-w-4xl space-y-5 duration-200">
+                      <div
+                        className="flex items-start gap-3.5 rounded-[18px] border px-3.5 py-3"
+                        style={{
+                          backgroundColor: cardBg,
+                          borderColor: dialogSurface.tileBorder,
+                        }}
+                      >
+                        <NavigationWorkspace.ItemIcon>
+                          <span className="[&_svg]:h-4 [&_svg]:w-4">{selectedTemplate.icon}</span>
+                        </NavigationWorkspace.ItemIcon>
+                        <div className="min-w-0 flex-1">
+                          <h3 className={`truncate text-sm font-semibold ${textColor}`}>
+                            {t(selectedTemplate.nameKey)}
+                          </h3>
+                          <p className={`mt-1.5 text-xs ${mutedColor}`}>
+                            {t(selectedTemplate.descriptionKey)}
+                          </p>
+                        </div>
+                      </div>
+
+                      <h3 className={`text-sm font-medium ${textColor}`}>
+                        {t('dashboard.addCard.chooseSize')}
+                      </h3>
+                      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+                        {sizeOptions.map((size) => (
+                          <button
+                            type="button"
+                            key={size}
+                            onClick={() => setSelectedSize(size)}
+                            className={`rounded-[20px] border p-3 transition-[color,background-color,border-color,box-shadow,opacity,transform,filter] ${hoverBg}`}
+                            style={{
+                              borderColor:
+                                selectedSize === size ? `${accent}55` : dialogSurface.tileBorder,
+                              backgroundColor: selectedSize === size ? `${accent}10` : cardBg,
+                            }}
                           >
-                            <span className={`${mutedColor} [&_svg]:h-4 [&_svg]:w-4`}>
+                            <div className="text-center">
+                              <div
+                                className="mx-auto mb-2.5 flex h-12 items-center justify-center rounded-[14px]"
+                                style={{ backgroundColor: sizePreviewTileBg }}
+                              >
+                                <div
+                                  className="rounded"
+                                  style={{
+                                    ...(() => {
+                                      const { cols, rows } = getCardSizeRatio(size);
+                                      return { width: cols * 18, height: rows * 18 };
+                                    })(),
+                                    backgroundColor:
+                                      selectedSize === size ? accent : inactiveSizeSwatchBg,
+                                  }}
+                                />
+                              </div>
+                              <p className={`text-xs font-medium ${textColor}`}>
+                                {t(cardSizeKey(size))}
+                              </p>
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="animate-in slide-in-from-left-4 fade-in duration-200">
+                      <h3 className={`mb-3 text-sm font-medium ${textColor}`}>
+                        {t('dashboard.addCard.chooseType')}
+                      </h3>
+                      <div
+                        className={cn('overflow-hidden rounded-[24px] border', surface.border)}
+                        data-custom-card-list
+                      >
+                        {cardTemplates.map((template, index) => (
+                          <button
+                            type="button"
+                            key={template.id}
+                            onClick={() => {
+                              setSelectedType(template.id);
+                              setSelectedSize(template.defaultSize);
+                            }}
+                            className={cn(
+                              'flex min-h-14 w-full items-start gap-3 px-4 py-3 text-left transition-colors motion-reduce:transition-none',
+                              hoverBg,
+                              getThemeFocusRingClassName(theme),
+                              index > 0 ? `border-t ${surface.border}` : ''
+                            )}
+                          >
+                            <span
+                              className={cn(
+                                'flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl border [&_svg]:h-4 [&_svg]:w-4',
+                                surface.iconBg,
+                                surface.borderStrong,
+                                surface.textSecondary
+                              )}
+                              aria-hidden="true"
+                            >
                               {template.icon}
                             </span>
-                          </div>
-                          <div className="min-w-0 flex-1">
-                            <h4 className={`truncate text-sm font-semibold ${textColor}`}>
-                              {t(template.nameKey)}
-                            </h4>
-                            <p className={`mt-1.5 text-xs ${mutedColor}`}>
-                              {t(template.descriptionKey)}
-                            </p>
-                          </div>
-                        </button>
-                      ))}
+                            <div className="min-w-0 flex-1">
+                              <h4 className={`truncate text-sm font-medium ${textColor}`}>
+                                {t(template.nameKey)}
+                              </h4>
+                              <p
+                                className={`mt-1 whitespace-normal break-words text-xs leading-4 ${surface.textMuted}`}
+                              >
+                                {t(template.descriptionKey)}
+                              </p>
+                            </div>
+                            <ChevronRight
+                              className={cn('mt-2.5 h-4 w-4 shrink-0', surface.textMuted)}
+                              aria-hidden="true"
+                            />
+                          </button>
+                        ))}
+                      </div>
                     </div>
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
+                  )}
+                </div>
+              )}
+            </div>
 
-          {activeTab === 'widgets' && selectedTemplate ? (
-            <DialogFooter className="mt-0 shrink-0 px-5 pb-4">
-              <Button
-                type="button"
-                onClick={handleAdd}
-                className="w-full sm:w-auto sm:min-w-[10rem]"
+            {activeTab === 'widgets' && selectedTemplate ? (
+              <DialogFooter
+                className={`mt-4 shrink-0 !flex-nowrap !justify-between border-t pt-4 ${borderColor}`}
               >
-                {t('dashboard.addCard.action')}
-              </Button>
-            </DialogFooter>
-          ) : null}
-        </div>
-      </div>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  leading={<ArrowLeft className="h-4 w-4" aria-hidden="true" />}
+                  onClick={() => setSelectedType(null)}
+                  className="shrink-0"
+                >
+                  {t('dashboard.onboarding.back')}
+                </Button>
+                <Button type="button" onClick={handleAdd} className="shrink-0">
+                  {t('dashboard.addCard.action')}
+                </Button>
+              </DialogFooter>
+            ) : null}
+          </NavigationWorkspace.Content>
+        </NavigationWorkspace.Body>
+      </NavigationWorkspace.Frame>
     </BaseCardDialog>
   );
 }

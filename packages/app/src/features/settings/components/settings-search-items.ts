@@ -159,6 +159,12 @@ const SETTINGS: SearchSettingDefinition[] = [
     descriptionKey: 'settings.dashboard.summaryBarScope.description',
   },
   {
+    id: 'dashboard-chores',
+    sectionId: 'dashboard',
+    labelKey: 'settings.dashboard.chores.title',
+    descriptionKey: 'settings.dashboard.chores.description',
+  },
+  {
     id: 'dashboard-kiosk-mode',
     sectionId: 'dashboard',
     labelKey: 'settings.dashboard.kioskMode.title',
@@ -253,6 +259,12 @@ const SETTINGS: SearchSettingDefinition[] = [
     sectionId: 'project',
     labelKey: 'settings.project.credits.title',
     descriptionKey: 'settings.project.credits.description',
+  },
+  {
+    id: 'project-community',
+    sectionId: 'project',
+    labelKey: 'settings.project.community.title',
+    descriptionKey: 'settings.project.community.description',
   },
   {
     id: 'project-license',

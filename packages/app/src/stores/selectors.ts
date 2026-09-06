@@ -26,6 +26,8 @@ function getEntitySetting<T>(record: Record<string, T>, entityId: string): T | u
   return record[canonicalEntityId] ?? record[entityId];
 }
 
+const EMPTY_STRING_ARRAY: string[] = [];
+
 /**
  * Global app error overlay (`ErrorDisplay`) — distinct from HA connection errors.
  */
@@ -125,6 +127,7 @@ export const settingsSelectors = {
   showNotifications: (state: SettingsState) => state.showNotifications,
   showWeatherInHeader: (state: SettingsState) => state.showWeatherInHeader,
   showHomeSummaryBar: (state: SettingsState) => state.showHomeSummaryBar,
+  choresEnabled: (state: SettingsState) => state.choresEnabled,
   keepDeviceAwake: (state: SettingsState) => state.keepDeviceAwake,
   use24HourTime: (state: SettingsState) => state.use24HourTime,
   temperatureUnit: (state: SettingsState) => state.temperatureUnit,
@@ -156,6 +159,10 @@ export const settingsSelectors = {
   cameraFitMode: (state: SettingsState) => state.cameraFitMode,
   cameraFitModeForEntity: (entityId: string) => (state: SettingsState) =>
     getEntitySetting(state.cameraFitModes, entityId) ?? state.cameraFitMode,
+  cameraFullscreenHiddenAccessoryIdsForEntity: (entityId: string) => (state: SettingsState) =>
+    getEntitySetting(state.cameraFullscreenHiddenAccessoryIds, entityId) ?? EMPTY_STRING_ARRAY,
+  cameraFullscreenVisibleAccessoryIdsForEntity: (entityId: string) => (state: SettingsState) =>
+    getEntitySetting(state.cameraFullscreenVisibleAccessoryIds, entityId) ?? EMPTY_STRING_ARRAY,
   ambientLightBleed: (state: SettingsState) => state.ambientLightBleed,
   weatherForecastMode: (state: SettingsState) => state.weatherForecastMode,
   weatherMetricIds: (state: SettingsState) => state.weatherMetricIds,
@@ -171,6 +178,8 @@ export const settingsSelectors = {
   updateCameraDirectStreamUrl: (state: SettingsState) => state.updateCameraDirectStreamUrl,
   updateCameraFitMode: (state: SettingsState) => state.updateCameraFitMode,
   setEntityDisplayName: (state: SettingsState) => state.setEntityDisplayName,
+  updateCameraFullscreenAccessoryVisibility: (state: SettingsState) =>
+    state.updateCameraFullscreenAccessoryVisibility,
   resetSettings: (state: SettingsState) => state.resetSettings,
 
   // Combined selectors
@@ -180,6 +189,7 @@ export const settingsSelectors = {
     headerCustomText: state.headerCustomText,
     headerGreetingName: state.headerGreetingName,
     showHomeSummaryBar: state.showHomeSummaryBar,
+    choresEnabled: state.choresEnabled,
     keepDeviceAwake: state.keepDeviceAwake,
     use24HourTime: state.use24HourTime,
     temperatureUnit: state.temperatureUnit,

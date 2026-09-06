@@ -1,6 +1,6 @@
 import { SummaryBar } from '@navet/app/features/sensors';
-import type { Meta, StoryObj } from '@storybook/react';
-import { Clipboard, Fan, Lightbulb, Lock, Speaker, Zap } from 'lucide-react';
+import type { Meta, StoryObj } from '@storybook/react-vite';
+import { Clipboard, ClipboardCheck, Fan, Lightbulb, Lock, Speaker, Zap } from 'lucide-react';
 import type { HomeStatusSummaryItem } from './home-status-summary-model';
 
 const items: HomeStatusSummaryItem[] = [
@@ -52,6 +52,14 @@ const items: HomeStatusSummaryItem[] = [
     iconColor: '#a78bfa',
     targetSection: 'tasks',
   },
+  {
+    id: 'chores',
+    title: 'Chores',
+    value: '4 remaining',
+    icon: ClipboardCheck,
+    iconColor: '#fb923c',
+    targetSection: 'tasks',
+  },
 ];
 
 function SummaryBarStory({ items: storyItems }: { items: HomeStatusSummaryItem[] }) {
@@ -88,23 +96,86 @@ export const Summary: Story = {
 
 export const RoomSummary: Story = {
   args: {
-    items: items
-      .slice(0, 3)
-      .map((item) =>
-        item.id === 'climate'
-          ? { ...item, value: '23°' }
-          : item.id === 'lights'
-            ? { ...item, value: '2 On' }
-            : item
-      ),
+    items: [
+      ...items
+        .slice(0, 3)
+        .map((item) =>
+          item.id === 'climate'
+            ? { ...item, value: '23°' }
+            : item.id === 'lights'
+              ? { ...item, value: '2 On' }
+              : item
+        ),
+      items.find((item) => item.id === 'chores'),
+    ].filter((item): item is HomeStatusSummaryItem => Boolean(item)),
   },
 };
 
 export const SecurityAlert: Story = {
   args: {
     items: items.map((item) =>
-      item.id === 'security' ? { ...item, value: '2 Alerts', iconColor: '#f87171' } : item
+      item.id === 'security'
+        ? { ...item, value: '2 Alerts', iconColor: '#f87171', tone: 'danger' }
+        : item
     ),
+  },
+};
+
+export const OverdueChores: Story = {
+  args: {
+    items: items.map((item) =>
+      item.id === 'chores'
+        ? {
+            ...item,
+            value: '4 overdue',
+            iconColor: '#f87171',
+            tone: 'danger',
+          }
+        : item
+    ),
+  },
+};
+
+export const PriorityOrdering: Story = {
+  args: {
+    items: [
+      items[0],
+      {
+        ...items[5],
+        value: '1 unavailable',
+        priority: 'attention',
+        tone: 'warning',
+      },
+      items[1],
+      {
+        ...items[2],
+        value: 'Smoke detected',
+        priority: 'critical',
+        tone: 'danger',
+      },
+      items[3],
+    ] satisfies HomeStatusSummaryItem[],
+  },
+};
+
+export const SemanticTones: Story = {
+  args: {
+    items: [
+      { ...items[0], tone: 'warning', value: 'Higher than usual' },
+      { ...items[1], tone: 'active', value: 'Heating 2 rooms' },
+      { ...items[2], tone: 'success', value: 'Home secure' },
+      { ...items[4], tone: 'neutral', value: 'None playing' },
+    ] satisfies HomeStatusSummaryItem[],
+  },
+};
+
+export const PhoneOverflow: Story = {
+  args: { items },
+  globals: {
+    viewport: {
+      value: 'iphone14',
+      isRotated: false,
+    },
   },
 };
 

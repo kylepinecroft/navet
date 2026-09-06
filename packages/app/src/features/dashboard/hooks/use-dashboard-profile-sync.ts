@@ -49,6 +49,7 @@ import {
   type DashboardProfileWriteResult,
   loadDashboardProfile,
   loadDashboardProfileClients,
+  rebindDashboardProfileWorkspace,
   saveDashboardProfile,
   touchDashboardClientWithStatus,
 } from '@navet/app/services/dashboard-profile.service';
@@ -72,6 +73,7 @@ const PROFILE_CONFLICT_REMINDER_INTERVAL_MS = 60_000;
 const PROFILE_REMOTE_POLL_BACKOFF_MS = [60_000, 120_000, 300_000] as const;
 
 export const DASHBOARD_PROFILE_REFRESH_EVENT = 'navet:dashboard-profile-refresh';
+export const DASHBOARD_PROFILE_REBIND_EVENT = 'navet:dashboard-profile-rebind';
 
 const SYNC_RELEVANT_PERSISTED_KEYS = new Set<string>([
   STORAGE_KEYS.cardSizes,
@@ -212,6 +214,7 @@ export function useDashboardProfileSync() {
     let applyingRemote = false;
     let saving = false;
     let loadingRemote = false;
+    let rebindingWorkspace = false;
     let pendingLocalChanges = false;
     let refreshAfterAuthentication = false;
     let clientRegistrationPending = false;
@@ -339,21 +342,7 @@ export function useDashboardProfileSync() {
       });
     }
 
-    function notifyRemoteUpdate(result: DashboardProfileLoadResult) {
-      const author = result.metadata?.author;
-      if (!author || author.id === client.id) {
-        return;
-      }
-
-      toast(tRef.current('dashboard.profileSync.updatedTitle'), {
-        description: tRef.current('dashboard.profileSync.updatedDescription', {
-          client: author.name,
-        }),
-        duration: 6_000,
-      });
-    }
-
-    function applyRemoteProfile(result: DashboardProfileLoadResult, notify: boolean) {
+    function applyRemoteProfile(result: DashboardProfileLoadResult) {
       if (!result.profile) {
         return;
       }
@@ -372,9 +361,6 @@ export function useDashboardProfileSync() {
       clearConflict();
       rememberCommonBase(result.profile, result);
       markRemoteSynced(result);
-      if (notify) {
-        notifyRemoteUpdate(result);
-      }
     }
 
     function setRegisteredClients(
@@ -549,7 +535,7 @@ export function useDashboardProfileSync() {
                   const currentConflict = pendingConflict;
                   if (currentConflict) {
                     keepLocalResolution = null;
-                    applyRemoteProfile(currentConflict.remote, false);
+                    applyRemoteProfile(currentConflict.remote);
                   }
                 },
               },
@@ -605,7 +591,7 @@ export function useDashboardProfileSync() {
 
       refreshAfterAuthentication = false;
       clearPollTimeout();
-      void refreshRemote({ forceFull: true, notify: true });
+      void refreshRemote({ forceFull: true });
       return true;
     }
 
@@ -682,7 +668,10 @@ export function useDashboardProfileSync() {
           keepLocalResolution = null;
           writesBlocked = true;
           permanentAccessFailure = true;
-          runtime.markError(tRef.current('dashboard.profileSync.tenantMismatch'));
+          runtime.markError(
+            tRef.current('dashboard.profileSync.tenantMismatch'),
+            DASHBOARD_PROFILE_ERROR_CODES.workspaceTenantMismatch
+          );
           clearPollTimeout();
           return false;
         }
@@ -695,7 +684,7 @@ export function useDashboardProfileSync() {
           return false;
         }
         if (!options.keepalive && (result.preconditionFailed || result.preconditionRequired)) {
-          await refreshRemote({ forceFull: true, notify: true });
+          await refreshRemote({ forceFull: true });
           return false;
         }
 
@@ -714,10 +703,7 @@ export function useDashboardProfileSync() {
       }
     }
 
-    async function handleRemoteResult(
-      result: DashboardProfileLoadResult,
-      options: { initial?: boolean; notify?: boolean } = {}
-    ) {
+    async function handleRemoteResult(result: DashboardProfileLoadResult) {
       const resultWorkspaceId = result.workspace?.workspaceId;
       const currentWorkspaceId = remoteResult?.workspace?.workspaceId;
       const isAuthoritativeUninitializedResult =
@@ -838,14 +824,11 @@ export function useDashboardProfileSync() {
         clearConflict();
         rememberCommonBase(result.profile, result);
         markRemoteSynced(result);
-        if (options.notify) {
-          notifyRemoteUpdate(result);
-        }
         return;
       }
 
       if (reconciliation.kind === 'apply-remote') {
-        applyRemoteProfile(result, options.notify === true);
+        applyRemoteProfile(result);
         return;
       }
 
@@ -867,9 +850,6 @@ export function useDashboardProfileSync() {
         }
         pendingLocalChanges = true;
         markRemoteSynced(result);
-        if (options.notify) {
-          notifyRemoteUpdate(result);
-        }
         await saveProfile(getProfileForSync());
         return;
       }
@@ -882,7 +862,7 @@ export function useDashboardProfileSync() {
       });
     }
 
-    async function refreshRemote(options: { forceFull?: boolean; notify?: boolean } = {}) {
+    async function refreshRemote(options: { forceFull?: boolean } = {}) {
       if (cancelled || loadingRemote || (!options.forceFull && !shouldPoll())) {
         return;
       }
@@ -911,7 +891,10 @@ export function useDashboardProfileSync() {
             writesBlocked = true;
             permanentAccessFailure = true;
             clearPollTimeout();
-            runtime.markError(tRef.current('dashboard.profileSync.tenantMismatch'));
+            runtime.markError(
+              tRef.current('dashboard.profileSync.tenantMismatch'),
+              DASHBOARD_PROFILE_ERROR_CODES.workspaceTenantMismatch
+            );
             return;
           }
           runtime.markError(
@@ -925,9 +908,7 @@ export function useDashboardProfileSync() {
           return;
         }
 
-        await handleRemoteResult(result, {
-          notify: options.notify ?? true,
-        });
+        await handleRemoteResult(result);
         if (clientRegistrationPending) {
           await refreshRegisteredClients(true);
         }
@@ -1035,7 +1016,7 @@ export function useDashboardProfileSync() {
     const handleOnline = () => {
       isOnline = true;
       syncCurrentLocalState();
-      void refreshRemote({ notify: true });
+      void refreshRemote();
     };
     const handleOffline = () => {
       isOnline = false;
@@ -1056,7 +1037,7 @@ export function useDashboardProfileSync() {
         showConflict(pendingConflict);
       }
       syncCurrentLocalState();
-      void refreshRemote({ notify: true });
+      void refreshRemote();
     };
     const handlePageHide = () => {
       if (pendingLocalChanges) {
@@ -1078,7 +1059,52 @@ export function useDashboardProfileSync() {
       }
       clearPollTimeout();
       runtime.markLoading();
-      void refreshRemote({ forceFull: true, notify: true });
+      void refreshRemote({ forceFull: true });
+    };
+    const handleRebindRequest = async () => {
+      if (cancelled || saving || rebindingWorkspace) {
+        return;
+      }
+
+      rebindingWorkspace = true;
+      runtime.markSaving();
+      const profile = getProfileForSync();
+      try {
+        const result = await rebindDashboardProfileWorkspace(profile, client);
+        if (cancelled) {
+          return;
+        }
+        if (!result.saved) {
+          runtime.markError(
+            tRef.current('dashboard.profileSync.tenantMismatch'),
+            result.failureCode ?? DASHBOARD_PROFILE_ERROR_CODES.workspaceTenantMismatch
+          );
+          return;
+        }
+
+        writesBlocked = false;
+        permanentAccessFailure = false;
+        pendingLocalChanges = false;
+        failureCount = 0;
+        const refreshed = await loadDashboardProfile();
+        if (!refreshed.available || cancelled) {
+          runtime.markError(tRef.current('dashboard.profileSync.unavailable'));
+          return;
+        }
+        remoteResult = refreshed;
+        rememberCommonBase(profile, refreshed);
+        markRemoteSynced(refreshed);
+        void refreshRegisteredClients(true);
+        schedulePoll();
+      } catch (error) {
+        console.warn('[DashboardProfile] Unable to recover shared dashboard sync:', error);
+        runtime.markError(
+          tRef.current('dashboard.profileSync.tenantMismatch'),
+          DASHBOARD_PROFILE_ERROR_CODES.workspaceTenantMismatch
+        );
+      } finally {
+        rebindingWorkspace = false;
+      }
     };
     const handleAuthSessionRefreshed = (event: Event) => {
       const detail = (event as CustomEvent<AuthSessionRefreshedEventDetail>).detail;
@@ -1090,7 +1116,7 @@ export function useDashboardProfileSync() {
         refreshAfterAuthentication = true;
         return;
       }
-      void refreshRemote({ forceFull: true, notify: true });
+      void refreshRemote({ forceFull: true });
     };
 
     window.addEventListener(PERSISTED_STATE_EVENT, handlePersistedState as EventListener);
@@ -1100,6 +1126,7 @@ export function useDashboardProfileSync() {
     window.addEventListener('pagehide', handlePageHide);
     window.addEventListener(DASHBOARD_CLIENT_IDENTITY_EVENT, handleIdentityChange as EventListener);
     window.addEventListener(DASHBOARD_PROFILE_REFRESH_EVENT, handleRefreshRequest);
+    window.addEventListener(DASHBOARD_PROFILE_REBIND_EVENT, handleRebindRequest);
     window.addEventListener(
       AUTH_SESSION_REFRESHED_EVENT,
       handleAuthSessionRefreshed as EventListener
@@ -1127,7 +1154,10 @@ export function useDashboardProfileSync() {
         if (result.failureCode === DASHBOARD_PROFILE_ERROR_CODES.workspaceTenantMismatch) {
           writesBlocked = true;
           permanentAccessFailure = true;
-          runtime.markError(tRef.current('dashboard.profileSync.tenantMismatch'));
+          runtime.markError(
+            tRef.current('dashboard.profileSync.tenantMismatch'),
+            DASHBOARD_PROFILE_ERROR_CODES.workspaceTenantMismatch
+          );
         } else if (
           clientTouch.failureCode === DASHBOARD_PROFILE_ERROR_CODES.clientBindingMismatch
         ) {
@@ -1135,7 +1165,7 @@ export function useDashboardProfileSync() {
           permanentAccessFailure = true;
           runtime.markError(tRef.current('dashboard.profileSync.unavailable'));
         } else if (result.available) {
-          await handleRemoteResult(result, { initial: true, notify: false });
+          await handleRemoteResult(result);
         } else {
           runtime.markError(
             tRef.current(
@@ -1181,6 +1211,7 @@ export function useDashboardProfileSync() {
         handleIdentityChange as EventListener
       );
       window.removeEventListener(DASHBOARD_PROFILE_REFRESH_EVENT, handleRefreshRequest);
+      window.removeEventListener(DASHBOARD_PROFILE_REBIND_EVENT, handleRebindRequest);
       window.removeEventListener(
         AUTH_SESSION_REFRESHED_EVENT,
         handleAuthSessionRefreshed as EventListener

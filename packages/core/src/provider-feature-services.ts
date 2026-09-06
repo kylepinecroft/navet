@@ -10,25 +10,46 @@ import type {
   PlatformCameraLiveState,
   PlatformCameraStream,
   PlatformCameraStreamType,
+  PlatformConversationEvent,
+  PlatformConversationPipelineCollection,
+  PlatformConversationRunHandle,
+  PlatformConversationTextRequest,
+  PlatformConversationVoiceRequest,
   PlatformEnergyEntityMap,
   PlatformEnergyEntityRegistryEntry,
+  PlatformEntityHistoriesRequest,
   PlatformEntityHistoryRequest,
   PlatformEntityHistorySeries,
   PlatformEntityRegistryEntry,
   PlatformEntitySnapshotMap,
   PlatformMediaBrowseResult,
   PlatformMessageClient,
+  PlatformNotificationDeliveryRequest,
   PlatformNotificationRequestOptions,
   PlatformNotificationSnapshot,
   PlatformPersistentNotificationEvent,
   PlatformResolvedMediaSource,
   PlatformRoomReference,
+  PlatformStatisticsHistoryRequest,
+  PlatformStatisticsHistorySeries,
   PlatformTaskRuntimeSnapshot,
   PlatformWeatherForecastEntry,
   PlatformWeatherRequestOptions,
   PlatformWebRtcClientConfiguration,
   PlatformWebRtcOfferEvent,
 } from './provider-feature-models';
+
+export interface ProviderConversationFeatureService {
+  getPipelines: () => Promise<PlatformConversationPipelineCollection>;
+  startTextConversation: (
+    request: PlatformConversationTextRequest,
+    listener: (event: PlatformConversationEvent) => void
+  ) => Promise<PlatformConversationRunHandle>;
+  startVoiceConversation: (
+    request: PlatformConversationVoiceRequest,
+    listener: (event: PlatformConversationEvent) => void
+  ) => Promise<PlatformConversationRunHandle>;
+}
 
 export interface ProviderMediaFeatureService {
   playMedia: (
@@ -169,9 +190,15 @@ export interface ProviderAdminFeatureService extends ProviderRoomAdminFeatureSer
 
 export interface ProviderHistoryFeatureService {
   getMessageClient: () => PlatformMessageClient | null;
+  getEntityHistories?: (
+    request: PlatformEntityHistoriesRequest
+  ) => Promise<PlatformEntityHistorySeries[]>;
   getEntityHistory?: (
     request: PlatformEntityHistoryRequest
   ) => Promise<PlatformEntityHistorySeries>;
+  getStatisticsHistory?: (
+    request: PlatformStatisticsHistoryRequest
+  ) => Promise<PlatformStatisticsHistorySeries>;
   supportsStatisticsHistory?: (entityId: string) => boolean;
   supportsEnergyStatistics?: (entityId: string) => boolean;
 }
@@ -224,6 +251,7 @@ export interface ProviderNotificationFeatureService {
   dismissPersistentNotification: (notificationId: string) => Promise<void>;
   installUpdate: (entityId: string) => Promise<void>;
   restartSystem: () => Promise<void>;
+  sendNotification?: (request: PlatformNotificationDeliveryRequest) => Promise<void>;
 }
 
 export interface ProviderTaskFeatureService {
@@ -235,4 +263,13 @@ export interface ProviderTaskFeatureService {
     rule: HabitRule,
     options?: { name?: string; description?: string }
   ) => Promise<PlatformAutomationCreateResult>;
+}
+
+export interface ProviderChoreProjectionFeatureService {
+  publishSnapshot: (
+    snapshot: import('./chore-projection').ChoreProjectionSnapshot
+  ) => Promise<void>;
+  subscribeActionRequests?: (
+    listener: (request: import('./chore-projection').ChoreProjectionActionRequest) => void
+  ) => Promise<() => void>;
 }

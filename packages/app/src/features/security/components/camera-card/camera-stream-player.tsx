@@ -21,7 +21,7 @@ interface CameraStreamPlayerProps {
   webRtcTitle?: string;
 }
 
-const CAMERA_WEBRTC_NO_FRAME_DEADLINE_MS = 15_000;
+const CAMERA_WEBRTC_NO_FRAME_DEADLINE_MS = 4_000;
 const CAMERA_HLS_STREAM_LOAD_TIMEOUT_MS = 20_000;
 const CAMERA_STREAM_STALL_CHECK_INTERVAL_MS = 2_000;
 const CAMERA_STREAM_STALL_THRESHOLD_MS = 6_000;
@@ -56,15 +56,11 @@ function isHomeAssistantCameraStreamUnsupportedError(error: unknown) {
   );
 }
 
-function applyVideoBaseAttributes(video: HTMLVideoElement, posterUrl: string | undefined) {
+function applyVideoBaseAttributes(video: HTMLVideoElement) {
   video.muted = true;
   video.autoplay = true;
   video.playsInline = true;
-  if (posterUrl) {
-    video.poster = posterUrl;
-  } else {
-    video.removeAttribute('poster');
-  }
+  video.removeAttribute('poster');
 }
 
 function shouldUseNativeHlsPlayback(video: HTMLVideoElement) {
@@ -490,8 +486,8 @@ function HlsCameraPlayer({
       return;
     }
 
-    applyVideoBaseAttributes(video, posterUrl);
-  }, [posterUrl]);
+    applyVideoBaseAttributes(video);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -821,8 +817,8 @@ function WebRtcCameraPlayer({
       return;
     }
 
-    applyVideoBaseAttributes(video, posterUrl);
-  }, [posterUrl]);
+    applyVideoBaseAttributes(video);
+  }, [streamResourceUrl]);
 
   useEffect(() => {
     if (!streamResourceUrl) {

@@ -81,6 +81,7 @@ interface UserSettings {
   showNotifications: boolean;
   showWeatherInHeader: boolean;
   showHomeSummaryBar: boolean;
+  choresEnabled: boolean;
   keepDeviceAwake: boolean;
   use24HourTime: boolean;
   temperatureUnit: 'celsius' | 'fahrenheit';
@@ -104,6 +105,8 @@ interface UserSettings {
   cameraDirectStreamUrls: Record<string, string>;
   cameraFitMode: CameraFitMode;
   cameraFitModes: Record<string, CameraFitMode>;
+  cameraFullscreenHiddenAccessoryIds: Record<string, string[]>;
+  cameraFullscreenVisibleAccessoryIds: Record<string, string[]>;
   ambientLightBleed: boolean;
   weatherForecastMode: WeatherForecastMode;
   weatherMetricIds: WeatherMetricId[];
@@ -120,6 +123,11 @@ export interface SettingsState extends UserSettings {
   updateCameraDirectStreamUrl: (entityId: string, url: string) => void;
   updateCameraFitMode: (entityId: string, mode: CameraFitMode) => void;
   setEntityDisplayName: (entityId: string, name: string | null) => void;
+  updateCameraFullscreenAccessoryVisibility: (
+    cameraEntityId: string,
+    accessoryEntityId: string,
+    visible: boolean
+  ) => void;
   applyImportedSettings: (settings: UserSettings) => void;
   resetSettings: () => void;
 }
@@ -134,6 +142,7 @@ export type CardType =
   | 'energy-now'
   | 'media-stack'
   | 'button'
+  | 'assist'
   | 'map'
   | 'entity';
 

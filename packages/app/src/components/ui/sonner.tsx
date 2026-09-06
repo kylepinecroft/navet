@@ -51,7 +51,7 @@ function getToastToneSurfaceClasses(
   }
 }
 
-const Toaster = ({ ...props }: ToasterProps) => {
+const Toaster = ({ className, style, ...props }: ToasterProps) => {
   const { theme, accentColor } = useTheme();
   const [isMobileViewport, setIsMobileViewport] = useState(false);
   const surface = getThemeSurfaceTokens(theme);
@@ -87,7 +87,7 @@ const Toaster = ({ ...props }: ToasterProps) => {
       expand={!isMobileViewport}
       visibleToasts={isMobileViewport ? 2 : 4}
       closeButton
-      className="toaster group"
+      className={cn('toaster group pointer-events-auto z-[1100]', className)}
       icons={{
         success: <CheckCircle2 className="h-4 w-4" />,
         info: <Info className="h-4 w-4" />,
@@ -122,7 +122,7 @@ const Toaster = ({ ...props }: ToasterProps) => {
               : 'group-data-[type=success]/toast:border-emerald-800 group-data-[type=success]/toast:bg-emerald-900 group-data-[type=success]/toast:text-emerald-100 group-data-[type=error]/toast:border-red-800 group-data-[type=error]/toast:bg-red-900 group-data-[type=error]/toast:text-red-100 group-data-[type=warning]/toast:border-amber-800 group-data-[type=warning]/toast:bg-amber-900 group-data-[type=warning]/toast:text-amber-100 group-data-[type=info]/toast:border-sky-800 group-data-[type=info]/toast:bg-sky-900 group-data-[type=info]/toast:text-sky-100'
           ),
           closeButton: cn(
-            'absolute right-3 top-3 flex h-8 w-8 items-center justify-center rounded-[14px] border transition-colors',
+            'absolute right-3 top-3 flex h-9 w-9 items-center justify-center rounded-[16px] border transition-colors',
             surface.border,
             theme === 'light' ? 'bg-slate-100' : 'bg-zinc-900',
             surface.textMuted,
@@ -176,6 +176,9 @@ const Toaster = ({ ...props }: ToasterProps) => {
       style={
         {
           '--width': isMobileViewport ? 'calc(100vw - 1rem)' : '356px',
+          pointerEvents: 'auto',
+          zIndex: 1100,
+          ...style,
         } as CSSProperties
       }
       {...props}

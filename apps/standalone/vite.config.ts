@@ -30,17 +30,18 @@ import {
   resolveViteAuthenticatedPrincipal,
   resolveViteAuthSession,
   type ViteAuthenticatedPrincipal,
-} from '../../scripts/vite-auth-session-store'
+} from '../../scripts/vite-auth-session-store.ts'
 import {
   createViteDashboardProfileRequestHandler,
   type ViteDashboardProfilePrincipal,
-} from '../../scripts/vite-dashboard-profile-store'
+} from '../../scripts/vite-dashboard-profile-store.ts'
+import { createViteChoreStoreRequestHandler } from '../../scripts/vite-chore-store.ts'
 import {
   createViteInstallationAuthority,
   type ViteInstallationAuthority,
-} from '../../scripts/vite-installation-authority'
-import { createInstallationCookieNames } from '../../scripts/installation-cookie-scope'
-import { normalizeViteProxyTargetPath } from '../../scripts/vite-proxy-path'
+} from '../../scripts/vite-installation-authority.ts'
+import { createInstallationCookieNames } from '../../scripts/installation-cookie-scope.ts'
+import { normalizeViteProxyTargetPath } from '../../scripts/vite-proxy-path.ts'
 import {
   appendHomeyOAuthCallbackMarker,
   appendHomeyOAuthFailureMarker,
@@ -52,7 +53,7 @@ import {
   isConfirmedInvalidHomeyRefreshError,
   normalizeHomeyRefreshTokenPayload,
   type ViteStoredHomeySession,
-} from '../../scripts/vite-homey-session-store'
+} from '../../scripts/vite-homey-session-store.ts'
 import {
   createViteOpenHABSessionStore,
   OPENHAB_SESSION_COOKIE_NAME as OPENHAB_SESSION_COOKIE_BASE_NAME,
@@ -61,8 +62,8 @@ import {
   normalizeOpenHABSessionData,
   toOpenHABBasicAuthHeader,
   type ViteStoredOpenHABSession,
-} from '../../scripts/vite-openhab-session-store'
-import { createViteOpenHABLoginRateLimiter } from '../../scripts/vite-openhab-login-rate-limiter'
+} from '../../scripts/vite-openhab-session-store.ts'
+import { createViteOpenHABLoginRateLimiter } from '../../scripts/vite-openhab-login-rate-limiter.ts'
 import {
   clearViteProviderSessionCookie,
   createViteProviderRequestSession,
@@ -80,23 +81,26 @@ import {
   PROVIDER_SESSION_RECORD_TOO_LARGE_STATUS,
   rotateViteProviderRequestSession,
   setViteProviderSessionCookie,
-} from '../../scripts/vite-provider-session-store'
-import { getVendorChunkName, isLazyHtmlPreload } from '../../scripts/vite-chunking'
+} from '../../scripts/vite-provider-session-store.ts'
+import { getVendorChunkName, isLazyHtmlPreload } from '../../scripts/vite-chunking.ts'
 import {
   createVitePwaCachePolicy,
   deferVitePwaGenerationUntilWriteBundle,
   isNavetRuntimeAssetRequest,
   NAVET_PWA_INCLUDE_ASSETS,
-} from '../../scripts/vite-pwa-cache'
-import { NAVET_INTERNAL_NAVIGATION_PATH_PATTERN } from '../../scripts/vite-pwa-routing'
+} from '../../scripts/vite-pwa-cache.ts'
+import { NAVET_INTERNAL_NAVIGATION_PATH_PATTERN } from '../../scripts/vite-pwa-routing.ts'
 import {
   isAllowedRSSContentType,
   isBlockedRSSHostname,
   isPrivateIpAddress,
-} from '../../packages/app/src/utils/rss-proxy-security'
-import { buildHomeAssistantProxyRequestHeaders } from '../../scripts/vite-proxy-request-headers'
+} from '../../packages/app/src/utils/rss-proxy-security.ts'
+import {
+  buildHomeAssistantProxyRequestHeaders,
+  isHomeAssistantOAuthProxyBodyRequest,
+} from '../../scripts/vite-proxy-request-headers.ts'
 
-const repoRoot = path.resolve(__dirname, '../..')
+const repoRoot = path.resolve(import.meta.dirname, '../..')
 type VitePwaManifestTransform = NonNullable<
   VitePWAOptions['workbox']['manifestTransforms']
 >[number]
@@ -126,6 +130,7 @@ const publicWebManifest = JSON.parse(
   categories: string[]
 }
 const SPOTIFY_TRACK_ID_PATTERN = /^[a-zA-Z0-9]{22}$/
+const HOME_ASSISTANT_OAUTH_BODY_MAX_BYTES = 16 * 1024
 const DISABLED_INSTALLATION_AUTHORITY: ViteInstallationAuthority = {
   authorizeHomeAssistant: () => ({
     allowed: false,
@@ -810,10 +815,49 @@ function homeAssistantProxyPlugin(
         return
       }
 
-      const headers = buildHomeAssistantProxyRequestHeaders(
-        req.headers,
-        authSession.access_token
-      )
+      const forwardsOAuthBody = isHomeAssistantOAuthProxyBodyRequest(req.method, targetPath)
+      const headers = buildHomeAssistantProxyRequestHeaders(req.headers, authSession.access_token, {
+        forwardContentType: forwardsOAuthBody,
+        includeAuthorization: !forwardsOAuthBody,
+      })
+      let body: Uint8Array<ArrayBuffer> | undefined
+      if (forwardsOAuthBody) {
+        const contentType = headers.get('content-type')?.toLowerCase() ?? ''
+        if (
+          !contentType.startsWith('multipart/form-data;') &&
+          contentType !== 'application/x-www-form-urlencoded'
+        ) {
+          res.statusCode = 415
+          res.end('Unsupported Home Assistant OAuth request content type')
+          return
+        }
+
+        const declaredLength = Number.parseInt(String(req.headers['content-length'] ?? ''), 10)
+        if (
+          Number.isFinite(declaredLength) &&
+          declaredLength > HOME_ASSISTANT_OAUTH_BODY_MAX_BYTES
+        ) {
+          res.statusCode = 413
+          res.end('Home Assistant OAuth request is too large')
+          return
+        }
+
+        const chunks: Buffer[] = []
+        let size = 0
+        for await (const chunk of req) {
+          const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)
+          size += buffer.byteLength
+          if (size > HOME_ASSISTANT_OAUTH_BODY_MAX_BYTES) {
+            res.statusCode = 413
+            res.end('Home Assistant OAuth request is too large')
+            return
+          }
+          chunks.push(buffer)
+        }
+        const payload = Buffer.concat(chunks)
+        body = new Uint8Array(payload.byteLength)
+        body.set(payload)
+      }
 
       const abortController = new AbortController()
       const isRawCameraStream = targetPath.startsWith('/api/camera_proxy_stream/')
@@ -832,6 +876,7 @@ function homeAssistantProxyPlugin(
         method: req.method,
         redirect: 'manual',
         headers,
+        body,
         signal: abortController.signal,
       })
 
@@ -1474,6 +1519,25 @@ function dashboardProfileStorePlugin(
 
   return {
     name: 'navet-dashboard-profile-store',
+    configureServer: registerMiddleware,
+    configurePreviewServer: registerMiddleware,
+  }
+}
+
+function choreStorePlugin(
+  resolvePrincipal: (
+    req: IncomingMessage
+  ) => ViteDashboardProfilePrincipal | null | Promise<ViteDashboardProfilePrincipal | null>
+) {
+  const handleRequest = createViteChoreStoreRequestHandler({ resolvePrincipal })
+  const registerMiddleware = (server: ViteDevServer | PreviewServer) => {
+    server.middlewares.use('/__navet_chores__', async (req, res) => {
+      await handleRequest(req, res)
+    })
+  }
+
+  return {
+    name: 'navet-chore-store',
     configureServer: registerMiddleware,
     configurePreviewServer: registerMiddleware,
   }
@@ -2851,6 +2915,18 @@ export default defineConfig(({ command, mode }) => {
           }
         ).api?.resolveAuthenticatedPrincipal?.(req, { trustIngressHeaders: false }) ?? null
     )
+    const resolveAuthenticatedPrincipal = (req: IncomingMessage) =>
+      (
+        authSessionPlugin as PluginOption & {
+          api?: {
+            resolveAuthenticatedPrincipal?: (
+              req: IncomingMessage,
+              options?: { trustIngressHeaders?: boolean }
+            ) => ViteAuthenticatedPrincipal | null
+          }
+        }
+      ).api?.resolveAuthenticatedPrincipal?.(req, { trustIngressHeaders: false }) ?? null
+    const choresPlugin = choreStorePlugin(resolveAuthenticatedPrincipal)
     const homeySessionPlugin = homeySessionStorePlugin(installationAuthority)
     const openhabSessionPlugin = openhabSessionStorePlugin(
       installationAuthority
@@ -2867,6 +2943,7 @@ export default defineConfig(({ command, mode }) => {
       spotifyMetadataPlugin(),
       authSessionPlugin,
       dashboardProfilePlugin,
+      choresPlugin,
       homeySessionPlugin,
       openhabSessionPlugin,
       homeAssistantProxyPlugin(
@@ -2936,7 +3013,7 @@ export default defineConfig(({ command, mode }) => {
             'index.html',
             'offline.html',
             'boot-i18n.js',
-            'assets/*.{css,js,svg}',
+            'assets/*.{css,js,svg,woff2}',
           ],
           manifestTransforms: [
             pwaCachePolicy.manifestTransform as VitePwaManifestTransform,
@@ -2972,7 +3049,10 @@ export default defineConfig(({ command, mode }) => {
 
   function createSharedConfig(overrides: UserConfig): UserConfig {
     return {
-      root: __dirname,
+      root: import.meta.dirname,
+      optimizeDeps: {
+        exclude: ['maplibre-gl'],
+      },
       publicDir: path.resolve(repoRoot, 'assets/public'),
       base: './',
       envPrefix: ['VITE_'],
@@ -3001,7 +3081,7 @@ export default defineConfig(({ command, mode }) => {
       plugins: createAppPlugins(),
       build: {
         ...baseBuildConfig,
-        outDir: config.outDir ?? path.resolve(__dirname, 'dist'),
+        outDir: config.outDir ?? path.resolve(import.meta.dirname, 'dist'),
         emptyOutDir: config.emptyOutDir,
         rollupOptions: {
           ...baseBuildConfig.rollupOptions,

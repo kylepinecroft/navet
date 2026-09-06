@@ -21,6 +21,9 @@ export const STORAGE_KEYS = {
   weatherCardTintColors: 'navet-weather-card-tint-colors',
   energySparklineCardSizes: 'navet-energy-sparkline-card-sizes',
   energyHiddenConsumerIds: 'navet-energy-hidden-consumer-ids',
+  energyOverviewLayout: 'navet-energy-overview-layout-v1',
+  energyKpiPreferences: 'navet-energy-kpi-preferences-v1',
+  securityOverviewPreferences: 'navet-security-overview-preferences-v1',
   rssFeedProviders: 'navet-rss-feed-providers',
   rssCardProviders: 'navet-rss-card-providers',
   rssCardArticleCount: 'navet-rss-card-article-count',
@@ -33,6 +36,7 @@ export const STORAGE_KEYS = {
   dashboardProfileBase: 'navet-dashboard-profile-base',
   dashboardClientIdentity: 'navet-dashboard-client-identity',
   settingsProfileScopes: 'navet-settings-profile-scopes',
+  assistPromptHistory: 'navet-assist-prompt-history',
 } as const;
 
 export const LEGACY_STORAGE_KEYS = {

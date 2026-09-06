@@ -322,6 +322,7 @@ describe('CameraStreamPlayer', () => {
     );
 
     expect(container.querySelector('video')).toBeTruthy();
+    expect(container.querySelector('video')).not.toHaveAttribute('poster');
     await waitFor(() =>
       expect(getCameraStreamUrlMock).toHaveBeenCalledWith(
         cameraEntityFixtures.normal.entity_id,
@@ -1487,7 +1488,7 @@ describe('CameraStreamPlayer', () => {
       });
 
       await act(async () => {
-        await vi.advanceTimersByTimeAsync(14_000);
+        await vi.advanceTimersByTimeAsync(3_000);
       });
 
       expect(onError).not.toHaveBeenCalled();

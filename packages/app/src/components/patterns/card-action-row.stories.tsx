@@ -4,7 +4,7 @@ import { getBrightnessPresetSelectedStyle } from '@navet/app/components/shared/d
 import { getRoundControlStyles } from '@navet/app/components/shared/theme/round-control-styles';
 import { getThemeSurfaceTokens } from '@navet/app/components/shared/theme/theme-surface-tokens';
 import { useTheme } from '@navet/app/hooks';
-import type { Meta, StoryObj } from '@storybook/react';
+import type { Meta, StoryObj } from '@storybook/react-vite';
 import { Moon, Sparkles, SunMedium, Trash2 } from 'lucide-react';
 import { CardActionRow } from './card-action-row';
 
@@ -78,6 +78,7 @@ const meta = {
           '',
           'What this story proves:',
           '- Density variants (`small`, `default`, `large`) mapped to card size and interaction context.',
+          '- A consistent 32 px circular control frame that expands to 36 px on touch-capable devices.',
           '- Mixed-content row composition (preset controls + settings action + overflow commands).',
           '- Themed control tokens for selected and unselected round-control states.',
           '',

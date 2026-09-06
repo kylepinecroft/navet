@@ -2,5 +2,5 @@
 
 ## In Progress
 
-- Current Navet Dev scope since `v0.12.5`.
-- Recover stalled WebRTC playback
+- Current Navet Dev scope since `v0.15.1`.
+- Refine chore management and product surfaces

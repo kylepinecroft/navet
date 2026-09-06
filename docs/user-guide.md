@@ -18,18 +18,23 @@ provider. The first screen is designed for glanceable state and common household
 
 - **Home** is the editable room-first overview. It supports custom sections and columns, layout
   packs, manual entity cards, drag ordering, sizing, locking, hiding, and undo/redo while editing.
-- **Lights** groups provider-backed lights by room and offers room status, brightness and power
-  controls, scene shortcuts, expandable groups, and responsive card or table layouts.
-- **Media** presents now-playing sessions, source and media browsing, search, enqueue behavior,
-  speaker destinations, grouping, playback, volume, and TV controls when the provider supports
-  them.
-- **Energy** shows live flow, tracked and untracked load, sources, history, top consumers, and
-  diagnostics when provider energy and history services are available.
-- **Climate** collects thermostats, HVAC devices, water heaters, humidifiers, and dehumidifiers
-  with the controls their normalized capabilities expose.
-- **Security** brings together alarms, locks, covers, cameras, and security-state summaries.
-- **Tasks** separates automations and scripts, with filters, attention states, recent runs,
-  dependency summaries, details, and triggering where supported.
+- **Lights** leads with whole-home status, quick scenes, expand/collapse and whole-home power
+  actions, then orders room groups by unavailable, active, and inactive state. Expand a room for
+  individual brightness and power controls.
+- **Media** promotes the large now-playing session while media is active and promotes browsing
+  while idle. It also supports provider browsing and search, speaker destinations, grouping,
+  playback, volume, and TV controls when the provider exposes them.
+- **Energy** combines configurable KPI summaries with detailed usage history by device, room, or
+  source. Day, week, month, year, and custom ranges depend on provider history/statistics support;
+  live flow, tracked and untracked load, and source diagnostics remain available when reported.
+- **Climate** summarizes current conditions, then groups controllable thermostats, HVAC devices,
+  fans, humidifiers, dehumidifiers, and water heaters by room. Environmental sensor details such
+  as air quality and pressure follow in their own sections.
+- **Security** combines a camera-first command center with actionable alerts, alarm controls,
+  provider-backed activity history, a customizable overview, and grouped security entity cards.
+- **Household** puts native chores into an attention-first Today list, keeps completed cards visible,
+  exposes optional missions and rewards from House pulse, manages recurring work and people in
+  dedicated views, and preserves provider automations and scripts under Routines.
 - **Settings** controls appearance, dashboard profiles, kiosk behavior, interactions, providers,
   extensions, import/export, and project information.
 
@@ -59,7 +64,8 @@ camera, energy, calendar, weather, notification, or task services.
 Navet includes Liquid Glass (`glass`), `dark`, `light`, and `black` theme families, eight built-in
 accent colors plus a custom accent, built-in and uploaded wallpapers, optional reduced motion, and
 adaptive effects that reduce expensive rendering on weaker hardware. The interface ships with
-English, German, Spanish, French, Italian, Portuguese, Swedish, and Chinese message catalogs.
+Danish, Dutch, English, Finnish, French, German, Italian, Norwegian, Polish, Portuguese, Spanish,
+Swedish, and Chinese message catalogs.
 
 With visual quality set to **Auto**, ARM Linux browsers such as Raspberry Pi OS start in the
 low-cost rendering tier. Navet removes animated transitions, backdrop and filter effects, large
@@ -76,6 +82,15 @@ PWA and offers keep-awake and wall-display settings for tablet and kiosk use.
 
 The [widget guide](/guide/widgets/) documents the available widget types, supported sizes, and
 placement limits.
+
+## Household chores
+
+The [Household chores guide](/guide/chores/) explains availability, profiles, assignments,
+one-time through tri-weekly schedules, ID-based card colours and edit-time overrides, optional
+motivation, Home and room summaries, shared history, backups, and the Home Assistant projection
+boundary. Use the task-oriented guides to
+[set up and complete chores](/guide/everyday-control/household-chores/) or
+[manage and recover the workspace](/guide/everyday-control/manage-household-chores/).
 
 ## Step-by-step help
 

@@ -1,5 +1,138 @@
 # Changelog
 
+## 0.15.8 - 2026-09-05
+
+## Improvements and bug fixes
+
+- Fixed history and automation requests in Home Assistant panels by using the authenticated Home Assistant session.
+
+## 0.15.7 - 2026-09-03
+
+## Improvements and bug fixes
+
+- Improved chore management with accurate multi-day schedules, cleaner point history, and controls that respect motivation settings.
+
+## 0.15.6 - 2026-09-03
+
+## New features
+
+- Added permanent chore deletion with confirmation and cleanup of linked schedules and missions.
+
+## Improvements and bug fixes
+
+- Resetting chores now clears saved history, backups, and management protection for a clean restart.
+- Chore templates now stay selected while household data refreshes.
+- Successful setup and backup imports now return to Today.
+
+## 0.15.5 - 2026-09-03
+
+## New features
+
+- Added per-person point histories and manager controls to add or remove points.
+
+## Improvements and bug fixes
+
+- Future chores and reminders now update when schedules, assignments, or due times change.
+
+## 0.15.4 - 2026-09-01
+
+## New features
+
+- Added Home Assistant Assist with text, voice, selectable pipelines, and access from navigation or dashboard widgets.
+
+## 0.15.3 - 2026-09-01
+
+## Hotfix
+
+- Fixed an Nginx startup error affecting standalone and Home Assistant add-on installations.
+
+## 0.15.2 - 2026-09-01
+
+## New features
+
+- Added controls to set, change, or remove chore management PIN protection after onboarding.
+- Added every-four-weeks scheduling for recurring chores.
+
+## Improvements and bug fixes
+
+- Made chore and mission management easier to scan with compact search, filters, and action controls.
+- Refined media browsing with clearer folder rows, artwork, subtitles, and active playback styling.
+- Improved glass-theme legibility across cameras, people, calendar, media, RSS, and vacuum cards.
+
+## 0.15.1 - 2026-08-31
+
+## New features
+
+- Added backup import to first-time chore setup, restoring the household without repeating onboarding.
+
+## Improvements and bug fixes
+
+- Added bug fixes and safeguards that recover chore setup if a management PIN error leaves it unusable.
+
+## 0.15.0 - 2026-08-29
+
+## New features
+
+- Redesigned the Climate dashboard with comfort guidance, room and device grouping, trend charts, and faster mode controls.
+- Expanded shared chores with Home Assistant persistence plus weekday, weekend, and custom interval schedules.
+
+## Improvements and bug fixes
+
+- Improved the Lights dashboard with room controls, whole-home shutoff, and responsive layouts.
+- Upgraded live maps and cameras with clearer locations, automatic framing, and smoother playback recovery.
+- Improved dashboard creation and profile recovery across phones, tablets, and shared displays.
+
+## 0.14.0 - 2026-08-25
+
+## New features
+
+- Redesigned the Energy dashboard with live demand, historical trends, period comparisons, and breakdowns by source, room, and device.
+- Redesigned the Security dashboard with a status command center, activity history, customizable overview, and responsive camera browsing.
+
+## Improvements and bug fixes
+
+- Improved camera alerts with clearer motion and person detection, status timing, and activity details.
+- Improved dashboard layouts and controls across phones, tablets, and large displays, with more flexible card sizes.
+- Improved Home Assistant sign-in recovery with specific connection errors and a **Back to login** action.
+
+## 0.13.2 - 2026-08-19
+
+## New features
+
+- Expanded fullscreen camera views with configurable sensor details, motion state, and connected-light controls.
+- Missed chores can now be completed late while preserving approvals and completion history.
+
+## Improvements and bug fixes
+
+- Dashboard sync now respects independent device layouts and keeps routine updates unobtrusive.
+- Chores now hide points, missions, and rewards when motivation is off, with clearer add and edit forms.
+- Improved room and card settings with palette-aware controls, easier navigation visibility, and resolved alerts from hidden unavailable cameras.
+
+## 0.13.1 - 2026-08-17
+
+## New features
+
+- Added entity navigation, room filtering, and sorting to the redesigned Add Card library.
+- Camera cards can now bypass low-power snapshots when live streaming is needed.
+
+## Improvements and bug fixes
+
+- Improved chores onboarding with clearer guidance, consistent forms, flexible assignments, and complete recurring schedules.
+- Made chore summaries and daily tasks denser and easier to use on phones and tablets.
+- Kept light cards expanded by default and dashboard-change alerts dismissible above dialogs.
+
+## 0.13.0 - 2026-08-16
+
+## New features
+
+- Added shared household chores with recurring schedules, flexible assignments, approvals, reminders, and completion history.
+- Added guided setup, optional points and rewards, progress reviews, and backup and recovery tools.
+- Home Assistant now exposes chore summaries and actions for automations.
+
+## Improvements and bug fixes
+
+- Refined navigation, Settings, dashboard summaries, and controls for phones, tablets, and shared wall screens.
+
 ## 0.12.6 - 2026-08-08
 
 ## Improvements and bug fixes

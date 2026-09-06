@@ -1,7 +1,13 @@
+import { CameraSnapshotImage } from './camera-snapshot-image';
+
 const videoFitClassNames = {
   contain: 'object-contain',
   cover: 'object-cover',
 } as const;
+
+function ignorePosterError() {
+  // The stream owns error recovery; an unavailable poster simply leaves the loading surface black.
+}
 
 export function CameraStreamLoadingIndicator({
   label,
@@ -13,13 +19,16 @@ export function CameraStreamLoadingIndicator({
   fitMode: 'cover' | 'contain';
 }) {
   return (
-    <div className="pointer-events-none absolute inset-0 z-10 overflow-hidden bg-black">
+    <div
+      className="pointer-events-none absolute inset-0 z-10 overflow-hidden bg-black"
+      data-camera-media-surface="true"
+    >
       {posterUrl ? (
-        <img
+        <CameraSnapshotImage
           src={posterUrl}
           alt=""
-          aria-hidden="true"
-          className={`h-full w-full ${videoFitClassNames[fitMode]}`}
+          className={`absolute inset-0 h-full w-full ${videoFitClassNames[fitMode]}`}
+          onError={ignorePosterError}
         />
       ) : null}
       <div className="absolute inset-0 flex items-center justify-center bg-black/24">

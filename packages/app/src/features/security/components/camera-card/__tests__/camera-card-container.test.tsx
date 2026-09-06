@@ -65,12 +65,26 @@ vi.mock('@navet/app/services/integration-resource.service', () => ({
   normalizeResourceUrl: (url: string) => url,
 }));
 
-vi.mock('../camera-live-viewer', () => ({
-  CameraLiveViewer: (props: { preferredTransport: string }) => {
-    cameraLiveViewerRenderMock(props);
-    return <div data-testid="camera-live-viewer" />;
-  },
-}));
+vi.mock('../camera-live-viewer', async () => {
+  const { CameraStreamHostSlot } = await vi.importActual<
+    typeof import('../camera-stream-host-slot')
+  >('../camera-stream-host-slot');
+  return {
+    CameraLiveViewer: (props: {
+      preferredTransport: string;
+      retainedStreamHost?: HTMLDivElement | null;
+    }) => {
+      cameraLiveViewerRenderMock(props);
+      return (
+        <div data-testid="camera-live-viewer">
+          {props.retainedStreamHost ? (
+            <CameraStreamHostSlot host={props.retainedStreamHost} />
+          ) : null}
+        </div>
+      );
+    },
+  };
+});
 
 vi.mock('../camera-settings-dialog', () => ({
   CameraSettingsDialog: (props: {
@@ -127,9 +141,12 @@ describe('CameraCardContainer', () => {
     resetCameraLiveStreamBudgetForTests();
     vi.stubGlobal('IntersectionObserver', MockIntersectionObserver);
     useSettingsStore.setState({
+      cameraViewModes: {},
       cameraStreamPreferences: {},
       cameraWebRtcStreamSources: {},
       cameraDirectStreamUrls: {},
+      cameraFullscreenHiddenAccessoryIds: {},
+      cameraFullscreenVisibleAccessoryIds: {},
       disableAnimations: false,
       effectsQuality: 'high',
       lowPowerMode: false,
@@ -143,7 +160,14 @@ describe('CameraCardContainer', () => {
     });
     useProviderCameraLiveDataMock.mockReturnValue({
       cameraState: 'streaming',
-      companionStates: [],
+      companionStates: [
+        {
+          entityId: 'binary_sensor.front_scenario',
+          type: 'motion',
+          detected: true,
+          changedAt: '2026-08-19T20:00:00.000Z',
+        },
+      ],
       connected: true,
       deviceEntities: {},
       liveEntity: {
@@ -188,6 +212,151 @@ describe('CameraCardContainer', () => {
     vi.useRealTimers();
     resetCameraLiveStreamBudgetForTests();
     vi.unstubAllGlobals();
+  });
+
+  it('prioritizes a detected person over generic motion', () => {
+    useProviderCameraLiveDataMock.mockReturnValue({
+      cameraState: 'streaming',
+      companionStates: [
+        {
+          entityId: 'binary_sensor.front_motion',
+          type: 'motion',
+          detectionTarget: 'motion',
+          detected: true,
+          changedAt: '2026-08-19T20:00:00.000Z',
+        },
+        {
+          entityId: 'binary_sensor.front_human',
+          type: 'motion',
+          detectionTarget: 'person',
+          detected: true,
+          changedAt: '2026-08-19T20:00:01.000Z',
+        },
+      ],
+      connected: true,
+      deviceEntities: {},
+      liveEntity: {
+        state: 'streaming',
+        attributes: { entity_picture: '/api/camera_proxy/camera.front' },
+      },
+      liveState: {
+        isStreamCapable: true,
+        isStillImageOnly: false,
+        motionDetectionEnabled: null,
+      },
+    });
+
+    renderWithProviders(
+      <CameraCardContainer
+        id="home_assistant:camera.front"
+        name="Front Door"
+        room="Entrance"
+        entityPicture="/api/camera_proxy/camera.front"
+        isStreamCapable
+        size="large"
+        onSizeChange={vi.fn()}
+        isEditMode={false}
+      />
+    );
+
+    expect(screen.getByTestId('camera-person-motion-icon')).toBeInTheDocument();
+    expect(screen.queryByTestId('camera-motion-icon')).not.toBeInTheDocument();
+  });
+
+  it('passes device sensor and light siblings to the fullscreen viewer', () => {
+    useProviderCameraTopologyMock.mockReturnValue({
+      siblingIds: ['binary_sensor.front_scenario', 'light.front_ir', 'sensor.front_temperature'],
+    });
+    useProviderCameraLiveDataMock.mockReturnValue({
+      cameraState: 'streaming',
+      companionStates: [
+        {
+          entityId: 'binary_sensor.front_scenario',
+          type: 'motion',
+          detected: true,
+          changedAt: '2026-08-19T20:00:00.000Z',
+        },
+      ],
+      connected: true,
+      deviceEntities: {
+        'binary_sensor.front_scenario': {
+          entityId: 'binary_sensor.front_scenario',
+          state: 'off',
+          attributes: { device_class: 'motion' },
+        },
+        'light.front_ir': {
+          entityId: 'light.front_ir',
+          state: 'on',
+          attributes: { brightness: 255 },
+        },
+        'sensor.front_temperature': {
+          entityId: 'sensor.front_temperature',
+          state: '18.4',
+          attributes: { unit_of_measurement: '°C' },
+        },
+      },
+      liveEntity: {
+        state: 'streaming',
+        attributes: { entity_picture: '/api/camera_proxy/camera.front' },
+      },
+      liveState: {
+        isStreamCapable: true,
+        isStillImageOnly: false,
+        motionDetectionEnabled: null,
+      },
+    });
+
+    renderWithProviders(
+      <CameraCardContainer
+        id="home_assistant:camera.front"
+        name="Front Door"
+        room="Entrance"
+        entityPicture="/api/camera_proxy/camera.front"
+        isStreamCapable
+        size="large"
+        onSizeChange={vi.fn()}
+        isEditMode={false}
+      />
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Open camera viewer: Front Door' }));
+
+    expect(cameraLiveViewerRenderMock).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        motionDetected: true,
+        accessoryEntities: expect.arrayContaining([
+          expect.objectContaining({ id: 'home_assistant:light.front_ir' }),
+        ]),
+      })
+    );
+    expect(cameraLiveViewerRenderMock.mock.lastCall?.[0].accessoryEntities).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: 'home_assistant:binary_sensor.front_scenario' }),
+        expect.objectContaining({ id: 'home_assistant:sensor.front_temperature' }),
+      ])
+    );
+
+    act(() => {
+      useSettingsStore
+        .getState()
+        .updateCameraFullscreenAccessoryVisibility(
+          'home_assistant:camera.front',
+          'home_assistant:sensor.front_temperature',
+          true
+        );
+    });
+
+    const latestViewerProps = cameraLiveViewerRenderMock.mock.lastCall?.[0] as {
+      accessoryEntities: Array<{ id: string }>;
+    };
+    expect(latestViewerProps.accessoryEntities).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: 'home_assistant:sensor.front_temperature' }),
+      ])
+    );
+    expect(latestViewerProps.accessoryEntities).toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: 'home_assistant:light.front_ir' })])
+    );
   });
 
   it('releases a live stream after an offscreen grace period', () => {
@@ -310,6 +479,8 @@ describe('CameraCardContainer', () => {
       effectsQuality: 'low',
       lowPowerMode: true,
     });
+    useSettingsStore.getState().updateCameraViewMode('home_assistant:camera.front', 'live');
+    useSettingsStore.getState().updateCameraViewMode('home_assistant:camera.garden', 'live');
 
     renderWithProviders(
       <>
@@ -356,7 +527,7 @@ describe('CameraCardContainer', () => {
     );
   });
 
-  it('releases the card stream while the fullscreen viewer owns playback', () => {
+  it('moves the same live stream into the fullscreen viewer without remounting it', () => {
     renderWithProviders(
       <CameraCardContainer
         id="home_assistant:camera.front"
@@ -373,12 +544,12 @@ describe('CameraCardContainer', () => {
     act(() => {
       MockIntersectionObserver.instances[0]?.emit(true);
     });
-    expect(screen.getByTestId('camera-stream-player')).toBeInTheDocument();
+    const streamPlayer = screen.getByTestId('camera-stream-player');
 
     fireEvent.click(screen.getByRole('button', { name: 'Open camera viewer: Front Door' }));
 
     expect(screen.getByTestId('camera-live-viewer')).toBeInTheDocument();
-    expect(screen.queryByTestId('camera-stream-player')).not.toBeInTheDocument();
+    expect(screen.getByTestId('camera-stream-player')).toBe(streamPlayer);
   });
 
   it('normalizes an unsupported saved stream preference back to auto for playback planning', () => {
@@ -507,6 +678,53 @@ describe('CameraCardContainer', () => {
     expect(useCameraPlaybackPlanMock).toHaveBeenLastCalledWith(
       expect.objectContaining({
         preferredMode: 'live',
+      })
+    );
+  });
+
+  it('lets an explicit per-camera live choice bypass the low-power snapshot fallback', () => {
+    useSettingsStore.getState().updateSettings({
+      effectsQuality: 'low',
+      lowPowerMode: true,
+    });
+
+    renderWithProviders(
+      <CameraCardContainer
+        id="home_assistant:camera.front"
+        name="Front Door"
+        room="Entrance"
+        entityPicture="/api/camera_proxy/camera.front"
+        isStreamCapable
+        size="large"
+        onSizeChange={vi.fn()}
+        isEditMode={false}
+      />
+    );
+
+    expect(useCameraPlaybackPlanMock).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        preferredMode: 'snapshot',
+      })
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Camera settings' }));
+    expect(cameraSettingsDialogRenderMock).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        cameraViewMode: 'snapshot',
+      })
+    );
+
+    act(() => {
+      useSettingsStore.getState().updateCameraViewMode('home_assistant:camera.front', 'live');
+    });
+
+    expect(useCameraPlaybackPlanMock).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        preferredMode: 'live',
+      })
+    );
+    expect(cameraSettingsDialogRenderMock).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        cameraViewMode: 'live',
       })
     );
   });
