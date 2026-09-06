@@ -83,6 +83,7 @@ import {
   setViteProviderSessionCookie,
 } from '../../scripts/vite-provider-session-store.ts'
 import { getVendorChunkName, isLazyHtmlPreload } from '../../scripts/vite-chunking.ts'
+import { resolveViteDevAllowedHosts } from '../../scripts/vite-dev-allowed-hosts.ts'
 import {
   createVitePwaCachePolicy,
   deferVitePwaGenerationUntilWriteBundle,
@@ -3093,6 +3094,7 @@ export default defineConfig(({ command, mode }) => {
         host: 'navet.local',
         port: 5200,
         strictPort: true,
+        allowedHosts: resolveViteDevAllowedHosts(env),
         fs: {
           allow: [repoRoot],
         },
@@ -3105,6 +3107,9 @@ export default defineConfig(({ command, mode }) => {
               },
             }
           : undefined,
+      },
+      preview: {
+        allowedHosts: resolveViteDevAllowedHosts(env),
       },
     })
   }
