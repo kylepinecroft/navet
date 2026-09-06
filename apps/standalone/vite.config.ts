@@ -83,7 +83,10 @@ import {
   setViteProviderSessionCookie,
 } from '../../scripts/vite-provider-session-store.ts'
 import { getVendorChunkName, isLazyHtmlPreload } from '../../scripts/vite-chunking.ts'
-import { resolveViteDevAllowedHosts } from '../../scripts/vite-dev-allowed-hosts.ts'
+import {
+  resolveViteDevAllowedHosts,
+  resolveViteDevHomeAssistantUrl,
+} from '../../scripts/vite-dev-allowed-hosts.ts'
 import {
   createVitePwaCachePolicy,
   deferVitePwaGenerationUntilWriteBundle,
@@ -2823,7 +2826,7 @@ export default defineConfig(({ command, mode }) => {
   if (env.NAVET_HOMEY_REDIRECT_URI) {
     process.env.NAVET_HOMEY_REDIRECT_URI = env.NAVET_HOMEY_REDIRECT_URI
   }
-  const hassUrl = env.NAVET_HASS_URL?.trim().replace(/\/$/, '')
+  const hassUrl = resolveViteDevHomeAssistantUrl(env)
   const enableDemo = (env.NAVET_ENABLE_DEMO ?? process.env.NAVET_ENABLE_DEMO ?? 'true') !== 'false'
   const lifecycleEvent = process.env.npm_lifecycle_event ?? ''
   const commandLine = process.argv.join(' ')
@@ -2896,7 +2899,7 @@ export default defineConfig(({ command, mode }) => {
     const installationAuthority =
       command === 'serve' && mode !== 'test' && !isStorybook
         ? createViteInstallationAuthority({
-            hassUrlPin: env.NAVET_HASS_URL?.trim(),
+            hassUrlPin: hassUrl,
             installationKey: env.NAVET_INSTALLATION_KEY?.trim(),
             openhabUrlPin: env.NAVET_OPENHAB_URL?.trim(),
           })

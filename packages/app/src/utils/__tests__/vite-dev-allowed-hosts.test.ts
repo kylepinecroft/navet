@@ -1,4 +1,8 @@
-import { resolveViteDevAllowedHosts } from '@scripts/vite-dev-allowed-hosts';
+import {
+  DEFAULT_VITE_DEV_HOME_ASSISTANT_URL,
+  resolveViteDevAllowedHosts,
+  resolveViteDevHomeAssistantUrl,
+} from '@scripts/vite-dev-allowed-hosts';
 import { describe, expect, it } from 'vitest';
 
 describe('resolveViteDevAllowedHosts', () => {
@@ -20,5 +24,20 @@ describe('resolveViteDevAllowedHosts', () => {
         NAVET_DEV_ALLOWED_HOSTS: 'navet.pinecroftfamily.com,navet.pinecroftfamily.com',
       })
     ).toEqual(['navet.pinecroftfamily.com']);
+  });
+});
+
+describe('resolveViteDevHomeAssistantUrl', () => {
+  it('defaults to the household Home Assistant URL', () => {
+    expect(resolveViteDevHomeAssistantUrl({})).toBe(DEFAULT_VITE_DEV_HOME_ASSISTANT_URL);
+    expect(DEFAULT_VITE_DEV_HOME_ASSISTANT_URL).toBe('https://homeassistant.pinecroftfamily.com');
+  });
+
+  it('uses NAVET_HASS_URL when set', () => {
+    expect(
+      resolveViteDevHomeAssistantUrl({
+        NAVET_HASS_URL: ' https://ha.example.test:8123/ ',
+      })
+    ).toBe('https://ha.example.test:8123');
   });
 });

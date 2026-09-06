@@ -104,7 +104,7 @@ Keep the raw value on change; normalize on blur (and in persistence), not on eve
 
 ### Vite allowed hosts for reverse-proxied `pnpm dev`
 
-Vite blocks unknown `Host` headers. This fork allows `navet.pinecroftfamily.com` and extra hosts from `NAVET_DEV_ALLOWED_HOSTS`.
+Vite blocks unknown `Host` headers. This fork allows `navet.pinecroftfamily.com` and extra hosts from `NAVET_DEV_ALLOWED_HOSTS`. Standalone `pnpm dev` also pins Home Assistant to `https://homeassistant.pinecroftfamily.com` unless `NAVET_HASS_URL` is set.
 
 - **Owned:** `scripts/vite-dev-allowed-hosts.ts`
 - **Seams:** `apps/standalone/vite.config.ts`
