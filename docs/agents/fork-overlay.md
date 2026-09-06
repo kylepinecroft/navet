@@ -104,7 +104,7 @@ Keep the raw value on change; normalize on blur (and in persistence), not on eve
 
 ### Vite allowed hosts for reverse-proxied `pnpm dev`
 
-Vite blocks unknown `Host` headers. This fork allows `navet.pinecroftfamily.com` and extra hosts from `NAVET_DEV_ALLOWED_HOSTS`.
+Vite blocks unknown `Host` headers. Extra hosts come from `NAVET_DEV_ALLOWED_HOSTS`; this fork does not bake in a hostname.
 
 - **Owned:** `scripts/vite-dev-allowed-hosts.ts`
 - **Seams:** `apps/standalone/vite.config.ts`
