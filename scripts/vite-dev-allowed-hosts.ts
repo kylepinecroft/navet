@@ -1,6 +1,4 @@
 const DEFAULT_VITE_DEV_ALLOWED_HOSTS = ['navet.pinecroftfamily.com'] as const
-export const DEFAULT_VITE_DEV_HOME_ASSISTANT_URL =
-  'https://homeassistant.pinecroftfamily.com'
 
 function parseAllowedHosts(value: string | undefined) {
   if (!value?.trim()) {
@@ -22,10 +20,4 @@ export function resolveViteDevAllowedHosts(
       ...parseAllowedHosts(env.NAVET_DEV_ALLOWED_HOSTS),
     ]),
   ]
-}
-
-export function resolveViteDevHomeAssistantUrl(
-  env: Record<string, string | undefined> = process.env
-): string {
-  return env.NAVET_HASS_URL?.trim().replace(/\/+$/, '') || DEFAULT_VITE_DEV_HOME_ASSISTANT_URL
 }
