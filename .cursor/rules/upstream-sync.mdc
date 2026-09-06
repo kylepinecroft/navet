@@ -1,0 +1,29 @@
+---
+description: Merge upstream Navet (awesomestvi/navet) into this fork. Use when syncing, fetching, or merging upstream tags, rebasing onto upstream, updating from v0.x releases, resolving overlay conflicts, or deciding keep vs toss when upstream added a similar feature.
+alwaysApply: false
+---
+
+# Upstream sync
+
+Read [`docs/agents/fork-overlay.md`](docs/agents/fork-overlay.md) first. Keep the `upstream` remote at `https://github.com/awesomestvi/navet.git`.
+
+## Do
+
+1. Start from current `main`. Create `sync/upstream-<tag>` (example: `sync/upstream-0.16.0`).
+2. Merge the upstream **tag**, not a moving `upstream/main` mid-release. Never rebase published `main` onto upstream. Never replay overlay commits one by one.
+3. Take upstream release-managed files (`package.json`, `CHANGELOG.md`, add-on manifests).
+4. **Overlap scan (required, before overlay seam resolution):** compare each overlay row to the upstream changelog, new modules, and conflicted seams. If anything does the same job or collides on settings/persistence, flag it with the template in `docs/agents/fork-overlay.md` and **wait**. Do not keep-both or delete that overlay path until the user chooses keep vs toss.
+5. Unrelated locale and store-type conflicts can still be keep-both.
+6. On non-overlapping seam files, take upstream structure and re-insert thin overlay call sites. Leave owned modules in place.
+7. Run the overlay tests listed in the inventory. Those tests are the survival contract.
+8. Update **Last synced** and any **Overlap decisions**. Fix owned/seam paths if upstream moved them.
+9. Open one sync PR. After it merges: checkout `main`, pull, delete the local and remote sync branch.
+
+## Do not
+
+- Duplicate upstream helpers (`breakpointCols`, card-span functions, presentation wrappers).
+- Drop overlay locale keys to clear a conflict.
+- Keep-both or delete an overlay feature that overlaps upstream without a user keep-vs-toss decision.
+- Bypass git hooks (`--no-verify`).
+
+Have Docker and Buildx ready. Pre-commit runs `pnpm check:docker` when the version jumps.

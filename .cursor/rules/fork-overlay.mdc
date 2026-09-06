@@ -1,0 +1,23 @@
+---
+description: Keep this fork's overlay inventory current when adding local features or touching overlay seams.
+alwaysApply: true
+---
+
+# Fork overlay
+
+This repo is `kylepinecroft/navet`, a fork of `awesomestvi/navet`. Inventory: [`docs/agents/fork-overlay.md`](docs/agents/fork-overlay.md).
+
+Treat work as overlay when it adds product behavior, settings, persistence, or UX that upstream Navet does not have. Overlay-only bugfixes count too.
+
+## New overlay work
+
+1. Read `docs/agents/fork-overlay.md` before designing the change.
+2. Put logic in a dedicated module plus tests. Touch upstream files only at a thin call site.
+3. Prefer wrapping the upstream result over copying an upstream function.
+4. Add locale keys with a stable prefix. Do not add a second helper that overlaps an upstream name (for example a second `breakpointCols` or card-span helper).
+5. In the **same change**, add or update a row in `docs/agents/fork-overlay.md`: intent, owned files, seam files, tests.
+6. Do not remove listed overlay call sites from seam files unless that overlay feature is being deleted.
+
+If the feature should live upstream instead, do not add it to the overlay. If upstream already has something that does the same job, flag the overlap and wait; do not ship a second implementation.
+
+When editing a listed seam file for any reason, re-read that feature's row and keep the overlay path (`placementLayouts` vs upstream grid, `nameMode: 'custom'`, summary-bar scope, display-name wrappers, onChange/onBlur normalize) unless an overlap decision says to toss it.

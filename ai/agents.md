@@ -103,6 +103,7 @@ preferred public model for a new provider-neutral boundary.
 - cameras, artwork, RSS, and URLs: [`/ai/skills/external-resources.md`](skills/external-resources.md)
 - dashboard UX and layout: [`/ai/skills/navet-ux.md`](skills/navet-ux.md)
 - performance and kiosk constraints: [`/ai/skills/performance.md`](skills/performance.md)
+- fork overlay and upstream sync: [`/ai/skills/fork-overlay.md`](skills/fork-overlay.md)
 
 For any dashboard UI task, the UX skill routes next to the compact
 [AI design context](../docs/design-system/AI-DESIGN-CONTEXT.md) and the full
@@ -134,6 +135,7 @@ Path rules:
 
 ## Read Next
 
+- [../docs/agents/fork-overlay.md](../docs/agents/fork-overlay.md)
 - [../docs/agents/architecture.md](../docs/agents/architecture.md)
 - [../docs/architecture/package-boundaries.md](../docs/architecture/package-boundaries.md)
 - [../docs/architecture/provider-neutral-ui.md](../docs/architecture/provider-neutral-ui.md)

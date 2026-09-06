@@ -20,6 +20,8 @@ Current capability baseline:
 
 Before making changes, read [`/ai/agents.md`](ai/agents.md).
 
+This checkout is a fork of `awesomestvi/navet`. Before adding fork-only product behavior or merging upstream, read [`/ai/skills/fork-overlay.md`](ai/skills/fork-overlay.md) and [`/docs/agents/fork-overlay.md`](docs/agents/fork-overlay.md). If upstream added something similar to an overlay feature, flag keep vs toss and wait.
+
 For architecture, state, provider, integration, auth/runtime, or larger refactor work, also read:
 
 - [`/docs/agents/architecture.md`](docs/agents/architecture.md)
@@ -39,6 +41,7 @@ Read the relevant skill file for the area you are touching:
 - Cameras, media, entity pictures, RSS, external URLs: [`/ai/skills/external-resources.md`](ai/skills/external-resources.md)
 - UI/UX and dashboard behavior: [`/ai/skills/navet-ux.md`](ai/skills/navet-ux.md)
 - Performance and kiosk constraints: [`/ai/skills/performance.md`](ai/skills/performance.md)
+- Fork overlay and upstream sync: [`/ai/skills/fork-overlay.md`](ai/skills/fork-overlay.md)
 
 For dashboard UI work, reading `navet-ux.md` is mandatory, not optional based on task size. Before
 writing JSX or styles, also inspect the exact neighboring product surface and the relevant
