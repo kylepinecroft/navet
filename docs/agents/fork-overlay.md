@@ -102,14 +102,6 @@ Keep the raw value on change; normalize on blur (and in persistence), not on eve
 - **Seams:** `settings-dashboard-section.tsx` greeting field, `settings-store.ts`
 - **Tests:** `display-overrides.test.ts`, `settings-store.test.ts`
 
-### Vite allowed hosts for reverse-proxied `pnpm dev`
-
-Vite blocks unknown `Host` headers. Extra hosts come from `NAVET_DEV_ALLOWED_HOSTS`; this fork does not bake in a hostname.
-
-- **Owned:** `scripts/vite-dev-allowed-hosts.ts`
-- **Seams:** `apps/standalone/vite.config.ts`
-- **Tests:** `packages/app/src/utils/__tests__/vite-dev-allowed-hosts.test.ts`
-
 ## Shared mechanical seams
 
 These files pick up overlay keys on every upstream sync. Resolve as keep-both; do not drop overlay keys to make the merge look clean.
