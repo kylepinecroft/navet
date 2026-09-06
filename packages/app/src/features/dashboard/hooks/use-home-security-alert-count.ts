@@ -2,8 +2,10 @@ import { getSecurityDashboardAlertCount } from '@navet/app/features/security/uti
 import {
   getAbsorbedDashboardEntityIds,
   getExpandedHiddenDashboardEntityIds,
+  isDashboardEntityHidden,
 } from '@navet/app/hooks/use-dashboard-devices';
 import type { BaseDevice, DeviceCollection, SecurityKind } from '@navet/app/types/device.types';
+import { getDeviceRoomLabel } from '@navet/app/utils/device-location';
 import { useEffect, useMemo, useRef } from 'react';
 
 type HomeSecurityAlertDevices = Pick<
@@ -67,25 +69,42 @@ export function selectHomeSecurityAlertDevices(
   hiddenEntityIds: string[]
 ): HomeSecurityAlertDevices {
   const expandedHiddenIds = new Set(getExpandedHiddenDashboardEntityIds(devices, hiddenEntityIds));
-  const absorbedIds = new Set(getAbsorbedDashboardEntityIds(devices, [...expandedHiddenIds]));
+  const absorbedIds = new Set(getAbsorbedDashboardEntityIds(devices, []));
 
   return {
-    cameras: devices.cameras.filter((device) => !expandedHiddenIds.has(device.id)),
-    covers: devices.covers.filter((device) => !expandedHiddenIds.has(device.id)),
+    cameras: devices.cameras.filter(
+      (device) => !isDashboardEntityHidden(device, expandedHiddenIds)
+    ),
+    covers: devices.covers.filter((device) => !isDashboardEntityHidden(device, expandedHiddenIds)),
     helpers: devices.helpers.filter(
       (device) =>
-        !expandedHiddenIds.has(device.id) &&
+        !isDashboardEntityHidden(device, expandedHiddenIds) &&
         !absorbedIds.has(device.id) &&
         isSupplementalSecurityAlertDevice(device)
     ),
-    locks: devices.locks.filter((device) => !expandedHiddenIds.has(device.id)),
+    locks: devices.locks.filter((device) => !isDashboardEntityHidden(device, expandedHiddenIds)),
     sensors: devices.sensors.filter(
       (device) =>
-        !expandedHiddenIds.has(device.id) &&
+        !isDashboardEntityHidden(device, expandedHiddenIds) &&
         !absorbedIds.has(device.id) &&
         isSupplementalSecurityAlertDevice(device)
     ),
   };
+}
+
+export function getRoomSecurityAlertCount(
+  devices: DeviceCollection,
+  hiddenEntityIds: string[],
+  room: string
+) {
+  const selectedDevices = selectHomeSecurityAlertDevices(devices, hiddenEntityIds);
+  return getSecurityDashboardAlertCount({
+    cameras: selectedDevices.cameras.filter((device) => getDeviceRoomLabel(device) === room),
+    covers: selectedDevices.covers.filter((device) => getDeviceRoomLabel(device) === room),
+    helpers: selectedDevices.helpers.filter((device) => getDeviceRoomLabel(device) === room),
+    locks: selectedDevices.locks.filter((device) => getDeviceRoomLabel(device) === room),
+    sensors: selectedDevices.sensors.filter((device) => getDeviceRoomLabel(device) === room),
+  });
 }
 
 export function useHomeSecurityAlertCount({

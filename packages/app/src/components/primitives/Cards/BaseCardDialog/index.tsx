@@ -7,17 +7,22 @@ import {
   CardDialogTabTrigger,
 } from '@navet/app/components/patterns';
 import { Button } from '@navet/app/components/primitives/button';
-import { settingsDialogContentClass } from '@navet/app/components/primitives/dialog-primitives';
+import {
+  coverSheetHeaderClassName,
+  settingsDialogContentClass,
+} from '@navet/app/components/primitives/dialog-primitives';
 import { TabPanel, Tabs } from '@navet/app/components/primitives/tabs';
-import { CustomCardTintPicker, CustomScrollbar } from '@navet/app/components/shared/device-editor';
 import { CompactRoomSelector } from '@navet/app/components/shared/device-editor/compact-room-selector';
+import { CustomCardTintPicker } from '@navet/app/components/shared/device-editor/custom-card-tint-picker';
+import { CustomScrollbar } from '@navet/app/components/shared/device-editor/custom-scrollbar';
 import { getBaseCardDialogSurface } from '@navet/app/components/shared/theme/base-card-dialog-surface';
+import { getInheritedDialogSectionStyle } from '@navet/app/components/shared/theme/custom-card-tint-surface';
 import { getThemeSurfaceTokens } from '@navet/app/components/shared/theme/theme-surface-tokens';
 import { cn } from '@navet/app/components/ui/utils';
-import { useI18n } from '@navet/app/hooks';
+import { useI18n, useTheme } from '@navet/app/hooks';
 import type { ThemeType } from '@navet/app/hooks/use-theme';
 import * as Dialog from '@radix-ui/react-dialog';
-import { type LucideIcon, Palette, Sliders } from 'lucide-react';
+import { type LucideIcon, Palette, Sliders, X } from 'lucide-react';
 import type { CSSProperties, ReactNode, PointerEvent as ReactPointerEvent } from 'react';
 import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
 
@@ -88,6 +93,9 @@ interface BaseCardDialogModalProps extends BaseCardDialogSharedProps {
   contentTitle?: string;
   contentDescription?: string;
   bodyPadding?: boolean;
+  mobileCoverSheet?: boolean;
+  persistentMobileDismiss?: boolean;
+  mobileCoverSheetActions?: ReactNode;
 }
 
 interface BaseCardDialogSheetProps extends BaseCardDialogSharedProps {
@@ -96,12 +104,14 @@ interface BaseCardDialogSheetProps extends BaseCardDialogSharedProps {
   contentDescription?: string;
   accentColor?: string;
   closeLabel?: string;
+  persistentMobileDismiss?: boolean;
 }
 
 interface BaseCardDialogFullscreenProps extends BaseCardDialogSharedProps {
   variant: 'fullscreen';
   contentTitle?: string;
   contentDescription?: string;
+  persistentMobileDismiss?: boolean;
 }
 
 export type BaseCardDialogProps =
@@ -120,6 +130,10 @@ interface BaseCardDialogRootProps {
   contentDescription?: string;
   disableOpenAutoFocus?: boolean;
   mobileCoverSheet?: boolean;
+  persistentMobileDismiss?: boolean;
+  mobileCoverSheetActions?: ReactNode;
+  mobileDismissLabel?: string;
+  mobileDismissStyle?: CSSProperties;
   contentStyle?: CSSProperties;
   contentGlowClassName?: string;
   contentGlowStyle?: CSSProperties;
@@ -130,9 +144,10 @@ interface BaseCardDialogRootProps {
 }
 
 const mobileCoverSheetClassName = [
-  'max-sm:!top-[var(--mobile-cover-sheet-top)] max-sm:!right-2 max-sm:!bottom-2 max-sm:!left-2',
-  'max-sm:!mx-0 max-sm:!max-h-[calc(100dvh-1rem)] max-sm:!w-auto max-sm:!max-w-none',
-  'max-sm:![translate:0_var(--mobile-cover-sheet-drag-y)] max-sm:!rounded-[30px]',
+  'max-sm:!top-[var(--mobile-cover-sheet-top)] max-sm:!right-0 max-sm:!bottom-0 max-sm:!left-0',
+  'max-sm:!mx-0 max-sm:!h-[80dvh] max-sm:!max-h-[100dvh] max-sm:!w-auto max-sm:!max-w-none',
+  'max-sm:!flex max-sm:!flex-col',
+  'max-sm:![translate:0_var(--mobile-cover-sheet-drag-y)] max-sm:!rounded-t-[30px] max-sm:!rounded-b-none',
   'max-sm:!transition-[height,top,translate] max-sm:!duration-200 max-sm:!ease-out',
 ].join(' ');
 
@@ -177,6 +192,10 @@ function BaseCardDialogRoot({
   contentDescription,
   disableOpenAutoFocus = false,
   mobileCoverSheet = true,
+  persistentMobileDismiss = false,
+  mobileCoverSheetActions,
+  mobileDismissLabel,
+  mobileDismissStyle,
   contentStyle,
   contentGlowClassName,
   contentGlowStyle,
@@ -185,6 +204,9 @@ function BaseCardDialogRoot({
   bodyClassName,
   children,
 }: BaseCardDialogRootProps) {
+  const { t } = useI18n();
+  const { theme } = useTheme();
+  const surface = getThemeSurfaceTokens(theme);
   const generatedDescriptionId = useId();
   const [isMobileCoverSheetFullscreen, setIsMobileCoverSheetFullscreen] = useState(false);
   const [mobileCoverSheetDragOffset, setMobileCoverSheetDragOffset] = useState(0);
@@ -200,7 +222,12 @@ function BaseCardDialogRoot({
   const hasDecoratedContent = Boolean(
     contentGlowClassName || contentGlowStyle || contentOverlayClassName
   );
-  const resolvedBodyClassName = bodyClassName ?? (mobileCoverSheet ? 'min-h-0' : '');
+  const resolvedBodyClassName = [
+    bodyClassName,
+    mobileCoverSheet ? 'max-sm:flex max-sm:min-h-0 max-sm:flex-1 max-sm:flex-col' : '',
+  ]
+    .filter(Boolean)
+    .join(' ');
   const resolvedAriaDescribedBy = contentDescription
     ? generatedDescriptionId
     : contentAriaDescribedBy;
@@ -216,15 +243,14 @@ function BaseCardDialogRoot({
     mobileCoverSheetPointerIdRef.current = null;
     suppressMobileCoverSheetHandleClickRef.current = false;
     setMobileCoverSheetDragOffset(0);
-    setMobileCoverSheetTopInset(isMobileCoverSheetFullscreen ? '0.5rem' : 'auto');
+    setMobileCoverSheetTopInset('auto');
+    setIsMobileCoverSheetFullscreen(false);
     setIsMobileCoverSheetDragging(false);
-  }, [isMobileCoverSheetFullscreen]);
+  }, []);
 
   useEffect(() => {
     if (!isOpen) {
       resetMobileCoverSheetDragState();
-      setMobileCoverSheetTopInset('auto');
-      setIsMobileCoverSheetFullscreen(false);
     }
   }, [isOpen, resetMobileCoverSheetDragState]);
 
@@ -352,6 +378,7 @@ function BaseCardDialogRoot({
   const resolvedContentClassName = [
     contentClassName,
     mobileCoverSheet ? mobileCoverSheetClassName : '',
+    persistentMobileDismiss ? 'max-sm:[&_[data-cover-sheet-inline-dismiss]]:!hidden' : '',
     mobileCoverSheet && isMobileCoverSheetFullscreen ? mobileCoverSheetFullscreenClassName : '',
     mobileCoverSheet && isMobileCoverSheetDragging ? mobileCoverSheetDraggingClassName : '',
   ]
@@ -391,21 +418,46 @@ function BaseCardDialogRoot({
               {contentDescription}
             </Dialog.Description>
           ) : null}
+          {persistentMobileDismiss ? (
+            <div className="pointer-events-none absolute top-3 right-3 z-30 hidden items-center gap-2 max-sm:flex">
+              {mobileCoverSheetActions}
+              <button
+                type="button"
+                data-mobile-cover-sheet-dismiss
+                aria-label={mobileDismissLabel ?? t('common.close')}
+                onClick={() => {
+                  blurActiveElement();
+                  onOpenChange(false);
+                }}
+                className={cn(
+                  'pointer-events-auto flex h-10 w-10 shrink-0 items-center justify-center rounded-full border shadow-sm backdrop-blur-xl transition-colors',
+                  surface.borderStrong,
+                  surface.subtleBg,
+                  surface.hoverBg,
+                  surface.textPrimary
+                )}
+                style={mobileDismissStyle}
+              >
+                <X className="h-4 w-4" aria-hidden="true" />
+              </button>
+            </div>
+          ) : null}
           {mobileCoverSheet ? (
             <button
               type="button"
               onPointerDown={handleMobileCoverSheetPointerDown}
               onClick={handleMobileCoverSheetHandleClick}
-              className="relative z-[3] mx-auto mt-3 mb-1 hidden h-5 w-20 touch-none items-center justify-center max-sm:flex"
+              className="relative z-[3] mx-auto mt-1 mb-0 hidden h-9 w-20 touch-none items-center justify-center max-sm:flex"
               aria-label={
                 isMobileCoverSheetFullscreen ? 'Close dialog' : 'Drag dialog to fullscreen or close'
               }
             >
-              <span className="h-1 w-16 rounded-full bg-white/20" aria-hidden="true" />
+              <span className="h-1 w-10 rounded-full bg-white/20" aria-hidden="true" />
             </button>
           ) : null}
           {contentGlowClassName || contentGlowStyle ? (
             <div
+              data-dialog-content-glow
               className={`absolute inset-0 ${contentGlowClassName ?? ''}`}
               style={contentGlowStyle}
             />
@@ -434,25 +486,9 @@ function getWidgetRoomSelector(roomSelector: BaseCardDialogRoomSelector, theme: 
 
   return (
     <div className="relative inline-flex items-center">
-      {roomSelector.onChange ? (
-        <select
-          aria-label={roomSelector.label}
-          value={roomSelector.value}
-          onChange={(event) => roomSelector.onChange?.(event.target.value)}
-          className="absolute inset-0 z-10 h-full w-full cursor-pointer appearance-none opacity-0 disabled:cursor-not-allowed"
-        >
-          {roomSelector.options.map((option) => (
-            <option key={option.value} value={option.value}>
-              {option.label}
-            </option>
-          ))}
-        </select>
-      ) : null}
       <div
-        className={`inline-flex h-[34px] min-w-0 items-center rounded-full border px-2.5 ${
-          isLightTheme
-            ? 'border-slate-300/80 bg-slate-100/90 text-slate-700'
-            : 'border-white/12 bg-white/8 text-white/82'
+        className={`inline-flex min-w-0 items-center text-xs font-medium ${
+          isLightTheme ? 'text-slate-700' : 'text-white/82'
         }`}
       >
         <CompactRoomSelector
@@ -460,9 +496,9 @@ function getWidgetRoomSelector(roomSelector: BaseCardDialogRoomSelector, theme: 
           label={roomSelector.label}
           options={roomSelector.options}
           onChange={roomSelector.onChange}
-          contentClassName="gap-1.5 text-xs"
+          contentClassName="gap-1 text-xs"
           labelClassName="max-w-[10rem]"
-          iconClassName="h-3.5 w-3.5"
+          iconClassName="h-3 w-3"
         />
       </div>
     </div>
@@ -478,6 +514,8 @@ function BaseCardDialogCardVariant({
   description,
   tabs,
   theme,
+  tintColor,
+  defaultTintAccent,
   footerContent,
   footerActionLabel,
   roomSelector,
@@ -504,6 +542,7 @@ function BaseCardDialogCardVariant({
   onActiveTabChange,
 }: BaseCardDialogCardProps) {
   const { t } = useI18n();
+  const { accentColor } = useTheme();
   const surface = getThemeSurfaceTokens(theme);
   const dialogSurface = contentSurface ?? getBaseCardDialogSurface(theme);
   const firstTabKey = tabs[0]?.key;
@@ -527,18 +566,13 @@ function BaseCardDialogCardVariant({
     onActiveTabChange?.(nextTab);
   };
 
+  const paletteControlStyle = useMemo(
+    () => getInheritedDialogSectionStyle(theme, tintColor, defaultTintAccent ?? accentColor),
+    [accentColor, defaultTintAccent, theme, tintColor]
+  );
   const widgetRoomSelector = useMemo(
     () => (roomSelector ? getWidgetRoomSelector(roomSelector, theme) : null),
     [roomSelector, theme]
-  );
-  const headerRoomSelectorStyle = useMemo<CSSProperties>(
-    () => ({
-      height: '34px',
-      paddingInline: '10px',
-      fontSize: '0.75rem',
-      lineHeight: '1rem',
-    }),
-    []
   );
 
   const resolvedContentClassName = cn(
@@ -548,6 +582,71 @@ function BaseCardDialogCardVariant({
       padding: false,
     }),
     contentClassName
+  );
+
+  const cardHeader = (
+    <header
+      data-card-dialog-header
+      className={cn(
+        coverSheetHeaderClassName,
+        'shrink-0 border-b max-sm:pt-2 max-sm:pr-4',
+        dialogSurface.border
+      )}
+    >
+      <CardDialogHeader
+        title={title}
+        description={resolvedDescription}
+        entityId={roomSelector ? undefined : entityId}
+        eyebrow={widgetRoomSelector}
+        showRoomSelector={!roomSelector}
+        theme={theme}
+        roomSelectorFallbackRoomName={roomSelectorFallbackRoomName}
+        editableTitle={editableTitle}
+        onTitleChange={onTitleChange}
+        supportingContent={headerSupportingContent}
+        trailing={headerTrailing}
+        className={cn('mb-0 max-sm:pr-0', headerClassName)}
+      />
+
+      {shouldRenderTabs ? (
+        <CardDialogTabList className="mt-3 mb-0 flex flex-wrap gap-2">
+          {tabs.map((tab) => (
+            <CardDialogTabTrigger
+              key={tab.key}
+              active={resolvedActiveTab === tab.key}
+              icon={tab.icon}
+              onClick={() => handleActiveTabChange(tab.key)}
+            >
+              {tab.label}
+            </CardDialogTabTrigger>
+          ))}
+        </CardDialogTabList>
+      ) : null}
+    </header>
+  );
+
+  const cardBody = (
+    <CardDialogBody className={bodyClassName}>
+      {shouldRenderTabs
+        ? tabs.map((tab) => (
+            <TabPanel key={tab.key} value={tab.key}>
+              {tab.content}
+            </TabPanel>
+          ))
+        : (tabs[0]?.content ?? null)}
+
+      {footerContent ? (
+        footerContent
+      ) : (
+        <CardDialogFooter>
+          <Dialog.Close asChild>
+            <Button variant="soft" style={paletteControlStyle}>
+              {footerActionLabel ?? t('common.done')}
+            </Button>
+          </Dialog.Close>
+        </CardDialogFooter>
+      )}
+    </CardDialogBody>
   );
 
   return (
@@ -562,68 +661,28 @@ function BaseCardDialogCardVariant({
       contentGlowStyle={contentGlowStyle}
       contentOverlayClassName={contentOverlayClassName}
       contentOverlayStyle={contentOverlayStyle}
+      persistentMobileDismiss
+      mobileDismissStyle={paletteControlStyle}
     >
       <CustomScrollbar
         isOn={theme !== 'light'}
-        className={scrollClassName ?? 'max-sm:min-h-0 max-sm:flex-1'}
+        className={cn('max-sm:-mt-5 max-sm:min-h-0 max-sm:flex-1', scrollClassName)}
       >
-        <CardDialogBody className={bodyClassName}>
-          <CardDialogHeader
-            title={title}
-            description={resolvedDescription}
-            entityId={roomSelector ? undefined : entityId}
-            showRoomSelector={!roomSelector}
-            theme={theme}
-            roomSelectorFallbackRoomName={roomSelectorFallbackRoomName}
-            roomSelectorCompactContentStyle={headerRoomSelectorStyle}
-            editableTitle={editableTitle}
-            onTitleChange={onTitleChange}
-            supportingContent={headerSupportingContent}
-            trailing={widgetRoomSelector ?? headerTrailing}
-            className={headerClassName}
-          />
-
-          {shouldRenderTabs ? (
-            <Tabs
-              value={resolvedActiveTab}
-              defaultValue={defaultTab ?? firstTabKey}
-              onValueChange={handleActiveTabChange}
-            >
-              <CardDialogTabList>
-                {tabs.map((tab) => (
-                  <CardDialogTabTrigger
-                    key={tab.key}
-                    active={resolvedActiveTab === tab.key}
-                    icon={tab.icon}
-                    onClick={() => handleActiveTabChange(tab.key)}
-                  >
-                    {tab.label}
-                  </CardDialogTabTrigger>
-                ))}
-              </CardDialogTabList>
-
-              {tabs.map((tab) => (
-                <TabPanel key={tab.key} value={tab.key}>
-                  {tab.content}
-                </TabPanel>
-              ))}
-            </Tabs>
-          ) : tabs.length === 1 ? (
-            tabs[0]?.content
-          ) : null}
-
-          {footerContent ? (
-            footerContent
-          ) : (
-            <CardDialogFooter>
-              <Dialog.Close asChild>
-                <Button variant="secondary" size="small">
-                  {footerActionLabel ?? t('common.done')}
-                </Button>
-              </Dialog.Close>
-            </CardDialogFooter>
-          )}
-        </CardDialogBody>
+        {shouldRenderTabs ? (
+          <Tabs
+            value={resolvedActiveTab}
+            defaultValue={defaultTab ?? firstTabKey}
+            onValueChange={handleActiveTabChange}
+          >
+            {cardHeader}
+            {cardBody}
+          </Tabs>
+        ) : (
+          <>
+            {cardHeader}
+            {cardBody}
+          </>
+        )}
       </CustomScrollbar>
     </BaseCardDialogRoot>
   );
@@ -651,6 +710,9 @@ function BaseCardDialogModalVariant({
   contentTitle,
   contentDescription,
   bodyPadding = true,
+  mobileCoverSheet = false,
+  persistentMobileDismiss = false,
+  mobileCoverSheetActions,
 }: BaseCardDialogModalProps) {
   const surface = getThemeSurfaceTokens(theme);
 
@@ -678,6 +740,9 @@ function BaseCardDialogModalVariant({
       contentOverlayClassName={contentOverlayClassName}
       contentOverlayStyle={contentOverlayStyle}
       bodyClassName={shellBodyClassName}
+      mobileCoverSheet={mobileCoverSheet}
+      persistentMobileDismiss={persistentMobileDismiss}
+      mobileCoverSheetActions={mobileCoverSheetActions}
     >
       <div
         className={cn(
@@ -707,110 +772,9 @@ function BaseCardDialogSheetVariant({
   accentColor,
   contentTitle,
   contentDescription,
+  persistentMobileDismiss = true,
   closeLabel,
 }: BaseCardDialogSheetProps) {
-  const [dragOffset, setDragOffset] = useState(0);
-  const [isDragging, setIsDragging] = useState(false);
-  const dragStartYRef = useRef(0);
-  const dragOffsetRef = useRef(0);
-  const dragPointerIdRef = useRef<number | null>(null);
-  const suppressHandleClickRef = useRef(false);
-
-  const resetDragState = useCallback(() => {
-    dragOffsetRef.current = 0;
-    dragPointerIdRef.current = null;
-    suppressHandleClickRef.current = false;
-    setDragOffset(0);
-    setIsDragging(false);
-  }, []);
-
-  useEffect(() => {
-    if (!isOpen) {
-      resetDragState();
-    }
-  }, [isOpen, resetDragState]);
-
-  useEffect(() => {
-    if (!isDragging) {
-      return;
-    }
-
-    const dismissThresholdPx = 72;
-
-    const handlePointerMove = (event: PointerEvent) => {
-      if (event.pointerId !== dragPointerIdRef.current) {
-        return;
-      }
-
-      const deltaY = Math.max(0, event.clientY - dragStartYRef.current);
-      if (deltaY > 6) {
-        suppressHandleClickRef.current = true;
-      }
-      dragOffsetRef.current = deltaY;
-      setDragOffset(deltaY);
-    };
-
-    const finishDrag = (event: PointerEvent) => {
-      if (event.pointerId !== dragPointerIdRef.current) {
-        return;
-      }
-
-      const shouldClose = dragOffsetRef.current >= dismissThresholdPx;
-      setIsDragging(false);
-      dragPointerIdRef.current = null;
-
-      if (shouldClose) {
-        if (document.activeElement instanceof HTMLElement) {
-          document.activeElement.blur();
-        }
-        onOpenChange(false);
-        dragOffsetRef.current = 0;
-        setDragOffset(0);
-        return;
-      }
-
-      dragOffsetRef.current = 0;
-      setDragOffset(0);
-      window.setTimeout(() => {
-        suppressHandleClickRef.current = false;
-      }, 0);
-    };
-
-    window.addEventListener('pointermove', handlePointerMove);
-    window.addEventListener('pointerup', finishDrag);
-    window.addEventListener('pointercancel', finishDrag);
-
-    return () => {
-      window.removeEventListener('pointermove', handlePointerMove);
-      window.removeEventListener('pointerup', finishDrag);
-      window.removeEventListener('pointercancel', finishDrag);
-    };
-  }, [isDragging, onOpenChange]);
-
-  const handlePointerDown = (event: ReactPointerEvent<HTMLButtonElement>) => {
-    if (event.pointerType === 'mouse' && event.button !== 0) {
-      return;
-    }
-
-    event.preventDefault();
-    dragPointerIdRef.current = event.pointerId;
-    dragStartYRef.current = event.clientY;
-    dragOffsetRef.current = 0;
-    suppressHandleClickRef.current = false;
-    setIsDragging(true);
-    setDragOffset(0);
-  };
-
-  const handleClick = (event: ReactPointerEvent<HTMLButtonElement>) => {
-    event.currentTarget.blur();
-    if (suppressHandleClickRef.current) {
-      suppressHandleClickRef.current = false;
-      return;
-    }
-
-    onOpenChange(false);
-  };
-
   const resolvedContentStyle: CSSProperties = {
     ...(theme === 'glass' && accentColor
       ? {
@@ -818,8 +782,6 @@ function BaseCardDialogSheetVariant({
         }
       : {}),
     ...contentStyle,
-    transform: `translateY(${dragOffset}px)`,
-    transition: isDragging ? 'none' : 'transform 180ms ease-out',
   };
 
   return (
@@ -830,31 +792,21 @@ function BaseCardDialogSheetVariant({
       contentDescription={contentDescription ?? description}
       overlayClassName={overlayClassName ?? 'animate-in fade-in bg-black/55 backdrop-blur-sm'}
       contentClassName={cn(
-        'fixed inset-x-2 bottom-2 z-50 mx-auto max-w-xl overflow-hidden rounded-[30px] border border-white/12 bg-zinc-950/96 shadow-2xl backdrop-blur-2xl outline-none',
+        'fixed inset-x-0 bottom-0 z-50 mx-auto max-w-none overflow-hidden rounded-t-[30px] rounded-b-none border border-white/12 bg-zinc-950/96 shadow-2xl backdrop-blur-2xl outline-none sm:inset-x-2 sm:bottom-2 sm:max-w-xl sm:rounded-[30px]',
         contentClassName
       )}
       contentGlowClassName={contentGlowClassName}
       contentGlowStyle={contentGlowStyle}
       contentStyle={resolvedContentStyle}
-      mobileCoverSheet={false}
+      mobileCoverSheet
+      persistentMobileDismiss={persistentMobileDismiss}
+      mobileDismissLabel={closeLabel}
+      bodyClassName={cn(
+        'relative pb-[calc(env(safe-area-inset-bottom,0px)+0.9rem)] max-sm:overflow-y-auto max-sm:overscroll-contain max-sm:touch-pan-y',
+        bodyClassName
+      )}
     >
-      <div
-        className={cn(
-          'relative pb-[calc(env(safe-area-inset-bottom,0px)+0.9rem)] pt-3',
-          bodyClassName
-        )}
-      >
-        <button
-          type="button"
-          onPointerDown={handlePointerDown}
-          onClick={handleClick}
-          className="mx-auto mb-3 flex h-5 w-16 touch-none items-center justify-center"
-          aria-label={closeLabel ?? `Close ${title}`}
-        >
-          <span className="h-1.5 w-12 rounded-full bg-white/20" aria-hidden="true" />
-        </button>
-        {children}
-      </div>
+      {children}
     </BaseCardDialogRoot>
   );
 }
@@ -868,11 +820,16 @@ function BaseCardDialogFullscreenVariant({
   overlayClassName,
   contentClassName,
   contentStyle,
+  contentGlowClassName,
+  contentGlowStyle,
+  contentOverlayClassName,
+  contentOverlayStyle,
   disableOpenAutoFocus = false,
   shellBodyClassName,
   children,
   contentTitle,
   contentDescription,
+  persistentMobileDismiss = true,
 }: BaseCardDialogFullscreenProps) {
   const surface = getThemeSurfaceTokens(theme);
 
@@ -881,15 +838,21 @@ function BaseCardDialogFullscreenVariant({
       isOpen={isOpen}
       onOpenChange={onOpenChange}
       disableOpenAutoFocus={disableOpenAutoFocus}
-      mobileCoverSheet={false}
+      mobileCoverSheet
+      persistentMobileDismiss={persistentMobileDismiss}
       overlayClassName={overlayClassName ?? `animate-in fade-in ${surface.dialogBackdrop}`}
       contentTitle={contentTitle ?? title}
       contentDescription={contentDescription ?? description}
       contentClassName={cn(
-        'fixed inset-3 z-50 overflow-hidden rounded-[28px] border border-white/10 bg-black shadow-2xl outline-none animate-in fade-in zoom-in-95 duration-200 md:inset-8',
+        'fixed inset-3 z-50 overflow-hidden rounded-[28px] border border-white/10 shadow-2xl outline-none animate-in fade-in zoom-in-95 duration-200 md:inset-8',
+        theme === 'glass' ? 'bg-slate-950/55' : 'bg-black',
         contentClassName
       )}
       contentStyle={contentStyle}
+      contentGlowClassName={contentGlowClassName}
+      contentGlowStyle={contentGlowStyle}
+      contentOverlayClassName={contentOverlayClassName}
+      contentOverlayStyle={contentOverlayStyle}
       bodyClassName={shellBodyClassName}
     >
       {children}
@@ -916,12 +879,14 @@ export function BaseCardDialog(props: BaseCardDialogProps) {
 export interface BaseCardDialogWithStateProps
   extends Omit<BaseCardDialogCardProps, 'tabs' | 'variant'> {
   controlsTabContent: ReactNode;
+  controlsTabIcon?: LucideIcon;
   customizeTabContent?: ReactNode;
   extraTabs?: BaseCardDialogTab[];
 }
 
 export function BaseCardDialogWithState({
   controlsTabContent,
+  controlsTabIcon = Sliders,
   customizeTabContent,
   extraTabs = [],
   ...props
@@ -932,7 +897,7 @@ export function BaseCardDialogWithState({
     {
       key: 'controls',
       label: t('common.controls'),
-      icon: Sliders,
+      icon: controlsTabIcon,
       content: controlsTabContent,
     },
     ...(customizeTabContent || props.onTintColorChange

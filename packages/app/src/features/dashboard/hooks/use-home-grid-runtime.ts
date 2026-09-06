@@ -2,6 +2,7 @@ import {
   type CardSize,
   getCardGridAutoRowsStyle,
   getDashboardCardGridMetrics,
+  getResponsiveCardSize,
 } from '@navet/app/components/shared/card-size-selector';
 import { useBreakpointCols } from '@navet/app/hooks/use-breakpoint-cols';
 import { settingsSelectors } from '@navet/app/stores/selectors';
@@ -13,6 +14,7 @@ import {
   getCardGridGapPx,
   getCardGridTargetWidth,
 } from '../components/home-dashboard-overview.shared';
+import { packDashboardGridItems } from '../device-grid/device-grid-layout';
 import type { CustomCard } from '../stores/custom-cards-store';
 import { useAutoScaledGridMeasurements } from './use-auto-scaled-grid-measurements';
 import { resolveDashboardPerformanceProfile } from './use-dashboard-performance-mode';
@@ -131,9 +133,28 @@ export function useHomeGridRuntime({
       }) as CSSProperties,
     [breakpointCols, forcedGridCols, microCardMinWidth, renderedGridCols]
   );
+  const gridPlacements = useMemo(
+    () =>
+      packDashboardGridItems(
+        cardIds.flatMap((cardId) => {
+          const entry = allCards.get(cardId);
+          if (!entry) return [];
+
+          return [
+            {
+              id: cardId,
+              size: getResponsiveCardSize(cardSizes[cardId] ?? entry.size, breakpointCols),
+            },
+          ];
+        }),
+        renderedGridCols
+      ),
+    [allCards, breakpointCols, cardIds, cardSizes, renderedGridCols]
+  );
   return {
     breakpointCols,
     gridGapPx,
+    gridPlacements,
     gridStyle,
     innerContainerStyle,
     innerRef,

@@ -80,7 +80,10 @@ import { useDashboardRoomNavigation } from './use-dashboard-room-navigation';
 import { useEditModeBeforeUnload } from './use-edit-mode-beforeunload';
 import { useHomeDashboardLayout } from './use-home-dashboard-layout';
 import { useHomeLayoutHydrated } from './use-home-layout-hydrated';
-import { useHomeSecurityAlertCount } from './use-home-security-alert-count';
+import {
+  getRoomSecurityAlertCount,
+  useHomeSecurityAlertCount,
+} from './use-home-security-alert-count';
 import { useOnboardingController } from './use-onboarding-controller';
 
 const DASHBOARD_DEVICE_SECTION_IDS = new Set(['home', 'lights', 'climate']);
@@ -96,7 +99,14 @@ const SECURITY_SECTION_DEVICE_KEYS = [
   'helpers',
 ] as const;
 const MEDIA_SECTION_DEVICE_KEYS = ['media'] as const;
-const CLIMATE_SECTION_DEVICE_KEYS = ['climate', 'hvac', 'fans', 'switches', 'sensors'] as const;
+const CLIMATE_SECTION_DEVICE_KEYS = [
+  'climate',
+  'hvac',
+  'fans',
+  'switches',
+  'sensors',
+  'weather',
+] as const;
 const LIGHTS_SECTION_DEVICE_KEYS = ['lights'] as const;
 const EMPTY_SECTION_DEVICE_KEYS: readonly DeviceCollectionKey[] = [];
 const FEATURE_COLLECTION_ENTITY_ID_PATTERN = /(?:^|:)(?:calendar|weather)\./;
@@ -503,6 +513,13 @@ export function useDashboardController(): DashboardController {
     enabled: showHomeSummaryBar && sectionData.isOverviewSection,
     hiddenEntityIds,
   });
+  const activeRoomSecurityAlertCount = useMemo(
+    () =>
+      isAllRooms(activeRoom)
+        ? securityAlertCount
+        : getRoomSecurityAlertCount(allDevices, hiddenEntityIds, activeRoom),
+    [activeRoom, allDevices, hiddenEntityIds, securityAlertCount]
+  );
 
   const resetDashboard = useResetDashboard(resetHomeLayout);
   const onboarding = useOnboardingController({ allEntityIds, changeRoom, resetDashboard });
@@ -638,6 +655,7 @@ export function useDashboardController(): DashboardController {
     rooms,
     sectionData,
     securityAlertCount,
+    activeRoomSecurityAlertCount,
     setActiveSection,
     updateCardSize,
     updateCardZone,
@@ -721,7 +739,7 @@ function useDashboardSectionData({
       activeSection === 'climate'
         ? new Map(
             Array.from(deviceMap.entries()).filter(
-              ([, device]) => getClimateDashboardGroup(device) !== null
+              ([, device]) => getClimateDashboardGroup(device) !== null || device.type === 'weather'
             )
           )
         : new Map<string, DeviceWithType>(),
@@ -732,7 +750,7 @@ function useDashboardSectionData({
       activeSection === 'climate'
         ? new Map(
             Array.from(availableDeviceMap.entries()).filter(
-              ([, device]) => getClimateDashboardGroup(device) !== null
+              ([, device]) => getClimateDashboardGroup(device) !== null || device.type === 'weather'
             )
           )
         : new Map<string, DeviceWithType>(),

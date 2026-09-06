@@ -1,5 +1,5 @@
 import { getStoryDocsDescription } from '@navet/app/storybook/story-docs';
-import type { Meta, StoryObj } from '@storybook/react';
+import type { Meta, StoryObj } from '@storybook/react-vite';
 import { Trash2 } from 'lucide-react';
 import {
   AlertDialog,
@@ -13,10 +13,10 @@ import {
   AlertDialogTrigger,
 } from './alert-dialog';
 
-function AlertDialogStory() {
+function AlertDialogStory({ defaultOpen = false }: { defaultOpen?: boolean }) {
   return (
     <div className="flex items-center justify-center p-12">
-      <AlertDialog>
+      <AlertDialog defaultOpen={defaultOpen}>
         <AlertDialogTrigger asChild>
           <button
             type="button"
@@ -90,6 +90,16 @@ export default meta;
 type Story = StoryObj<typeof meta>;
 
 export const Default: Story = {};
+
+export const PhoneCoverSheet: Story = {
+  render: () => <AlertDialogStory defaultOpen />,
+  globals: {
+    viewport: {
+      value: 'mobile1',
+      isRotated: false,
+    },
+  },
+};
 
 export const Docs: Story = {
   parameters: {

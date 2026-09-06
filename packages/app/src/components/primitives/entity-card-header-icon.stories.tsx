@@ -1,5 +1,5 @@
 import { getStoryDocsDescription } from '@navet/app/storybook/story-docs';
-import type { Meta, StoryObj } from '@storybook/react';
+import type { Meta, StoryObj } from '@storybook/react-vite';
 import { Lightbulb, Settings2 } from 'lucide-react';
 import { EntityCardHeaderIcon } from './entity-card-header-icon';
 
@@ -11,7 +11,7 @@ const meta = {
     docs: {
       description: {
         component:
-          'Theme-aware icon badge used in entity card headers. Supports icon glyphs, text fallback, active state styling, and optional interactive click mode.',
+          'Theme-aware icon badge used in entity card headers. Its shared control frame is 32 px for precise pointers and 36 px on touch-capable devices, while preserving icon glyphs, text fallback, active styling, and optional interaction.',
       },
     },
   },
@@ -56,6 +56,13 @@ export const TextFallback: Story = {
     iconText: 'LR',
     isActive: false,
     size: 'small',
+  },
+};
+
+export const DenseSensor: Story = {
+  args: {
+    size: 'extra-small',
+    variant: 'dense',
   },
 };
 

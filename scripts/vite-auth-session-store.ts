@@ -10,11 +10,11 @@ import {
 } from 'node:fs'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import path from 'node:path'
-import type { ViteInstallationAuthority } from './vite-installation-authority'
+import type { ViteInstallationAuthority } from './vite-installation-authority.ts'
 import {
   createInstallationCookieNames,
   type InstallationCookieNames,
-} from './installation-cookie-scope'
+} from './installation-cookie-scope.ts'
 
 export const AUTH_COOKIE_NAME = 'navet_auth_session'
 export const AUTH_BINDING_HEADER = 'X-Navet-OAuth-Binding'
@@ -917,7 +917,11 @@ export function resolveViteAuthenticatedPrincipal(
   }
 
   const session = resolveViteAuthSession(req, store)
-  return session?.auth && session.auth.expires > Date.now()
+  // Home Assistant access tokens are short lived, but the browser-bound Navet
+  // credential session remains durable while its refresh credential is stored.
+  // Expiry schedules renewal; it must not make Navet-local profile or chore
+  // routes treat the browser as logged out before refresh can complete.
+  return session?.auth
     ? {
         providerId: 'home_assistant',
         source: 'standalone_session',

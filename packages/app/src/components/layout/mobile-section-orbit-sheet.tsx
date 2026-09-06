@@ -10,6 +10,7 @@ import { getOrderedSectionNavigationItems, MOBILE_SECTION_ORBIT_ORDER } from './
 
 interface MobileSectionOrbitSheetProps {
   activeSection: Section;
+  choresEnabled?: boolean;
   hasCustomActiveDestination?: boolean;
   customItems?: Array<{
     active?: boolean;
@@ -33,6 +34,7 @@ interface MobileSectionOrbitSheetProps {
 
 export const MobileSectionOrbitSheet = memo(function MobileSectionOrbitSheet({
   activeSection,
+  choresEnabled = true,
   hasCustomActiveDestination = false,
   customItems = [],
   homeAssistantAction,
@@ -57,8 +59,8 @@ export const MobileSectionOrbitSheet = memo(function MobileSectionOrbitSheet({
     [accentColor, primaryColor, theme]
   );
   const orbitItems = useMemo(
-    () => getOrderedSectionNavigationItems(t, MOBILE_SECTION_ORBIT_ORDER),
-    [t]
+    () => getOrderedSectionNavigationItems(t, MOBILE_SECTION_ORBIT_ORDER, choresEnabled),
+    [choresEnabled, t]
   );
 
   const handleSelectSection = (section: Section) => {
@@ -75,17 +77,17 @@ export const MobileSectionOrbitSheet = memo(function MobileSectionOrbitSheet({
       accentColor={accentColor}
       overlayClassName={`animate-in fade-in bg-black/45 backdrop-blur-[2px] md:hidden ${surface.dialogBackdrop}`}
       contentClassName={`${surface.panel} ${surface.border}`}
-      bodyClassName="px-4"
     >
-      <div className="space-y-3 pb-1">
+      <div className="pb-1">
         <SheetSurfaceHeader
           title={t('sidebar.orbitTitle')}
           description={t('sidebar.orbitDescription')}
           closeLabel={t('common.close')}
           onClose={() => onOpenChange(false)}
+          className={`border-b max-sm:pt-2 ${surface.border}`}
         />
 
-        <section>
+        <section className="p-4">
           <div className="grid grid-cols-2 gap-2">
             {orbitItems.map((item) => {
               const isActive = !hasCustomActiveDestination && activeSection === item.section;

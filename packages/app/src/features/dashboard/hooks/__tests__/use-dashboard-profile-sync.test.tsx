@@ -19,7 +19,9 @@ import {
 import { useDashboardProfileRuntimeStore } from '@navet/app/features/dashboard/clients/dashboard-profile-runtime-store';
 import { emptyDeviceDisplayProfilePolicy } from '@navet/app/features/dashboard/clients/device-display-profile';
 import { useDeviceDisplayProfileRuntimeStore } from '@navet/app/features/dashboard/clients/device-display-profile-runtime-store';
+import { createLegacyDashboardCollection } from '@navet/app/features/dashboard/dashboards';
 import {
+  DASHBOARD_PROFILE_REBIND_EVENT,
   DASHBOARD_PROFILE_REFRESH_EVENT,
   useDashboardProfileSync,
 } from '@navet/app/features/dashboard/hooks/use-dashboard-profile-sync';
@@ -47,6 +49,7 @@ const {
   loadDashboardPreferences,
   loadDashboardProfile,
   loadDashboardProfileClients,
+  rebindDashboardProfileWorkspace,
   saveDashboardPreferences,
   saveDashboardDisplayProfiles,
   saveDashboardProfile,
@@ -66,6 +69,7 @@ const {
     loadDashboardPreferences: vi.fn(),
     loadDashboardProfile: vi.fn(),
     loadDashboardProfileClients: vi.fn(),
+    rebindDashboardProfileWorkspace: vi.fn(),
     saveDashboardPreferences: vi.fn(),
     saveDashboardDisplayProfiles: vi.fn(),
     saveDashboardProfile: vi.fn(),
@@ -83,6 +87,7 @@ vi.mock('@navet/app/services/dashboard-profile.service', async (importOriginal) 
     loadDashboardDisplayProfiles,
     loadDashboardProfile,
     loadDashboardProfileClients,
+    rebindDashboardProfileWorkspace,
     saveDashboardPreferences,
     saveDashboardDisplayProfiles,
     saveDashboardProfile,
@@ -438,6 +443,8 @@ describe('useDashboardProfileSync', () => {
     });
     saveDashboardDisplayProfiles.mockReset();
     saveDashboardProfile.mockReset();
+    rebindDashboardProfileWorkspace.mockReset();
+    rebindDashboardProfileWorkspace.mockImplementation(async (profile) => savedResult(profile));
     touchDashboardClientWithStatus.mockReset();
     touchDashboardClientWithStatus.mockResolvedValue({
       failureCode: null,
@@ -735,6 +742,44 @@ describe('useDashboardProfileSync', () => {
       baseRevision: null,
       remoteRevision: 1,
       overlappingPaths: ['/'],
+    });
+  });
+
+  it('does not report a conflict for different legacy projections of the same dashboard collection', async () => {
+    const dashboards = createLegacyDashboardCollection({
+      homeLayout: {
+        mode: 'flow',
+        showHero: true,
+        cardIds: ['home_assistant:light.kitchen'],
+        sections: [],
+        cardSectionAssignments: {},
+      },
+    });
+    const remote = buildProfile({
+      dashboards,
+      homeDashboardLayout: dashboards.dashboardsById.home?.homeLayout,
+    });
+    currentProfile = buildProfile({
+      dashboards,
+      homeDashboardLayout: {
+        ...dashboards.dashboardsById.home?.homeLayout,
+        cardIds: ['home_assistant:light.kitchen', 'home_assistant:sensor.office_temperature'],
+      },
+    });
+    loadDashboardProfile.mockResolvedValueOnce(activeResult(remote));
+
+    renderHookWithProviders(() => useDashboardProfileSync());
+    await flushEffects();
+
+    expect(saveDashboardProfile).not.toHaveBeenCalled();
+    expect(importDashboardConfig).not.toHaveBeenCalled();
+    expect(toast).not.toHaveBeenCalledWith(
+      'Dashboard changes detected on another device',
+      expect.anything()
+    );
+    expect(useDashboardProfileRuntimeStore.getState()).toMatchObject({
+      conflict: null,
+      status: 'synced',
     });
   });
 
@@ -1353,7 +1398,7 @@ describe('useDashboardProfileSync', () => {
     expect(loadDashboardProfile).toHaveBeenCalledTimes(2);
   });
 
-  it('applies and attributes a clean update, then keeps polling', async () => {
+  it('applies and attributes a clean update silently, then keeps polling', async () => {
     const base = buildProfile();
     const remote = buildProfile({
       exportedAt: '2026-07-25T09:02:00.000Z',
@@ -1370,13 +1415,7 @@ describe('useDashboardProfileSync', () => {
 
     await advanceTime(60_000);
     expect(importDashboardConfig).toHaveBeenCalledWith(remote, { applyNavigation: false });
-    expect(toast).toHaveBeenCalledWith(
-      'Dashboard updated',
-      expect.objectContaining({
-        description: 'Kitchen panel updated the shared dashboard.',
-        duration: 6_000,
-      })
-    );
+    expect(toast).not.toHaveBeenCalledWith('Dashboard updated', expect.anything());
     expect(useDashboardProfileRuntimeStore.getState().lastActivity?.actor.clientName).toBe(
       'Kitchen panel'
     );
@@ -1421,8 +1460,41 @@ describe('useDashboardProfileSync', () => {
     expect(loadDashboardProfile).toHaveBeenCalledTimes(1);
     expect(useDashboardProfileRuntimeStore.getState()).toMatchObject({
       status: 'error',
+      failureCode: DASHBOARD_PROFILE_ERROR_CODES.workspaceTenantMismatch,
       error:
         'This shared dashboard belongs to a different Home Assistant address. Connect through the same Home Assistant address used to set up this Navet installation. Local settings are preserved.',
+    });
+  });
+
+  it('rebinds a mismatched workspace to this registered browser and publishes local changes', async () => {
+    const localProfile = buildProfile({ settings: { showWeatherInHeader: false } });
+    currentProfile = localProfile;
+    loadDashboardProfile
+      .mockResolvedValueOnce({
+        ...unavailableResult(),
+        failureCode: DASHBOARD_PROFILE_ERROR_CODES.workspaceTenantMismatch,
+      })
+      .mockResolvedValueOnce(activeResult(localProfile, 2));
+
+    renderHookWithProviders(() => useDashboardProfileSync());
+    await flushEffects();
+
+    window.dispatchEvent(new Event(DASHBOARD_PROFILE_REBIND_EVENT));
+    await flushEffects();
+
+    expect(rebindDashboardProfileWorkspace).toHaveBeenCalledWith(
+      localProfile,
+      expect.objectContaining({
+        id: CURRENT_CLIENT.id,
+        name: CURRENT_CLIENT.name,
+      })
+    );
+    expect(loadDashboardProfile).toHaveBeenCalledTimes(2);
+    expect(useDashboardProfileRuntimeStore.getState()).toMatchObject({
+      status: 'synced',
+      failureCode: null,
+      revision: 2,
+      workspaceId: WORKSPACE.workspaceId,
     });
   });
 

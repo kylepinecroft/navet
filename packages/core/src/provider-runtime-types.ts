@@ -8,7 +8,9 @@ import type {
   ProviderAdminFeatureService,
   ProviderCalendarFeatureService,
   ProviderCameraFeatureService,
+  ProviderChoreProjectionFeatureService,
   ProviderClimateFeatureService,
+  ProviderConversationFeatureService,
   ProviderEnergyFeatureService,
   ProviderEntityRuntimeService,
   ProviderHistoryFeatureService,
@@ -52,6 +54,7 @@ export interface IntegrationProviderFeatureMatrix {
   weather: boolean;
   notifications: boolean;
   tasks: boolean;
+  conversation: boolean;
 }
 
 export type IntegrationProviderFeature = keyof IntegrationProviderFeatureMatrix;
@@ -72,8 +75,10 @@ export interface IntegrationProviderRuntimeRegistration {
   ) => Promise<PlatformCameraStream>;
   adminFeatureService?: ProviderAdminFeatureService;
   calendarFeatureService?: ProviderCalendarFeatureService;
+  choreProjectionFeatureService?: ProviderChoreProjectionFeatureService;
   cameraFeatureService?: ProviderCameraFeatureService;
   climateFeatureService?: ProviderClimateFeatureService;
+  conversationFeatureService?: ProviderConversationFeatureService;
   energyFeatureService?: ProviderEnergyFeatureService;
   entityRuntimeService?: ProviderEntityRuntimeService;
   historyFeatureService?: ProviderHistoryFeatureService;

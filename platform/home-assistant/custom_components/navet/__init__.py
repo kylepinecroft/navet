@@ -6,16 +6,25 @@ import ipaddress
 from pathlib import Path
 from urllib.parse import urlsplit
 
+from aiohttp import web
+import voluptuous as vol
 from homeassistant.components import panel_custom
 from homeassistant.components.frontend import async_remove_panel
 from homeassistant.components.http import HomeAssistantView, StaticPathConfig
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant
+from homeassistant.const import Platform
+from homeassistant.core import HomeAssistant, ServiceCall
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
+import homeassistant.helpers.config_validation as cv
 
-from aiohttp import web
-
+from .chore_store import (
+    ChoreAuthority,
+    ChoreAuthorityError,
+    register_chore_websocket_commands,
+)
 from .const import (
+    CHORE_ACTIONS,
     DOMAIN,
     FRONTEND_MODULE_URL,
     HA_PROXY_PATH,
@@ -184,6 +193,16 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     frontend_dir = Path(__file__).parent / "frontend"
     domain_data = hass.data.setdefault(DOMAIN, {})
 
+    authority = domain_data.get("chore_authority")
+    if not isinstance(authority, ChoreAuthority):
+        authority = ChoreAuthority(hass)
+        domain_data["chore_authority"] = authority
+    await authority.async_start()
+
+    if not domain_data.get("chore_websocket_registered"):
+        register_chore_websocket_commands(hass)
+        domain_data["chore_websocket_registered"] = True
+
     if not domain_data.get("static_path_registered"):
         await hass.http.async_register_static_paths(
             [
@@ -214,10 +233,52 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         config={"integration": DOMAIN},
     )
 
+    if not domain_data.get("chore_services_registered"):
+        async def async_handle_chore_action(call: ServiceCall) -> None:
+            """Apply an authenticated Home Assistant action to durable chores."""
+            try:
+                await authority.async_service_action(
+                    call.service,
+                    call.data,
+                    str(call.context.id),
+                )
+            except ChoreAuthorityError as err:
+                raise HomeAssistantError(str(err)) from err
+
+        base_fields = {
+            vol.Required("occurrence_id"): cv.string,
+            vol.Required("participant_id"): cv.string,
+        }
+        for action in CHORE_ACTIONS:
+            fields = dict(base_fields)
+            if action in ("reject", "skip", "reopen", "reassign"):
+                fields[vol.Required("reason")] = cv.string
+            if action == "reassign":
+                fields[vol.Required("assignee_ids")] = vol.All(cv.ensure_list, [cv.string])
+            hass.services.async_register(
+                DOMAIN,
+                action,
+                async_handle_chore_action,
+                schema=vol.Schema(fields),
+            )
+        domain_data["chore_services_registered"] = True
+
+    await hass.config_entries.async_forward_entry_setups(entry, [Platform.SENSOR])
+
     return True
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload Navet."""
+    unloaded = await hass.config_entries.async_unload_platforms(entry, [Platform.SENSOR])
     async_remove_panel(hass, PANEL_FRONTEND_PATH, warn_if_unknown=False)
-    return True
+    authority = hass.data.get(DOMAIN, {}).get("chore_authority")
+    if isinstance(authority, ChoreAuthority):
+        await authority.async_stop()
+    domain_data = hass.data.get(DOMAIN, {})
+    if domain_data.get("chore_services_registered"):
+        for action in CHORE_ACTIONS:
+            hass.services.async_remove(DOMAIN, action)
+        domain_data["chore_services_registered"] = False
+    domain_data.pop("chore_authority", None)
+    return unloaded

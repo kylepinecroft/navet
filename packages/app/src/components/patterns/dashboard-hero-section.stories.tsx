@@ -1,7 +1,7 @@
 import { InteractivePill } from '@navet/app/components/primitives/interactive-pill';
 import { getThemeSurfaceTokens } from '@navet/app/components/shared/theme/theme-surface-tokens';
 import { useTheme } from '@navet/app/hooks';
-import type { Meta, StoryObj } from '@storybook/react';
+import type { Meta, StoryObj } from '@storybook/react-vite';
 import { DashboardHeroSection } from './dashboard-hero-section';
 
 function DashboardHeroSectionStory() {
@@ -12,8 +12,8 @@ function DashboardHeroSectionStory() {
     <DashboardHeroSection
       accentColor={accentColor}
       surface={surface}
-      title="Shared hero chrome for dashboard and settings entry sections."
-      description="Use the pattern instead of duplicating rounded bordered hero containers in feature modules."
+      title="Introductory chrome for setup and editing surfaces."
+      description="Use only when a task needs orientation before live content. Operational dashboards should lead with current state."
       actions={
         <>
           <InteractivePill active intent="action">

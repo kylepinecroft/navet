@@ -15,11 +15,18 @@ export const EXAMPLE_PHOTO_URL = 'https://example.com/photo.jpg';
 /** OpenStreetMap copyright URL */
 export const OPENSTREETMAP_COPYRIGHT_URL = 'https://www.openstreetmap.org/copyright';
 
-/** CARTO attribution URL */
-export const CARTO_ATTRIBUTION_URL = 'https://carto.com/attributions';
+/** Open basemap attribution URLs */
+export const OPENFREEMAP_URL = 'https://openfreemap.org/';
+export const OPENMAPTILES_URL = 'https://openmaptiles.org/';
 
 /** GitHub repository URL */
 export const GITHUB_REPO_URL = 'https://github.com/awesomestvi/navet';
+
+/** Navet-owned community destinations */
+export const COMMUNITY_URLS = {
+  discord: 'https://discord.com/channels/1540491864325623892',
+  reddit: 'https://www.reddit.com/r/navet/',
+} as const;
 
 /** Documentation URLs */
 export const DOCS_URLS = {

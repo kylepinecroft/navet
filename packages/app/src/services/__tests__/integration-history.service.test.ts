@@ -10,8 +10,10 @@ vi.mock('@navet/app/provider-runtime-registry', () => ({
 }));
 
 import {
+  getIntegrationEntityHistories,
   getIntegrationEntityHistory,
   getIntegrationHistoryMessageClient,
+  getIntegrationStatisticsHistory,
   integrationHistoryService,
   supportsIntegrationEnergyStatistics,
   supportsIntegrationStatisticsHistory,
@@ -105,6 +107,35 @@ describe('integrationHistoryService', () => {
     ).resolves.toBeNull();
   });
 
+  it('groups entity history into one request per provider and restores canonical ids', async () => {
+    const getEntityHistories = vi.fn(async ({ entityIds }: { entityIds: string[] }) =>
+      entityIds.map((entityId) => ({
+        entityId,
+        points: [{ state: 'on', changedAt: '2026-07-14T08:30:00Z' }],
+      }))
+    );
+    getProviderRuntimeRegistrationMock.mockImplementation(() => ({
+      historyFeatureService: { getMessageClient: () => null, getEntityHistories },
+    }));
+
+    await expect(
+      getIntegrationEntityHistories({
+        entityIds: [
+          'home_assistant:binary_sensor.motion',
+          'home_assistant:binary_sensor.door',
+          'homey:alarm.motion',
+        ],
+        startTime: '2026-07-14T08:00:00Z',
+      })
+    ).resolves.toHaveLength(3);
+    expect(getEntityHistories).toHaveBeenCalledTimes(2);
+    expect(getEntityHistories.mock.calls[0]?.[0].entityIds).toEqual([
+      'binary_sensor.motion',
+      'binary_sensor.door',
+    ]);
+    expect(getEntityHistories.mock.calls[1]?.[0].entityIds).toEqual(['alarm.motion']);
+  });
+
   it('uses provider-owned history support gates instead of provider identity checks', () => {
     getProviderRuntimeRegistrationMock.mockReturnValue({
       historyFeatureService: {
@@ -118,5 +149,53 @@ describe('integrationHistoryService', () => {
     expect(supportsIntegrationStatisticsHistory('home_assistant:binary_sensor.motion')).toBe(false);
     expect(supportsIntegrationEnergyStatistics('home_assistant:sensor.energy')).toBe(true);
     expect(supportsIntegrationEnergyStatistics('home_assistant:sensor.power')).toBe(false);
+  });
+
+  it('delegates normalized statistics with native ids and restores canonical ids', async () => {
+    const getStatisticsHistory = vi.fn(async () => ({
+      'sensor.house_power': [{ startMs: 1_787_040_000_000, endMs: 1_787_043_600_000, mean: 437 }],
+      'sensor.kitchen_power': [],
+    }));
+    getProviderRuntimeRegistrationMock.mockReturnValue({
+      historyFeatureService: {
+        getMessageClient: () => null,
+        getStatisticsHistory,
+      },
+    });
+
+    await expect(
+      getIntegrationStatisticsHistory({
+        entityIds: ['home_assistant:sensor.house_power', 'home_assistant:sensor.kitchen_power'],
+        startTime: '2026-08-20T00:00:00Z',
+        endTime: '2026-08-20T02:00:00Z',
+        period: 'hour',
+        types: ['mean'],
+        units: { 'home_assistant:sensor.house_power': 'W' },
+      })
+    ).resolves.toEqual({
+      'home_assistant:sensor.house_power': [
+        { startMs: 1_787_040_000_000, endMs: 1_787_043_600_000, mean: 437 },
+      ],
+      'home_assistant:sensor.kitchen_power': [],
+    });
+    expect(getStatisticsHistory).toHaveBeenCalledWith({
+      entityIds: ['sensor.house_power', 'sensor.kitchen_power'],
+      startTime: '2026-08-20T00:00:00Z',
+      endTime: '2026-08-20T02:00:00Z',
+      period: 'hour',
+      types: ['mean'],
+      units: { 'sensor.house_power': 'W' },
+    });
+  });
+
+  it('rejects statistics queries that mix providers', async () => {
+    await expect(
+      getIntegrationStatisticsHistory({
+        entityIds: ['home_assistant:sensor.house_power', 'homey:sensor.office_power'],
+        startTime: '2026-08-20T00:00:00Z',
+        period: 'hour',
+        types: ['mean'],
+      })
+    ).rejects.toThrow('same provider');
   });
 });

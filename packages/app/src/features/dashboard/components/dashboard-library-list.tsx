@@ -1,102 +1,121 @@
+import { Button } from '@navet/app/components/primitives';
 import type { getThemeSurfaceTokens } from '@navet/app/components/shared/theme/theme-surface-tokens';
+import { navetIconSizeTokens } from '@navet/app/components/system/tokens';
 import { type LucideIcon, Plus } from 'lucide-react';
 import { memo, useEffect, useRef, useState } from 'react';
 
 const LIST_HEIGHT = 360;
-const ROW_HEIGHT = 72;
+const ROW_HEIGHT = 61;
 const OVERSCAN = 1;
 
 export type DashboardLibraryCard = {
   id: string;
   title: string;
   subtitle: string;
+  room?: string;
   meta: string;
   kind: 'device' | 'widget';
   icon?: LucideIcon;
+  entityType?: string;
+  entityTypeLabel?: string;
   idSearchText?: string;
+};
+
+export type DashboardLibraryEntityType = {
+  key: string;
+  label: string;
+  count: number;
+  icon?: LucideIcon;
 };
 
 const DashboardLibraryRow = memo(function DashboardLibraryRow({
   card,
   surface,
-  accentColor,
-  iconBackground,
-  tileBackground,
-  tileBorder,
+  addLabel,
+  showDivider,
   onAdd,
 }: {
   card: DashboardLibraryCard;
   surface: ReturnType<typeof getThemeSurfaceTokens>;
-  accentColor: string;
-  iconBackground: string;
-  tileBackground: string;
-  tileBorder: string;
+  addLabel: string;
+  showDivider: boolean;
   onAdd: () => void;
 }) {
   const IconComponent = card.icon;
   return (
-    <button
-      type="button"
+    <div
       data-library-interactive="true"
-      onClick={onAdd}
-      className={`group flex w-full cursor-pointer items-center gap-3 rounded-[18px] border px-3 py-2.5 text-left transition-colors ${surface.hoverBg}`}
-      style={{
-        backgroundColor: tileBackground,
-        borderColor: tileBorder,
-      }}
+      data-dashboard-library-row
+      className={`flex min-h-14 items-center gap-3 px-4 py-3 ${
+        showDivider ? `border-t ${surface.border}` : ''
+      }`}
     >
       <div
-        className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg"
-        style={{ backgroundColor: iconBackground }}
+        className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl border ${surface.borderStrong} ${surface.iconBg} ${surface.textSecondary}`}
       >
         {IconComponent ? (
-          <IconComponent className={`h-3.5 w-3.5 ${surface.textMuted}`} aria-hidden="true" />
+          <IconComponent className="h-4 w-4" aria-hidden="true" />
         ) : (
-          <div className={`h-2 w-2 rounded-full ${surface.textMuted}`} />
+          <div className="h-2 w-2 rounded-full bg-current" />
         )}
       </div>
       <div className="min-w-0 flex-1">
-        <div className={`truncate text-sm font-semibold ${surface.textPrimary}`}>{card.title}</div>
-        <div className={`truncate text-xs ${surface.textSecondary}`}>
+        <div className={`truncate text-sm font-medium ${surface.textPrimary}`}>{card.title}</div>
+        <div className={`mt-0.5 truncate text-xs ${surface.textMuted}`}>
           {card.meta} <span aria-hidden="true">•</span> {card.subtitle}
         </div>
       </div>
-      <div
-        className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-white transition-opacity group-hover:opacity-85"
-        style={{
-          backgroundColor: accentColor,
-        }}
+      <Button
+        variant="secondary"
+        size="compact"
+        aria-label={`${addLabel}: ${card.title}`}
+        onClick={onAdd}
+        leading={<Plus className={navetIconSizeTokens.xs} aria-hidden="true" />}
+        className="h-[30px] shrink-0 rounded-full px-2.5 motion-reduce:transition-none md:h-8 md:px-3"
       >
-        <Plus className="h-3 w-3" />
-      </div>
-    </button>
+        {addLabel}
+      </Button>
+    </div>
   );
 });
 
 export const DashboardLibraryList = memo(function DashboardLibraryList({
   cards,
   surface,
-  accentColor,
-  iconBackground,
-  tileBackground,
-  tileBorder,
+  addLabel,
   emptyText,
   onAdd,
   height = LIST_HEIGHT,
+  fillAvailable = false,
 }: {
   cards: DashboardLibraryCard[];
   surface: ReturnType<typeof getThemeSurfaceTokens>;
-  accentColor: string;
-  iconBackground: string;
-  tileBackground: string;
-  tileBorder: string;
+  addLabel: string;
   emptyText: string;
   onAdd: (cardId: string) => void;
   height?: number;
+  fillAvailable?: boolean;
 }) {
   const [scrollTop, setScrollTop] = useState(0);
+  const [measuredHeight, setMeasuredHeight] = useState(height);
   const listRef = useRef<HTMLDivElement | null>(null);
   const rafRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    const element = listRef.current;
+    if (!fillAvailable || !element || typeof ResizeObserver === 'undefined') {
+      return;
+    }
+
+    const observer = new ResizeObserver(([entry]) => {
+      const nextHeight = Math.floor(entry?.contentRect.height ?? 0);
+      if (nextHeight > 0) {
+        setMeasuredHeight(nextHeight);
+      }
+    });
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [fillAvailable]);
 
   useEffect(() => {
     return () => {
@@ -106,19 +125,33 @@ export const DashboardLibraryList = memo(function DashboardLibraryList({
     };
   }, []);
 
-  const visibleCount = Math.ceil(height / ROW_HEIGHT);
+  const resolvedHeight = fillAvailable ? measuredHeight : height;
+  const visibleCount = Math.ceil(resolvedHeight / ROW_HEIGHT);
   const startIndex = Math.max(0, Math.floor(scrollTop / ROW_HEIGHT) - OVERSCAN);
   const endIndex = Math.min(cards.length, startIndex + visibleCount + OVERSCAN * 2);
   const virtualCards = cards.slice(startIndex, endIndex);
   const topOffset = startIndex * ROW_HEIGHT;
   const totalHeight = cards.length * ROW_HEIGHT;
 
+  if (cards.length === 0) {
+    return (
+      <div
+        className={`rounded-[22px] border border-dashed px-5 py-6 text-center text-sm ${surface.borderStrong} ${surface.textSecondary}`}
+      >
+        {emptyText}
+      </div>
+    );
+  }
+
   return (
     <div
       ref={listRef}
       data-library-interactive="true"
-      className="mt-3 overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
-      style={{ height: `${height}px` }}
+      data-dashboard-library-list
+      className={`overflow-x-hidden overflow-y-auto rounded-[24px] border ${surface.border} [scrollbar-width:none] [&::-webkit-scrollbar]:hidden ${
+        fillAvailable ? 'h-full min-h-0' : 'mt-3'
+      }`}
+      style={fillAvailable ? undefined : { height: `${height}px` }}
       onScroll={(event) => {
         const next = event.currentTarget.scrollTop;
         if (rafRef.current !== null) {
@@ -131,33 +164,23 @@ export const DashboardLibraryList = memo(function DashboardLibraryList({
         });
       }}
     >
-      {cards.length > 0 ? (
-        <div className="relative" style={{ height: totalHeight }}>
-          <div
-            className="absolute inset-x-0 top-0 flex flex-col gap-2.5"
-            style={{ transform: `translateY(${topOffset}px)` }}
-          >
-            {virtualCards.map((card) => (
-              <DashboardLibraryRow
-                key={card.id}
-                card={card}
-                surface={surface}
-                accentColor={accentColor}
-                iconBackground={iconBackground}
-                tileBackground={tileBackground}
-                tileBorder={tileBorder}
-                onAdd={() => onAdd(card.id)}
-              />
-            ))}
-          </div>
-        </div>
-      ) : (
+      <div className="relative" style={{ height: totalHeight }}>
         <div
-          className={`rounded-[22px] border border-dashed px-5 py-6 text-center text-sm ${surface.borderStrong} ${surface.textSecondary}`}
+          className="absolute inset-x-0 top-0"
+          style={{ transform: `translateY(${topOffset}px)` }}
         >
-          {emptyText}
+          {virtualCards.map((card, index) => (
+            <DashboardLibraryRow
+              key={card.id}
+              card={card}
+              surface={surface}
+              addLabel={addLabel}
+              showDivider={startIndex + index > 0}
+              onAdd={() => onAdd(card.id)}
+            />
+          ))}
         </div>
-      )}
+      </div>
     </div>
   );
 });

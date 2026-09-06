@@ -52,6 +52,7 @@ export default defineConfig({
           label: "User guide",
           items: [
             { label: "Using Navet", link: "/guide/" },
+            { label: "Household chores", link: "/guide/chores/" },
             { label: "Widgets", link: "/guide/widgets/" },
           ],
         },
@@ -121,7 +122,15 @@ export default defineConfig({
                 { label: "Climate", link: "/guide/everyday-control/climate/" },
                 { label: "Media", link: "/guide/everyday-control/media/" },
                 { label: "Security", link: "/guide/everyday-control/security/" },
-                { label: "Energy", link: "/guide/everyday-control/energy/" },
+                { label: "Energy usage and KPIs", link: "/guide/everyday-control/energy/" },
+                {
+                  label: "Set up household chores",
+                  link: "/guide/everyday-control/household-chores/",
+                },
+                {
+                  label: "Manage household chores",
+                  link: "/guide/everyday-control/manage-household-chores/",
+                },
                 {
                   label: "Automations and scripts",
                   link: "/guide/everyday-control/automations-and-scripts/",
@@ -136,7 +145,7 @@ export default defineConfig({
                 },
                 { label: "Local Habits", link: "/guide/everyday-control/local-habits/" },
                 {
-                  label: "Manual Energy setup",
+                  label: "Home Assistant Energy sources",
                   link: "/guide/everyday-control/manual-energy-setup/",
                 },
               ],

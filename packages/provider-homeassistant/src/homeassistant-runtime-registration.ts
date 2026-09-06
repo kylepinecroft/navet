@@ -6,7 +6,9 @@ import type {
 import { homeAssistantAdminFeatureService } from './homeassistant-admin-feature.service';
 import { homeAssistantCalendarFeatureService } from './homeassistant-calendar-feature.service';
 import { homeAssistantCameraFeatureService } from './homeassistant-camera-feature.service';
+import { homeAssistantChoreProjectionFeatureService } from './homeassistant-chore-projection-feature.service';
 import { homeAssistantClimateFeatureService } from './homeassistant-climate-feature.service';
+import { homeAssistantConversationFeatureService } from './homeassistant-conversation-feature.service';
 import { homeAssistantEnergyFeatureService } from './homeassistant-energy-feature.service';
 import { homeAssistantEntityRuntimeService } from './homeassistant-entity-runtime.service';
 import { homeAssistantHistoryFeatureService } from './homeassistant-history-feature.service';
@@ -60,6 +62,7 @@ export function createHomeAssistantRuntimeRegistration(
       weather: true,
       notifications: true,
       tasks: true,
+      conversation: true,
     },
     roomManagementCapabilities: homeAssistantRoomManagementCapabilities,
     signPath: async (path, expiresSeconds) => {
@@ -75,8 +78,10 @@ export function createHomeAssistantRuntimeRegistration(
     },
     adminFeatureService: homeAssistantAdminFeatureService,
     calendarFeatureService: homeAssistantCalendarFeatureService,
+    choreProjectionFeatureService: homeAssistantChoreProjectionFeatureService,
     cameraFeatureService: homeAssistantCameraFeatureService,
     climateFeatureService: homeAssistantClimateFeatureService,
+    conversationFeatureService: homeAssistantConversationFeatureService,
     energyFeatureService: homeAssistantEnergyFeatureService,
     entityRuntimeService: homeAssistantEntityRuntimeService,
     historyFeatureService: homeAssistantHistoryFeatureService,

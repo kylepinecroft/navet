@@ -1,9 +1,9 @@
 import { SettingsSection } from '@navet/app/features/settings';
-import type { Meta, StoryObj } from '@storybook/react';
+import type { Meta, StoryObj } from '@storybook/react-vite';
 import { expect, userEvent, within } from 'storybook/test';
 
 const meta = {
-  title: 'Pages/Settings/Section Shell',
+  title: 'Pages/Settings/Workspace',
   component: SettingsSection,
   tags: ['autodocs'],
   parameters: {
@@ -11,7 +11,7 @@ const meta = {
     docs: {
       description: {
         component:
-          'Adaptive Settings workspace with deep setting search, a persistent desktop sidebar, and iOS-inspired grouped mobile list-to-detail navigation built from the shared Navigation Workspace pattern.',
+          'Current Settings workspace with deep search, persistent desktop navigation, grouped mobile list-to-detail navigation, and contained detail groups without the retired accent-banner treatment.',
       },
     },
   },
@@ -21,11 +21,25 @@ export default meta;
 
 type Story = StoryObj<typeof meta>;
 
-export const Default: Story = {};
+export const Default: Story = {
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+
+    await expect(canvas.getByRole('heading', { name: 'Appearance' })).toBeVisible();
+    await expect(canvasElement.querySelector('[data-settings-detail-header]')).toBeVisible();
+    await expect(canvasElement.querySelector('[data-settings-detail-group]')).toBeVisible();
+    await expect(canvasElement.querySelector('[data-settings-legacy-banner]')).toBeNull();
+  },
+};
 
 export const TabletPortrait: Story = {
   args: { layout: 'desktop' },
-  parameters: { viewport: { defaultViewport: 'tablet' } },
+  globals: {
+    viewport: {
+      value: 'tablet',
+      isRotated: false,
+    },
+  },
 };
 
 export const DeepSearch: Story = {
@@ -43,7 +57,6 @@ export const DeepSearch: Story = {
 
 export const MobileIndex: Story = {
   args: { layout: 'mobile' },
-  parameters: { viewport: { defaultViewport: 'mobile1' } },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     const navigation = canvas.getByRole('navigation', { name: 'Settings' });
@@ -57,15 +70,26 @@ export const MobileIndex: Story = {
     await expect(rowHeights.every((height) => height === rowHeights[0])).toBe(true);
     await expect(canvas.queryByText('A calmer place to tune Navet.')).not.toBeInTheDocument();
   },
+  globals: {
+    viewport: {
+      value: 'mobile1',
+      isRotated: false,
+    },
+  },
 };
 
 export const MobileDetail: Story = {
   args: { layout: 'mobile' },
-  parameters: { viewport: { defaultViewport: 'mobile1' } },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await userEvent.click(canvas.getByRole('button', { name: 'Appearance' }));
     await expect(canvas.getByRole('button', { name: 'Settings' })).toBeVisible();
     await expect(canvas.getByRole('heading', { name: 'Appearance' })).toBeVisible();
+  },
+  globals: {
+    viewport: {
+      value: 'mobile1',
+      isRotated: false,
+    },
   },
 };

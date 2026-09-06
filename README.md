@@ -56,7 +56,7 @@ without making every household member navigate a configuration interface.
 
 ## Focused controls when you need them
 
-Open focused controls for lighting, climate, media, energy, security, and tasks when your connected
+Open focused controls for lighting, climate, media, energy, security, and routines when your connected
 platform supports them.
 
 Shape the Home view around your household with editable layouts, dashboard profiles, widgets,
@@ -101,7 +101,8 @@ panel's Home Assistant login for another phone or panel. Signing out removes onl
 session; shared dashboard settings remain a separate concern from provider credentials. After the
 Home Assistant authorization page closes, dashboard requests, token renewal, and provider-managed
 HTTP camera resources use Navet's same-origin proxy instead of requiring every browser to reach
-the container's Home Assistant address.
+the container's Home Assistant address. If startup cannot restore that browser session, the
+recovery screen can retry the connection or return to login for a fresh sign-in.
 
 The Home Assistant add-on is Ingress-only so its trusted Home Assistant user headers are never
 accepted from a directly exposed add-on port. Use standalone Docker for direct browser access and
@@ -169,6 +170,24 @@ making architecture changes.
 - [Security policy](https://docs.navet.app/security/)
 - [Code of conduct](CODE_OF_CONDUCT.md)
 - [Trademark policy](docs/branding/TRADEMARK_POLICY.md)
+
+## Disclaimers
+
+Navet is an independent community project. It is not affiliated with, sponsored by, or endorsed
+by Home Assistant, Homey, openHAB, or the organizations behind them. Use Navet at your own risk,
+and review the installation and security guidance before connecting it to your home.
+
+### AI-assisted development
+
+AI tools support parts of Navet's design, implementation, documentation, review, and testing
+workflow. They give maintainers more leverage across a complex codebase, but they do not set the
+architecture or replace maintainer judgment. Human maintainers remain responsible for product
+decisions, technical direction, and what is merged.
+
+AI-assisted changes are held to the same review, testing, compatibility, and security expectations
+as any other contribution. Provider-specific work must follow the relevant platform documentation
+and behavior while preserving Navet's provider-neutral architecture. AI output can still be wrong;
+please report anything that does not work as documented.
 
 ## License
 

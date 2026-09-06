@@ -1,6 +1,6 @@
 import { useTheme } from '@navet/app/hooks';
 import { getStoryDocsDescription } from '@navet/app/storybook/story-docs';
-import type { Meta, StoryObj } from '@storybook/react';
+import type { Meta, StoryObj } from '@storybook/react-vite';
 import { ChevronRight, Lightbulb } from 'lucide-react';
 import { EntityCardHeader, type EntityCardHeaderVariant } from './entity-card-header';
 import { EntityCardHeaderIcon } from './entity-card-header-icon';
@@ -11,6 +11,7 @@ function FramedEntityCardHeader(args: {
   size: 'tiny' | 'extra-small' | 'small' | 'medium' | 'large' | 'extra-large';
   layout?: 'title-first' | 'eyebrow-first';
   align?: 'start' | 'center';
+  compact?: boolean;
   variant?: EntityCardHeaderVariant;
 }) {
   const { theme } = useTheme();
@@ -29,6 +30,7 @@ function FramedEntityCardHeader(args: {
         size={args.size}
         layout={args.layout}
         align={args.align}
+        compact={args.compact}
         variant={args.variant}
         leading={
           <EntityCardHeaderIcon
@@ -60,7 +62,7 @@ const meta = {
     docs: {
       description: {
         component:
-          'Composable entity-card header pattern combining leading icon, title block, and trailing controls. Headers keep the compact baseline by default; larger cards can explicitly opt into the large header variant.',
+          'Composable entity-card header pattern combining leading icon, title block, and trailing controls. Compact cards preserve the standard eyebrow/title rhythm while tightening outer spacing, touch layouts center the identity row against 36 px icons, and larger cards can explicitly opt into the large header variant.',
       },
     },
   },
@@ -106,6 +108,19 @@ export const EyebrowLayout: Story = {
 export const CompactSize: Story = {
   args: {
     size: 'extra-small',
+    compact: true,
+    subtitle: 'Script',
+    title: 'Feed Mowgli',
+  },
+};
+
+export const DenseSensor: Story = {
+  args: {
+    size: 'extra-small',
+    compact: true,
+    variant: 'dense',
+    subtitle: 'Problem',
+    title: 'Bedroom ceiling lights overview',
   },
 };
 

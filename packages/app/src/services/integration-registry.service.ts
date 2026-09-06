@@ -48,6 +48,7 @@ const FEATURE_MESSAGES: Record<IntegrationProviderFeature, string> = {
   weather: 'Weather support is not implemented yet',
   notifications: 'Notifications are not implemented yet',
   tasks: 'Task support is not implemented yet',
+  conversation: 'Assist is not implemented yet',
 };
 
 function createIntegrationProviderAdapter(
@@ -221,6 +222,12 @@ export function getIntegrationProviderEnergyFeatureService(providerId: Integrati
 
 export function getIntegrationProviderHistoryFeatureService(providerId: IntegrationProviderId) {
   return getIntegrationProviderAdapter(providerId).historyFeatureService ?? null;
+}
+
+export function getIntegrationProviderChoreProjectionFeatureService(
+  providerId: IntegrationProviderId
+) {
+  return getIntegrationProviderAdapter(providerId).choreProjectionFeatureService ?? null;
 }
 
 export function getIntegrationProviderNotificationFeatureService(

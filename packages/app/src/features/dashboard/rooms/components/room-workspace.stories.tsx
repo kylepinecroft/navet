@@ -1,7 +1,7 @@
 import { IconButton } from '@navet/app/components/primitives';
 import { navetIconSizeTokens } from '@navet/app/components/system/tokens';
 import { getStoryDocsDescription } from '@navet/app/storybook/story-docs';
-import type { Meta, StoryObj } from '@storybook/react';
+import type { Meta, StoryObj } from '@storybook/react-vite';
 import { X } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { expect, userEvent, within } from 'storybook/test';
@@ -12,7 +12,7 @@ import type {
   RoomWorkspaceLayout,
   RoomWorkspaceViewModel,
 } from './room-workspace.types';
-import { RoomDeviceSelectionSheet } from './room-workspace-overlays';
+import { RoomDeviceSelectionSheet, RoomsWorkspaceDialog } from './room-workspace-overlays';
 
 export const roomWorkspaceEnglishLabels: RoomWorkspaceLabels = {
   title: 'Rooms',
@@ -318,9 +318,15 @@ interface WorkspaceStoryProps {
   layout: RoomWorkspaceLayout;
   initialViewModel: RoomWorkspaceViewModel;
   phoneFrame?: boolean;
+  renderDialog?: boolean;
 }
 
-function WorkspaceStory({ layout, initialViewModel, phoneFrame = false }: WorkspaceStoryProps) {
+function WorkspaceStory({
+  layout,
+  initialViewModel,
+  phoneFrame = false,
+  renderDialog = false,
+}: WorkspaceStoryProps) {
   const [model, setModel] = useState(initialViewModel);
   const sourceRooms = model.rooms;
   const sourceGroups = model.groups;
@@ -613,6 +619,19 @@ function WorkspaceStory({ layout, initialViewModel, phoneFrame = false }: Worksp
       : undefined,
   };
 
+  if (renderDialog) {
+    return (
+      <RoomsWorkspaceDialog
+        isOpen
+        onOpenChange={() => undefined}
+        viewModel={filteredModel}
+        labels={roomWorkspaceEnglishLabels}
+        actions={actions}
+        layout={layout}
+      />
+    );
+  }
+
   return (
     <>
       <div className={phoneFrame ? 'mx-auto w-full max-w-[430px]' : 'w-full'}>
@@ -661,6 +680,7 @@ const meta = {
     layout: 'desktop',
     initialViewModel: roomWorkspaceBaseViewModel,
     phoneFrame: false,
+    renderDialog: false,
   },
 } satisfies Meta<typeof WorkspaceStory>;
 
@@ -797,18 +817,28 @@ export const RoomDetails: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     const page = within(canvasElement.ownerDocument.body);
-    await expect(canvas.getByRole('button', { name: 'Devices' })).toHaveAttribute(
+    await expect(canvas.getByRole('button', { name: 'Room settings' })).toHaveAttribute(
       'aria-pressed',
       'true'
     );
     await expect(
       canvas
-        .getByRole('button', { name: 'Devices' })
+        .getByRole('button', { name: 'Room settings' })
         .closest('[data-room-workspace-panel-content="manage"]')
     ).not.toBeNull();
+    const navigationCheckbox = canvas.getByRole('checkbox', { name: 'Show in navigation' });
+    await expect(navigationCheckbox).toBeVisible();
+    await expect(canvas.getAllByText('Show in navigation')).toHaveLength(2);
+    await userEvent.click(navigationCheckbox);
+    await expect(navigationCheckbox).not.toBeChecked();
+    await userEvent.click(navigationCheckbox);
+    await expect(navigationCheckbox).toBeChecked();
+    await expect(canvas.queryByRole('button', { name: 'Add devices' })).toBeNull();
+    await userEvent.selectOptions(canvas.getByRole('combobox', { name: 'Group' }), 'upper-floor');
+    await expect(canvas.getByRole('combobox', { name: 'Group' })).toHaveValue('upper-floor');
+    await expect(canvas.getByRole('button', { name: 'Save changes' })).toBeEnabled();
+    await userEvent.click(canvas.getByRole('button', { name: 'Devices' }));
     await expect(canvas.getByRole('button', { name: 'Add devices' })).toBeVisible();
-    await expect(canvas.queryByRole('heading', { name: 'Devices' })).toBeNull();
-    await expect(canvas.queryByText('Review assigned devices or add another device.')).toBeNull();
     await userEvent.click(canvas.getByRole('button', { name: 'Actions: Ceiling lights' }));
     await expect(page.getByRole('menuitem', { name: 'Hide' })).toBeVisible();
     await expect(page.getByRole('menuitem', { name: 'Move' })).toBeVisible();
@@ -818,14 +848,10 @@ export const RoomDetails: Story = {
     await expect(page.getByRole('menuitem', { name: 'Show' })).toBeVisible();
     await userEvent.keyboard('{Escape}');
     await userEvent.click(canvas.getByRole('button', { name: 'Room settings' }));
-    await expect(canvas.queryByRole('button', { name: 'Add devices' })).toBeNull();
     await expect(canvas.queryByRole('button', { name: 'More actions' })).toBeNull();
     await expect(canvas.getByRole('button', { name: /^Merge room/ })).toBeVisible();
     await expect(canvas.getByRole('button', { name: /^Split room/ })).toBeVisible();
     await expect(canvas.getByRole('button', { name: /^Delete room/ })).toBeVisible();
-    await userEvent.selectOptions(canvas.getByRole('combobox', { name: 'Group' }), 'upper-floor');
-    await expect(canvas.getByRole('combobox', { name: 'Group' })).toHaveValue('upper-floor');
-    await expect(canvas.getByRole('button', { name: 'Save changes' })).toBeEnabled();
   },
 };
 
@@ -841,11 +867,11 @@ export const DeviceSelection: Story = {
     const canvas = within(canvasElement);
     const page = within(canvasElement.ownerDocument.body);
 
-    await expect(canvas.getByRole('button', { name: 'Devices' })).toHaveAttribute(
+    await expect(canvas.getByRole('button', { name: 'Room settings' })).toHaveAttribute(
       'aria-pressed',
       'true'
     );
-    await expect(canvas.queryByRole('combobox', { name: 'Group' })).toBeNull();
+    await userEvent.click(canvas.getByRole('button', { name: 'Devices' }));
     await userEvent.click(canvas.getByRole('button', { name: 'Add devices' }));
     await expect(await page.findByRole('dialog', { name: 'Add devices' })).toBeInTheDocument();
     await expect(page.getByRole('searchbox', { name: 'Search devices' })).toBeInTheDocument();
@@ -940,18 +966,94 @@ export const PhoneFullScreen: Story = {
       selectedRoomId: null,
     },
   },
-  parameters: {
-    viewport: { defaultViewport: 'mobile1' },
-  },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     const workspace = canvas.getByRole('region', { name: 'Rooms' });
     const header = canvas.getByRole('heading', { name: 'Rooms' }).closest('header');
+    const footer = workspace.querySelector('[data-room-workspace-phone-footer]');
     await expect(workspace).toHaveClass('min-h-0', 'max-h-full');
     await expect(workspace).not.toHaveClass('min-h-[36rem]');
     await expect(header?.className).toContain('safe-area-inset-top');
     await expect(header?.className).toContain('safe-area-inset-left');
     await expect(header?.className).toContain('safe-area-inset-right');
+    await expect(canvas.getByRole('searchbox', { name: 'Search rooms or groups' })).toHaveClass(
+      '!text-sm',
+      '!font-normal'
+    );
+    await expect(footer).not.toBeNull();
+    await expect(
+      within(header as HTMLElement).queryByRole('button', { name: 'Edit rooms' })
+    ).toBeNull();
+    await expect(
+      within(footer as HTMLElement).getByRole('button', { name: 'Edit rooms' })
+    ).toBeVisible();
+  },
+  globals: {
+    viewport: {
+      value: 'mobile1',
+      isRotated: false,
+    },
+  },
+};
+
+export const PhoneRoomDetailActions: Story = {
+  args: {
+    layout: 'phone',
+    phoneFrame: true,
+    initialViewModel: roomWorkspaceBaseViewModel,
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    const workspace = canvas.getByRole('region', { name: 'Rooms' });
+    const header = canvas.getByRole('heading', { name: 'Rooms' }).closest('header');
+    const footer = workspace.querySelector('[data-room-workspace-phone-footer]');
+    await expect(footer).not.toBeNull();
+    await expect(
+      within(header as HTMLElement).queryByRole('button', { name: 'Edit rooms' })
+    ).toBeNull();
+    const backButton = within(footer as HTMLElement).getByRole('button', { name: 'Back' });
+    const editButton = within(footer as HTMLElement).getByRole('button', { name: 'Edit rooms' });
+    await expect(backButton).toBeVisible();
+    await expect(backButton).toHaveClass('h-10');
+    await expect(editButton).toBeVisible();
+    await expect(editButton).toHaveClass('h-10');
+  },
+  globals: {
+    viewport: {
+      value: 'mobile1',
+      isRotated: false,
+    },
+  },
+};
+
+export const PhoneCoverSheetDialog: Story = {
+  args: {
+    layout: 'responsive',
+    renderDialog: true,
+    initialViewModel: {
+      ...roomWorkspaceBaseViewModel,
+      mode: 'manage',
+      stage: 'structure',
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const page = within(canvasElement.ownerDocument.body);
+    const dialog = await page.findByRole('dialog', { name: 'Rooms' });
+    await expect(dialog).toHaveClass(
+      'max-sm:!h-[80dvh]',
+      'max-sm:!rounded-t-[30px]',
+      'max-sm:!rounded-b-none',
+      'max-sm:!bottom-0'
+    );
+    await expect(
+      page.getByRole('button', { name: 'Drag dialog to fullscreen or close' })
+    ).toBeInTheDocument();
+  },
+  globals: {
+    viewport: {
+      value: 'mobile1',
+      isRotated: false,
+    },
   },
 };
 
@@ -965,9 +1067,6 @@ export const PhoneRoomEditor: Story = {
       stage: 'structure',
     },
   },
-  parameters: {
-    viewport: { defaultViewport: 'mobile1' },
-  },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     const workspace = within(canvas.getByRole('navigation', { name: 'Rooms and groups' }));
@@ -979,7 +1078,6 @@ export const PhoneRoomEditor: Story = {
     await expect(canvas.getByRole('heading', { name: 'Living Room' })).toBeVisible();
     await expect(canvas.getByRole('button', { name: 'Back' })).toBeVisible();
     await expect(canvas.getByRole('button', { name: 'Save changes' })).toBeDisabled();
-    await userEvent.click(canvas.getByRole('button', { name: 'Room settings' }));
     const roomNameInput = canvas.getByRole('textbox', { name: 'Room name' });
     await expect(roomNameInput).toHaveValue('Living Room');
     await userEvent.clear(roomNameInput);
@@ -987,6 +1085,12 @@ export const PhoneRoomEditor: Story = {
     await expect(roomNameInput).toHaveValue('Lounge');
     await expect(canvas.queryByRole('dialog', { name: 'Edit room' })).not.toBeInTheDocument();
     await expect(canvas.getByRole('button', { name: 'Save changes' })).toBeEnabled();
+  },
+  globals: {
+    viewport: {
+      value: 'mobile1',
+      isRotated: false,
+    },
   },
 };
 

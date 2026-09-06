@@ -5,7 +5,7 @@ import {
   sanitizeDashboardCollection,
 } from '@navet/app/features/dashboard/dashboards/dashboard-collection';
 import { useDashboardCollectionStore } from '@navet/app/features/dashboard/dashboards/dashboard-collection-store';
-import type { Meta, StoryObj } from '@storybook/react';
+import type { Meta, StoryObj } from '@storybook/react-vite';
 import { useEffect, useState } from 'react';
 import { useSettingsSectionController } from '../hooks/use-settings-section-controller';
 import { SettingsDashboardSection } from './settings-dashboard-section';
@@ -102,7 +102,7 @@ const meta = {
     docs: {
       description: {
         component:
-          'Dashboard settings tab — named Home dashboards, display presets, visibility, onboarding, and config backup/restore.',
+          'Dashboard settings grouped by task: dashboard setup, Home content, wall display behavior, and maintenance.',
       },
     },
   },
@@ -113,6 +113,15 @@ export default meta;
 type Story = StoryObj<typeof meta>;
 
 export const Default: Story = {};
+
+export const Mobile: Story = {
+  globals: {
+    viewport: {
+      value: 'mobile1',
+      isRotated: false,
+    },
+  },
+};
 
 export const MultipleDashboards: Story = {
   render: () => <MultipleDashboardStory />,

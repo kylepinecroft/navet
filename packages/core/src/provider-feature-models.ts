@@ -45,6 +45,7 @@ export interface PlatformCameraLiveState {
 export interface PlatformCameraCompanionState {
   entityId: string;
   type: 'motion';
+  detectionTarget?: 'motion' | 'person';
   detected: boolean;
   changedAt: string | null;
 }
@@ -75,6 +76,59 @@ export interface PlatformMessageClient {
   ): Promise<() => void>;
 }
 
+export interface PlatformConversationPipeline {
+  id: string;
+  name: string;
+  language: string;
+  conversationEngineId?: string;
+  supportsSpeechToText: boolean;
+  supportsTextToSpeech: boolean;
+}
+
+export interface PlatformConversationPipelineCollection {
+  pipelines: PlatformConversationPipeline[];
+  preferredPipelineId: string | null;
+}
+
+export interface PlatformConversationTextRequest {
+  text: string;
+  pipelineId?: string;
+  conversationId?: string;
+}
+
+export interface PlatformConversationVoiceRequest {
+  sampleRate: number;
+  pipelineId?: string;
+  conversationId?: string;
+  playAudioResponse?: boolean;
+}
+
+export type PlatformConversationEvent =
+  | {
+      type: 'run-start';
+      pipelineId: string;
+      conversationId?: string;
+    }
+  | { type: 'speech-start' }
+  | { type: 'speech-end'; text: string }
+  | { type: 'response-delta'; text?: string; thinkingText?: string }
+  | {
+      type: 'response';
+      conversationId?: string;
+      text: string;
+      responseType?: string;
+      continueConversation: boolean;
+    }
+  | { type: 'audio-output'; url: string; mimeType?: string }
+  | { type: 'error'; code: string; message: string }
+  | { type: 'run-end' };
+
+export interface PlatformConversationRunHandle {
+  sendAudio?: (chunk: Int16Array) => void;
+  finishAudio?: () => void;
+  cancel: () => void;
+}
+
 export interface PlatformEntitySnapshot {
   entityId: string;
   state: string;
@@ -93,6 +147,15 @@ export interface PlatformEntityHistoryRequest {
   significantChangesOnly?: boolean;
 }
 
+export interface PlatformEntityHistoriesRequest {
+  entityIds: string[];
+  startTime: string;
+  endTime?: string;
+  includeAttributes?: boolean;
+  significantChangesOnly?: boolean;
+  signal?: AbortSignal;
+}
+
 export interface PlatformEntityHistoryPoint {
   state: string;
   changedAt: string;
@@ -104,6 +167,32 @@ export interface PlatformEntityHistorySeries {
   entityId: string;
   points: PlatformEntityHistoryPoint[];
 }
+
+export type PlatformStatisticsPeriod = '5minute' | 'hour' | 'day' | 'week' | 'month' | 'year';
+
+export type PlatformStatisticsType = 'change' | 'max' | 'mean' | 'min' | 'state' | 'sum';
+
+export interface PlatformStatisticsHistoryRequest {
+  entityIds: string[];
+  startTime: string;
+  endTime?: string;
+  period: PlatformStatisticsPeriod;
+  types: PlatformStatisticsType[];
+  units?: Record<string, string>;
+}
+
+export interface PlatformStatisticsHistoryPoint {
+  startMs: number;
+  endMs: number;
+  change?: number;
+  max?: number;
+  mean?: number;
+  min?: number;
+  state?: number;
+  sum?: number;
+}
+
+export type PlatformStatisticsHistorySeries = Record<string, PlatformStatisticsHistoryPoint[]>;
 
 export interface PlatformEntityRegistryEntry {
   entityId: string;
@@ -301,6 +390,13 @@ export interface PlatformPersistentNotificationEvent {
 export interface PlatformNotificationSnapshot {
   persistentNotifications: PlatformPersistentNotification[];
   repairIssues: PlatformRepairIssue[];
+}
+
+export interface PlatformNotificationDeliveryRequest {
+  title: string;
+  message: string;
+  target?: string;
+  data?: Record<string, unknown>;
 }
 
 export interface PlatformUpdateNotificationCandidate {

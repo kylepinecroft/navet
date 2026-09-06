@@ -237,6 +237,9 @@ export function RoomOrderDialog({
     NonNullable<typeof controller.draftWorkspace>['rooms'][number]['metadata']['image'] | null
   >(null);
   const operation = controller.pendingOperation;
+  const isDeviceSelectionOpen = isOpen && controller.viewModel.stage === 'device-selection';
+  const isOperationDialogOpen = isOpen && operation !== null;
+  const isWorkspaceDialogOpen = isOpen && !isDeviceSelectionOpen && !isOperationDialogOpen;
   const operationRoomId = getOperationRoomId(operation);
   const operationRoom = controller.draftWorkspace?.rooms.find(
     (room) => room.id === operationRoomId
@@ -420,7 +423,7 @@ export function RoomOrderDialog({
   return (
     <>
       <RoomsWorkspaceDialog
-        isOpen={isOpen}
+        isOpen={isWorkspaceDialogOpen}
         onOpenChange={handleWorkspaceOpenChange}
         viewModel={controller.viewModel}
         labels={labels}
@@ -428,7 +431,7 @@ export function RoomOrderDialog({
       />
 
       <RoomDeviceSelectionSheet
-        isOpen={isOpen && controller.viewModel.stage === 'device-selection'}
+        isOpen={isDeviceSelectionOpen}
         onOpenChange={(open) => {
           if (!open) {
             controller.actions.onDeviceQueryChange('');
@@ -440,7 +443,7 @@ export function RoomOrderDialog({
         actions={controller.actions}
       />
 
-      {operation && nameDialogCopy ? (
+      {isOpen && operation && nameDialogCopy ? (
         <RoomNameDialog
           isOpen
           onOpenChange={(open) => {
@@ -462,7 +465,7 @@ export function RoomOrderDialog({
       ) : null}
 
       <RoomTargetDialog
-        isOpen={operation?.kind === 'merge-room' || operation?.kind === 'move-device'}
+        isOpen={isOpen && (operation?.kind === 'merge-room' || operation?.kind === 'move-device')}
         onOpenChange={(open) => {
           if (!open) {
             controller.dismissOperation();
@@ -532,7 +535,9 @@ export function RoomOrderDialog({
       />
 
       <RoomAppearanceDialog
-        isOpen={operation?.kind === 'appearance' || operation?.kind === 'appearance-group'}
+        isOpen={
+          isOpen && (operation?.kind === 'appearance' || operation?.kind === 'appearance-group')
+        }
         onOpenChange={(open) => {
           if (!open) {
             controller.dismissOperation();
@@ -579,7 +584,7 @@ export function RoomOrderDialog({
       />
 
       <RoomDeleteImpactDialog
-        isOpen={operation?.kind === 'delete-room' || operation?.kind === 'delete-group'}
+        isOpen={isOpen && (operation?.kind === 'delete-room' || operation?.kind === 'delete-group')}
         onOpenChange={(open) => {
           if (!open) {
             controller.dismissOperation();

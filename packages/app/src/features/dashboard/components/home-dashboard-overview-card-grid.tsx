@@ -314,14 +314,12 @@ export const CardGrid = memo(function CardGrid({
 
             const size = cardSizes[cardId] ?? entry.size;
             const origin = placementLayouts?.[cardId];
+            const resolvedGridSize = getResponsiveCardSize(size, breakpointCols);
             const snapStyle =
               origin && placementLayouts
-                ? getSnapCardStyle(
-                    origin,
-                    cardSpanForSize(getResponsiveCardSize(size, breakpointCols), renderedGridCols)
-                  )
+                ? getSnapCardStyle(origin, cardSpanForSize(resolvedGridSize, renderedGridCols))
                 : undefined;
-            const spanClass = origin ? '' : getCardSpanClass(size);
+            const spanClass = origin ? '' : getCardSpanClass(resolvedGridSize);
 
             return (
               <HomeCardSlot

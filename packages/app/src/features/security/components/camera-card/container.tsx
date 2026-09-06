@@ -22,6 +22,11 @@ import {
   useSettingsStore,
 } from '@navet/app/stores/settings-store';
 import { detectDeviceTier } from '@navet/app/utils/detect-device-tier';
+import {
+  createProviderScopedId,
+  getProviderNativeId,
+  parseProviderScopedId,
+} from '@navet/app/utils/provider-ids';
 import { subscribeVisibilityAwareTask } from '@navet/app/utils/visibility-aware-scheduler';
 import {
   memo,
@@ -32,6 +37,8 @@ import {
   useState,
   useSyncExternalStore,
 } from 'react';
+import { createPortal } from 'react-dom';
+import { isCameraFullscreenTelemetryAccessory } from './camera-accessory-visibility';
 import {
   useCameraLiveStreamSlot,
   useRetainedCameraStreamVisibility,
@@ -163,6 +170,9 @@ export const CameraCardContainer = memo(function CameraCardContainer({
   const cameraDashboardViewMode = useSettingsStore(
     settingsSelectors.cameraDashboardViewModeForEntity(id)
   );
+  const hasCameraViewModeOverride = useSettingsStore(
+    settingsSelectors.hasCameraViewModeOverrideForEntity(id)
+  );
   const cameraStreamPreference = useSettingsStore(
     settingsSelectors.cameraStreamPreferenceForEntity(id)
   );
@@ -176,6 +186,9 @@ export const CameraCardContainer = memo(function CameraCardContainer({
     isDirectCameraStreamSource(cameraWebRtcStreamSource) &&
     normalizeCameraDirectStreamUrl(cameraDirectStreamUrl) !== null;
   const cameraFitMode = useSettingsStore(settingsSelectors.cameraFitModeForEntity(id));
+  const cameraFullscreenVisibleAccessoryIds = useSettingsStore(
+    settingsSelectors.cameraFullscreenVisibleAccessoryIdsForEntity(id)
+  );
   const updateCameraViewMode = useSettingsStore(settingsSelectors.updateCameraViewMode);
   const updateCameraStreamPreference = useSettingsStore(
     settingsSelectors.updateCameraStreamPreference
@@ -187,6 +200,9 @@ export const CameraCardContainer = memo(function CameraCardContainer({
     settingsSelectors.updateCameraDirectStreamUrl
   );
   const updateCameraFitMode = useSettingsStore(settingsSelectors.updateCameraFitMode);
+  const updateCameraFullscreenAccessoryVisibility = useSettingsStore(
+    settingsSelectors.updateCameraFullscreenAccessoryVisibility
+  );
   const { siblingIds: deviceEntityIds } = useProviderCameraTopology(id);
   const { cameraState, companionStates, deviceEntities, liveEntity, liveState } =
     useProviderCameraLiveData(id, deviceEntityIds);
@@ -197,6 +213,13 @@ export const CameraCardContainer = memo(function CameraCardContainer({
   const [failedStreamTypes, setFailedStreamTypes] = useState<PlatformCameraTransport[]>([]);
   const [directStreamFailed, setDirectStreamFailed] = useState(false);
   const [isStreamReady, setIsStreamReady] = useState(false);
+  const [streamPortalHost] = useState(() => {
+    if (typeof document === 'undefined') return null;
+    const host = document.createElement('div');
+    host.className = 'relative h-full w-full';
+    host.dataset.cameraStreamHost = id;
+    return host;
+  });
   const streamRetryTimeoutRef = useRef<number | null>(null);
   const { cardRef, isVisible } = useCameraCardVisibility();
   const isStreamVisibilityRetained = useRetainedCameraStreamVisibility(isVisible);
@@ -237,6 +260,7 @@ export const CameraCardContainer = memo(function CameraCardContainer({
   );
   const effectiveDashboardCameraViewMode = resolveDashboardCameraViewMode({
     cameraDashboardViewMode,
+    hasCameraViewModeOverride,
     lowPowerMode,
     effectsQuality,
     hasSnapshot,
@@ -291,6 +315,8 @@ export const CameraCardContainer = memo(function CameraCardContainer({
       }
     };
   }, []);
+
+  useEffect(() => () => streamPortalHost?.remove(), [streamPortalHost]);
 
   useEffect(() => {
     if (isVisible) {
@@ -353,18 +379,38 @@ export const CameraCardContainer = memo(function CameraCardContainer({
   const siblingEntities = useMemo(() => {
     return deviceEntityIds
       .filter((eid) => {
-        const domain = eid.split('.')[0];
-        return domain === 'switch' || domain === 'select' || domain === 'number';
+        const domain = getProviderNativeId(eid).split('.')[0];
+        return (
+          domain === 'sensor' ||
+          domain === 'binary_sensor' ||
+          domain === 'switch' ||
+          domain === 'light' ||
+          domain === 'select' ||
+          domain === 'number' ||
+          domain === 'scene'
+        );
       })
       .map((eid) => {
-        const entity = deviceEntities[eid];
-        return entity ? { id: eid, entity } : null;
+        const nativeEntityId = getProviderNativeId(eid);
+        const entity = deviceEntities[nativeEntityId];
+        const cameraProviderId = parseProviderScopedId(id)?.providerId;
+        const accessoryEntityId =
+          parseProviderScopedId(eid) || !cameraProviderId
+            ? eid
+            : createProviderScopedId(cameraProviderId, nativeEntityId);
+        return entity ? { id: accessoryEntityId, entity } : null;
       })
       .filter((entry): entry is { id: string; entity: PlatformEntitySnapshot } => entry !== null);
-  }, [deviceEntities, deviceEntityIds]);
+  }, [deviceEntities, deviceEntityIds, id]);
 
-  const motionState = companionStates.find((state) => state.type === 'motion') ?? null;
-  const motionDetected = motionState?.detected ?? false;
+  const motionStates = companionStates.filter((state) => state.type === 'motion');
+  const motionDetected = motionStates.some((state) => state.detected);
+  const motionState =
+    motionStates.find((state) => state.detected && state.detectionTarget === 'person') ??
+    motionStates.find((state) => state.detected) ??
+    motionStates[0] ??
+    null;
+  const motionDetectionTarget = motionState?.detectionTarget ?? 'motion';
   const motionChangedAt = parseTimestamp(motionState?.changedAt);
   const statusChangedAt =
     parseTimestamp(liveEntity?.lastChanged) ?? parseTimestamp(liveEntity?.lastUpdated);
@@ -433,6 +479,28 @@ export const CameraCardContainer = memo(function CameraCardContainer({
     },
     [id, updateCameraFitMode]
   );
+
+  const handleFullscreenAccessoryVisibilityChange = useCallback(
+    (accessoryEntityId: string, visible: boolean) => {
+      updateCameraFullscreenAccessoryVisibility(id, accessoryEntityId, visible);
+    },
+    [id, updateCameraFullscreenAccessoryVisibility]
+  );
+
+  const fullscreenAccessoryEntities = useMemo(() => {
+    const visibleIds = new Set(cameraFullscreenVisibleAccessoryIds);
+    return siblingEntities.filter(
+      (accessory) =>
+        accessory.id.replace(/^[^:]+:/, '').startsWith('light.') || visibleIds.has(accessory.id)
+    );
+  }, [cameraFullscreenVisibleAccessoryIds, siblingEntities]);
+  const cameraFullscreenHiddenAccessoryIds = useMemo(() => {
+    const visibleIds = new Set(cameraFullscreenVisibleAccessoryIds);
+    return siblingEntities
+      .filter(isCameraFullscreenTelemetryAccessory)
+      .filter((accessory) => !visibleIds.has(accessory.id))
+      .map((accessory) => accessory.id);
+  }, [cameraFullscreenVisibleAccessoryIds, siblingEntities]);
 
   const handleStreamError = useCallback(
     (kind: PlatformCameraTransport | 'snapshot', options?: { retryable?: boolean }) => {
@@ -503,7 +571,8 @@ export const CameraCardContainer = memo(function CameraCardContainer({
     isVisible,
     maxConcurrent: maxConcurrentDashboardStreams,
   });
-  const shouldRenderLiveStream = hasLiveStreamSlot ? selectedLiveStream : null;
+  const shouldRenderLiveStream =
+    (isViewerOpen || hasLiveStreamSlot) && selectedLiveStream ? selectedLiveStream : null;
   const streamKind = shouldRenderLiveStream ?? 'snapshot';
   const streamLabelOverride = shouldRenderLiveStream ? selectedStreamLabelOverride : undefined;
   const isDashboardStreamReadinessOpaque =
@@ -557,10 +626,11 @@ export const CameraCardContainer = memo(function CameraCardContainer({
         cardRef={cardRef}
         imageUrl={imageUrl}
         imageSources={imageSources}
-        streamElement={streamElement}
+        streamHost={!isViewerOpen && shouldRenderLiveStream ? streamPortalHost : null}
         cameraState={cameraState}
         statusChangedAt={statusChangedAt}
         motionDetected={motionDetected}
+        motionDetectionTarget={motionDetectionTarget}
         motionChangedAt={motionChangedAt}
         motionDetectionEnabled={
           playbackModel?.motionDetectionEnabled ?? liveState.motionDetectionEnabled
@@ -603,7 +673,12 @@ export const CameraCardContainer = memo(function CameraCardContainer({
           motionDetectionEnabled={
             playbackModel?.motionDetectionEnabled ?? liveState.motionDetectionEnabled
           }
+          motionDetected={motionDetected}
           initialStreamResource={playbackModel?.selectedStreamResource ?? null}
+          initialStreamTransport={shouldRenderLiveStream}
+          initialStreamReady={isStreamReady}
+          retainedStreamHost={streamPortalHost}
+          accessoryEntities={fullscreenAccessoryEntities}
           onRefresh={handleRefresh}
           onOpenSettings={() => setIsSettingsOpen(true)}
           onCameraViewModeChange={setViewerCameraViewMode}
@@ -619,7 +694,7 @@ export const CameraCardContainer = memo(function CameraCardContainer({
           isOpen={isSettingsOpen}
           onOpenChange={setIsSettingsOpen}
           siblingEntities={siblingEntities}
-          cameraViewMode={cameraDashboardViewMode}
+          cameraViewMode={effectiveDashboardCameraViewMode}
           cameraStreamPreference={effectiveCameraStreamPreference}
           cameraWebRtcStreamSource={cameraWebRtcStreamSource}
           cameraDirectStreamUrl={cameraDirectStreamUrl}
@@ -629,13 +704,17 @@ export const CameraCardContainer = memo(function CameraCardContainer({
           hasSnapshot={hasSnapshot}
           lowPowerMode={lowPowerMode}
           cameraFitMode={cameraFitMode}
+          fullscreenHiddenAccessoryIds={cameraFullscreenHiddenAccessoryIds}
           onCameraViewModeChange={handleCameraViewModeChange}
           onCameraStreamPreferenceChange={handleCameraStreamPreferenceChange}
           onCameraWebRtcStreamSourceChange={handleCameraWebRtcStreamSourceChange}
           onCameraDirectStreamUrlChange={handleCameraDirectStreamUrlChange}
           onCameraFitModeChange={handleCameraFitModeChange}
+          onFullscreenAccessoryVisibilityChange={handleFullscreenAccessoryVisibilityChange}
         />
       )}
+
+      {streamPortalHost && streamElement ? createPortal(streamElement, streamPortalHost) : null}
     </>
   );
 });

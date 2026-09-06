@@ -1,3 +1,8 @@
+export {
+  AttentionBand,
+  type AttentionBandItem,
+  type AttentionBandProps,
+} from './attention-band';
 export { CardActionRow } from './card-action-row';
 export {
   CardDialogBody,
@@ -10,7 +15,17 @@ export {
   CardDialogTabTrigger,
 } from './card-dialog';
 export { CardEmptyState, type CardEmptyStateProps } from './card-empty-state';
+export {
+  CompactMeterListItem,
+  type CompactMeterListItemProps,
+} from './compact-meter-list-item';
 export { DashboardEmptyState, type DashboardEmptyStateProps } from './dashboard-empty-state';
+export {
+  type DashboardGroupingItem,
+  DashboardGroupingNavigation,
+  type DashboardGroupingNavigationProps,
+  type DashboardGroupingOption,
+} from './dashboard-grouping-navigation';
 export { DashboardHeroSection, type DashboardHeroSectionProps } from './dashboard-hero-section';
 export { FieldBlock, type FieldBlockProps } from './field-block';
 export {

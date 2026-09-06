@@ -45,13 +45,14 @@ export const navetSizeTokens = {
   controlHeight: {
     sm: 'min-h-9',
     md: 'min-h-10',
-    lg: 'min-h-12',
+    lg: 'min-h-[42px]',
   },
-  fieldInset: 'px-4 py-3',
+  fieldInset: 'px-4 py-2.5',
   buttonInset: 'px-4 py-2',
   iconButton: {
     sm: 'h-9 w-9',
     md: 'h-10 w-10',
+    lg: 'h-[42px] w-[42px]',
   },
   textareaMinHeight: 'min-h-28',
 } as const;
@@ -63,6 +64,7 @@ export const navetTypographyTokens = {
   compactHelper: 'text-xs leading-4',
   label: 'text-sm font-medium',
   control: 'text-sm font-medium',
+  fieldValue: 'text-sm font-normal leading-5',
   caption: 'text-xs leading-4',
   dense: 'text-xs leading-5',
   compactMetadata: 'text-xs leading-4',
@@ -108,8 +110,9 @@ export const navetFocusTokens = {
 } as const;
 
 export const navetAccessibilityTokens = {
-  minimumTouchTargetPx: 44,
-  preferredTouchTargetPx: 48,
+  minimumControlSizePx: 36,
+  standardControlSizePx: 40,
+  exceptionalControlSizePx: 42,
   focusRingWidthPx: 2,
   focusRingOffsetPx: 2,
   minimumBodyFontSizePx: 14,

@@ -1,6 +1,7 @@
 import { defaultTranslate, type TranslateFn } from '@navet/app/i18n';
 import type {
   CameraDevice,
+  Device,
   DeviceCollection,
   DeviceWithType,
   SecuritySeverity,
@@ -44,6 +45,7 @@ export interface SecurityDashboardSummary {
   highestSeverity: SecuritySeverity;
   title: string;
   subtitle: string;
+  attentionEntities: DeviceWithType[];
   attentionItems: DeviceWithType[];
   attentionEntityCount: number;
   activityItems: DeviceWithType[];
@@ -220,11 +222,11 @@ function getAttentionPriority(device: DeviceWithType): number {
 
   if (
     severity === 'warning' &&
-    (device.type === 'covers' ||
-      device.securityKind === 'door' ||
-      device.securityKind === 'window' ||
-      device.securityKind === 'garageDoor' ||
-      device.securityKind === 'opening')
+    (device.securityKind === 'smoke' ||
+      device.securityKind === 'carbonMonoxide' ||
+      device.securityKind === 'gas' ||
+      device.securityKind === 'waterLeak' ||
+      device.securityKind === 'safety')
   ) {
     return 1;
   }
@@ -233,19 +235,30 @@ function getAttentionPriority(device: DeviceWithType): number {
     return 2;
   }
 
-  if (severity === 'warning') {
+  if (
+    severity === 'warning' &&
+    (device.type === 'covers' ||
+      device.securityKind === 'door' ||
+      device.securityKind === 'window' ||
+      device.securityKind === 'garageDoor' ||
+      device.securityKind === 'opening')
+  ) {
     return 3;
   }
 
-  if (severity === 'active') {
+  if (severity === 'warning') {
     return 4;
   }
 
-  if (severity === 'unknown') {
+  if (severity === 'active') {
     return 5;
   }
 
-  return 6;
+  if (severity === 'unknown') {
+    return 6;
+  }
+
+  return 7;
 }
 
 function compareAttentionDevices(left: DeviceWithType, right: DeviceWithType) {
@@ -381,6 +394,10 @@ function getSecurityGroupKey(device: DeviceWithType): SecurityGroupKey | null {
   }
 
   return null;
+}
+
+export function isSecurityDashboardDevice(device: Device): boolean {
+  return getSecurityGroupKey(device as DeviceWithType) !== null;
 }
 
 function createEmptyGroups(): SecurityEntityGroups {
@@ -788,17 +805,11 @@ function getSecureItems(
 
 function getLiveItems(allEntities: DeviceWithType[]): DeviceWithType[] {
   return allEntities
-    .filter((entity) => {
-      if (isPresenceDevice(entity) || getSecuritySeverity(entity) === 'unknown') {
-        return false;
-      }
-
-      if (entity.type === 'cameras' || entity.securityKind === 'camera') {
-        return true;
-      }
-
-      return getSecuritySeverity(entity) === 'active';
-    })
+    .filter(
+      (entity) =>
+        (entity.type === 'cameras' || entity.securityKind === 'camera') &&
+        getSecuritySeverity(entity) !== 'unknown'
+    )
     .sort(compareSecurityDevices);
 }
 
@@ -975,6 +986,17 @@ function buildGroupSummaries(
   allEntities: DeviceWithType[],
   t: TranslateFn
 ): SecurityGroupSummary[] {
+  const cameraDeviceIds = new Set(
+    allEntities
+      .filter((entity) => entity.type === 'cameras')
+      .map((camera) => camera.underlyingDeviceId)
+      .filter((deviceId): deviceId is string => typeof deviceId === 'string')
+  );
+  const shouldKeepMotionSensorIndividual = (entity: DeviceWithType) =>
+    isSecureMotionSensor(entity) &&
+    (getSecuritySeverity(entity) !== 'normal' ||
+      (typeof entity.underlyingDeviceId === 'string' &&
+        cameraDeviceIds.has(entity.underlyingDeviceId)));
   const definitions: Array<{
     id: string;
     label: string;
@@ -1050,15 +1072,10 @@ function buildGroupSummaries(
         definition.id === 'motion-occupancy'
           ? [
               ...collapseSecureMotionDevices(
-                rawEntities.filter(
-                  (entity) =>
-                    !isSecureMotionSensor(entity) || getSecuritySeverity(entity) === 'normal'
-                ),
+                rawEntities.filter((entity) => !shouldKeepMotionSensorIndividual(entity)),
                 t
               ),
-              ...rawEntities.filter(
-                (entity) => isSecureMotionSensor(entity) && getSecuritySeverity(entity) !== 'normal'
-              ),
+              ...rawEntities.filter(shouldKeepMotionSensorIndividual),
             ].sort(compareSecurityDevices)
           : rawEntities;
       const severityCounts = countBySeverity(rawEntities);
@@ -1113,6 +1130,7 @@ function applyAggregateDisplayNames(
     })),
     summary: {
       ...model.summary,
+      attentionEntities: model.summary.attentionEntities.map(rename),
       attentionItems: model.summary.attentionItems.map(rename),
       activityItems: model.summary.activityItems.map(rename),
       liveItems: model.summary.liveItems.map(rename),
@@ -1124,6 +1142,39 @@ function applyAggregateDisplayNames(
       })),
     },
   };
+}
+
+export function buildSecurityRoomGroupSummaries(
+  allEntities: DeviceWithType[],
+  t: TranslateFn = defaultTranslate
+): SecurityGroupSummary[] {
+  const entitiesByRoom = new Map<string, DeviceWithType[]>();
+
+  for (const entity of allEntities) {
+    const room = getDeviceRoomLabel(entity);
+    const roomEntities = entitiesByRoom.get(room) ?? [];
+    roomEntities.push(entity);
+    entitiesByRoom.set(room, roomEntities);
+  }
+
+  return [...entitiesByRoom.entries()]
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([room, roomEntities]) => {
+      const entities = [...roomEntities].sort(compareSecurityDevices);
+      const severityCounts = countBySeverity(entities);
+      const severity = getGroupSeverity(entities);
+
+      return {
+        id: `room-${encodeURIComponent(room)}`,
+        label: room,
+        severity,
+        total: entities.length,
+        ...severityCounts,
+        summaryText: buildSeverityBreakdownText(entities, t),
+        entities,
+        defaultExpanded: severity === 'critical' || severity === 'warning',
+      } satisfies SecurityGroupSummary;
+    });
 }
 
 export function buildSecurityCameraDashboardModel(
@@ -1148,7 +1199,10 @@ export function buildSecurityCameraDashboardModel(
   }
 
   const allEntities = GROUP_ORDER.flatMap((key) => groups[key]);
-  const severityCounts = countBySeverity(allEntities);
+  const summaryEntities = allEntities.filter(
+    (entity) => !(isPresenceDevice(entity) && getSecuritySeverity(entity) === 'unknown')
+  );
+  const severityCounts = countBySeverity(summaryEntities);
   const attentionEntityItems = allEntities
     .filter((entity) => {
       if (isPresenceDevice(entity)) {
@@ -1163,14 +1217,14 @@ export function buildSecurityCameraDashboardModel(
     .sort(compareSecurityDevices);
   const securedCounts = buildSecuredCounts(allEntities);
   const liveItems = getLiveItems(allEntities);
-  const unknownItems = allEntities
+  const unknownItems = summaryEntities
     .filter((entity) => getSecuritySeverity(entity) === 'unknown')
     .sort(compareSecurityDevices);
   const secureItems = getSecureItems(securedCounts, t);
   const groupSummaries = buildGroupSummaries(allEntities, t);
   const attentionItems = buildAttentionOverviewItems(groupSummaries, t);
   const hero = buildHeroCopy(
-    allEntities,
+    summaryEntities,
     attentionEntityItems,
     activityItems,
     unknownItems,
@@ -1187,6 +1241,7 @@ export function buildSecurityCameraDashboardModel(
       ),
       summary: {
         ...hero,
+        attentionEntities: attentionEntityItems,
         attentionItems,
         attentionEntityCount: getSecurityAlertCount(allEntities),
         activityItems,

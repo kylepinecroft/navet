@@ -7,7 +7,8 @@ export type CardSize =
   | 'medium'
   | 'medium-vertical'
   | 'large'
-  | 'extra-large';
+  | 'extra-large'
+  | 'extra-wide';
 
 /**
  * Navet compares card footprints in logical viewport px, not screenshot px.
@@ -39,11 +40,16 @@ export const CARD_SIZE_RENDERED_SPANS: Record<CardSize, { cols: number; rows: nu
   'medium-vertical': { cols: 2, rows: 4 },
   large: { cols: 4, rows: 4 },
   'extra-large': { cols: 6, rows: 4 },
+  'extra-wide': { cols: 12, rows: 4 },
 };
 
 export function getCardSizeGridSpan(size: CardSize | undefined): { w: number; h: number } {
   const spans = CARD_SIZE_RENDERED_SPANS[size ?? 'small'] ?? CARD_SIZE_RENDERED_SPANS.small;
   return { w: spans.cols, h: spans.rows };
+}
+
+export function getDashboardCardGridSpan(size: CardSize): { cols: number; rows: number } {
+  return CARD_SIZE_RENDERED_SPANS[size];
 }
 
 export function getDashboardCardGridGapPx(logicalColumns: number) {

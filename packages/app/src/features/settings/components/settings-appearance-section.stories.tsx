@@ -1,4 +1,4 @@
-import type { Meta, StoryObj } from '@storybook/react';
+import type { Meta, StoryObj } from '@storybook/react-vite';
 import { useSettingsSectionController } from '../hooks/use-settings-section-controller';
 import { SettingsAppearanceSection } from './settings-appearance-section';
 
@@ -22,7 +22,7 @@ const meta = {
     docs: {
       description: {
         component:
-          'Appearance settings tab — theme, accent color, effects quality, page zoom, ambience, and wallpaper.',
+          'Appearance settings grouped into theme and background, layout, and effects and performance. Visual quality stays beside light card ambience because it controls whether that effect is available.',
       },
     },
   },
@@ -33,3 +33,12 @@ export default meta;
 type Story = StoryObj<typeof meta>;
 
 export const Default: Story = {};
+
+export const Mobile: Story = {
+  globals: {
+    viewport: {
+      value: 'mobile1',
+      isRotated: false,
+    },
+  },
+};

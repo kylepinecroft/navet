@@ -21,6 +21,7 @@ describe('useSettingsStore', () => {
       kioskMode: true,
       keepDeviceAwake: true,
       showHomeSummaryBar: false,
+      choresEnabled: false,
       temperatureUnit: 'celsius',
     });
 
@@ -32,6 +33,7 @@ describe('useSettingsStore', () => {
     expect(useSettingsStore.getState().kioskMode).toBe(true);
     expect(useSettingsStore.getState().keepDeviceAwake).toBe(true);
     expect(useSettingsStore.getState().showHomeSummaryBar).toBe(false);
+    expect(useSettingsStore.getState().choresEnabled).toBe(false);
     expect(useSettingsStore.getState().temperatureUnit).toBe('celsius');
   });
 
@@ -86,6 +88,7 @@ describe('useSettingsStore', () => {
       kioskMode: true,
       keepDeviceAwake: true,
       lowPowerMode: true,
+      choresEnabled: false,
     });
     useSettingsStore.getState().updateCameraViewMode('camera.front_door', 'snapshot');
     useSettingsStore.getState().updateCameraStreamPreference('camera.front_door', 'hls');
@@ -97,6 +100,13 @@ describe('useSettingsStore', () => {
       );
     useSettingsStore.getState().updateCameraWebRtcStreamSource('camera.front_door', 'direct');
     useSettingsStore.getState().updateCameraFitMode('camera.front_door', 'contain');
+    useSettingsStore
+      .getState()
+      .updateCameraFullscreenAccessoryVisibility(
+        'camera.front_door',
+        'sensor.front_door_temperature',
+        false
+      );
     useSettingsStore.getState().resetSettings();
 
     expect(useSettingsStore.getState().lowPowerMode).toBe(defaultSettings.lowPowerMode);
@@ -107,6 +117,7 @@ describe('useSettingsStore', () => {
     );
     expect(useSettingsStore.getState().keepDeviceAwake).toBe(defaultSettings.keepDeviceAwake);
     expect(useSettingsStore.getState().showHomeSummaryBar).toBe(defaultSettings.showHomeSummaryBar);
+    expect(useSettingsStore.getState().choresEnabled).toBe(defaultSettings.choresEnabled);
     expect(useSettingsStore.getState().headerCustomText).toBe(defaultSettings.headerCustomText);
     expect(useSettingsStore.getState().headerTitleMode).toBe(defaultSettings.headerTitleMode);
     expect(useSettingsStore.getState().username).toBe(defaultSettings.username);
@@ -119,6 +130,8 @@ describe('useSettingsStore', () => {
     expect(useSettingsStore.getState().cameraDirectStreamUrls).toEqual({});
     expect(useSettingsStore.getState().cameraFitMode).toBe('cover');
     expect(useSettingsStore.getState().cameraFitModes).toEqual({});
+    expect(useSettingsStore.getState().cameraFullscreenHiddenAccessoryIds).toEqual({});
+    expect(useSettingsStore.getState().cameraFullscreenVisibleAccessoryIds).toEqual({});
     expect(localStorage.getItem(STORE_STORAGE_KEYS.settings)).toContain('"compactMode":false');
     expect(localStorage.getItem('ha-dashboard-settings')).toBeNull();
   });
@@ -206,6 +219,47 @@ describe('useSettingsStore', () => {
     expect(useSettingsStore.getState().cameraFitModes).toEqual({
       'home_assistant:camera.front_door': 'contain',
       'home_assistant:camera.garage': 'cover',
+    });
+  });
+
+  it('stores fullscreen camera information visibility per camera', () => {
+    const state = useSettingsStore.getState();
+    state.updateCameraFullscreenAccessoryVisibility(
+      'camera.front_door',
+      'sensor.front_door_temperature',
+      true
+    );
+    state.updateCameraFullscreenAccessoryVisibility(
+      'camera.front_door',
+      'binary_sensor.front_door_sound',
+      true
+    );
+
+    expect(useSettingsStore.getState().cameraFullscreenVisibleAccessoryIds).toEqual({
+      'home_assistant:camera.front_door': [
+        'home_assistant:sensor.front_door_temperature',
+        'home_assistant:binary_sensor.front_door_sound',
+      ],
+    });
+    expect(
+      settingsSelectors.cameraFullscreenVisibleAccessoryIdsForEntity('camera.front_door')(
+        useSettingsStore.getState()
+      )
+    ).toEqual([
+      'home_assistant:sensor.front_door_temperature',
+      'home_assistant:binary_sensor.front_door_sound',
+    ]);
+
+    useSettingsStore
+      .getState()
+      .updateCameraFullscreenAccessoryVisibility(
+        'camera.front_door',
+        'sensor.front_door_temperature',
+        false
+      );
+
+    expect(useSettingsStore.getState().cameraFullscreenVisibleAccessoryIds).toEqual({
+      'home_assistant:camera.front_door': ['home_assistant:binary_sensor.front_door_sound'],
     });
   });
 
@@ -318,6 +372,7 @@ describe('useSettingsStore', () => {
     expect(useSettingsStore.getState().cameraStreamPreferences).toEqual({});
     expect(useSettingsStore.getState().cameraFitMode).toBe('cover');
     expect(useSettingsStore.getState().cameraFitModes).toEqual({});
+    expect(useSettingsStore.getState().cameraFullscreenVisibleAccessoryIds).toEqual({});
   });
 
   it('rehydrates valid header title settings and trims imported custom text', async () => {

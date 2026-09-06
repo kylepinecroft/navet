@@ -6,8 +6,10 @@ import { SectionCustomizeShell } from '@navet/app/components/layout/section-cust
 import { DashboardEmptyState } from '@navet/app/components/patterns';
 import { LoadingSpinner } from '@navet/app/components/primitives/loading-spinner';
 import { RenderProfiler } from '@navet/app/components/shared/render-profiler';
-import { getThemeSurfaceTokens } from '@navet/app/components/shared/theme/theme-surface-tokens';
 import { ALL_ROOMS_ID, isAllRooms } from '@navet/app/constants/rooms';
+import { getRoomTodayChores } from '@navet/app/features/chores/chore-dashboard-selectors';
+import { useChoreWorkspaceStore } from '@navet/app/features/chores/chore-workspace-store';
+import { useChoreWorkspaceSync } from '@navet/app/features/chores/use-chore-workspace-sync';
 import { getClimateDashboardGroup } from '@navet/app/features/climate/utils/climate-dashboard-group';
 import { useDashboardCollectionStore } from '@navet/app/features/dashboard/dashboards/dashboard-collection-store';
 import {
@@ -16,16 +18,21 @@ import {
 } from '@navet/app/features/dashboard/dashboards/dashboard-summary-scope';
 import { useRoomWorkspaceStore } from '@navet/app/features/dashboard/rooms/room-workspace-store';
 import { getRoomWorkspaceSectionsV2 } from '@navet/app/features/dashboard/rooms/room-workspace-v2';
+import {
+  getEnergyOverviewTemplateLayout,
+  useEnergyOverviewLayout,
+} from '@navet/app/features/energy/components/dashboard/energy-overview-layout';
 import { buildRoomStatusSummaryItems } from '@navet/app/features/sensors/components/home-status-summary-model';
 import {
   SummaryBar,
   SummaryBarStack,
 } from '@navet/app/features/sensors/components/info-badge-strip';
 import { useTaskRoutines } from '@navet/app/features/tasks/hooks/use-task-automation-groups';
-import { useI18n, useIntegrationStore, useTheme } from '@navet/app/hooks';
+import { useI18n, useIntegrationStore } from '@navet/app/hooks';
 import { useNavigationStore, useSettingsStore } from '@navet/app/stores';
 import { integrationSelectors, settingsSelectors } from '@navet/app/stores/selectors';
 import { getDeviceRoomLabel } from '@navet/app/utils/device-location';
+import { getChoreTiming } from '@navet/core/chores';
 import { Lightbulb, Thermometer } from 'lucide-react';
 import {
   lazy,
@@ -51,10 +58,15 @@ const HomeDashboardOverview = lazy(async () => {
   const module = await import('./home-dashboard-overview');
   return { default: module.HomeDashboardOverview };
 });
+const HouseholdSection = lazy(async () => {
+  const module = await import('@navet/app/features/chores/components/household-section');
+  return { default: module.HouseholdSection };
+});
 const TasksSection = lazy(async () => {
   const module = await import('@navet/app/features/tasks/components/tasks-section');
   return { default: module.TasksSection };
 });
+const RoomChoreCard = lazy(() => import('@navet/app/features/chores/components/room-chore-card'));
 const MediaSection = lazy(async () => {
   const module = await import('@navet/app/components/layout/media-section');
   return { default: module.MediaSection };
@@ -70,6 +82,10 @@ const SettingsSection = lazy(async () => {
 const LightsDashboard = lazy(async () => {
   const module = await import('@navet/app/features/lighting/dashboard/lights-dashboard');
   return { default: module.LightsDashboard };
+});
+const ClimateDashboard = lazy(async () => {
+  const module = await import('@navet/app/features/climate');
+  return { default: module.ClimateDashboard };
 });
 const AddEntityDialog = lazy(async () => {
   const module = await import('./add-entity-dialog');
@@ -98,8 +114,6 @@ const EMPTY_DASHBOARD_CUSTOM_CARDS: DashboardController['allCustomCards'] = [];
 
 function DashboardSectionRouterComponent({ controller }: DashboardSectionRouterProps) {
   const { t } = useI18n();
-  const { theme } = useTheme();
-  const surface = getThemeSurfaceTokens(theme);
   const manageableRoomsByProviderId = useIntegrationStore(
     integrationSelectors.manageableRoomsByProviderId
   );
@@ -115,7 +129,9 @@ function DashboardSectionRouterComponent({ controller }: DashboardSectionRouterP
       state.collection.dashboardsById[state.activeDashboardId]?.homeCustomCards ??
       EMPTY_DASHBOARD_CUSTOM_CARDS
   );
+  const choresEnabled = useSettingsStore(settingsSelectors.choresEnabled);
   const roomWorkspace = useRoomWorkspaceStore((state) => state.workspace);
+  const choreWorkspace = useChoreWorkspaceStore((state) => state.data);
   const activeCustomSidebarActionId = useNavigationStore(
     (state) => state.activeCustomSidebarActionId
   );
@@ -128,6 +144,10 @@ function DashboardSectionRouterComponent({ controller }: DashboardSectionRouterP
   const [isAddLightEntityDialogOpen, setIsAddLightEntityDialogOpen] = useState(false);
   const [isAddClimateEntityDialogOpen, setIsAddClimateEntityDialogOpen] = useState(false);
   const [isRoomManagementOpen, setIsRoomManagementOpen] = useState(false);
+  const [isEnergyKpiCustomizationOpen, setIsEnergyKpiCustomizationOpen] = useState(false);
+  const [isSecurityOverviewCustomizationOpen, setIsSecurityOverviewCustomizationOpen] =
+    useState(false);
+  const [, setEnergyOverviewLayout] = useEnergyOverviewLayout();
   const [securityAddEntityRequestKey, setSecurityAddEntityRequestKey] = useState(0);
   const {
     activeRoom,
@@ -155,6 +175,47 @@ function DashboardSectionRouterComponent({ controller }: DashboardSectionRouterP
     sectionData,
     updateCardSize,
   } = controller;
+  useEffect(() => {
+    if (activeSection !== 'energy' || !isEditMode) {
+      setIsEnergyKpiCustomizationOpen(false);
+    }
+  }, [activeSection, isEditMode]);
+  useEffect(() => {
+    if (activeSection !== 'security' || !isEditMode) {
+      setIsSecurityOverviewCustomizationOpen(false);
+    }
+  }, [activeSection, isEditMode]);
+  useChoreWorkspaceSync(choresEnabled && activeSection === 'home' && !isAllRooms(activeRoom));
+  const activeRoomWorkspace = useMemo(
+    () => roomWorkspace?.rooms.find((room) => room.displayName === activeRoom),
+    [activeRoom, roomWorkspace]
+  );
+  const roomChoreNow = useMemo(() => new Date(), [activeRoom, choreWorkspace]);
+  const roomTodayChores = useMemo(
+    () =>
+      choresEnabled && choreWorkspace && !isAllRooms(activeRoom)
+        ? getRoomTodayChores(
+            choreWorkspace,
+            {
+              label: activeRoom,
+              canonicalIds: activeRoomWorkspace?.sourceRefs.map((source) => source.canonicalId),
+            },
+            roomChoreNow
+          )
+        : [],
+    [activeRoom, activeRoomWorkspace, choreWorkspace, choresEnabled, roomChoreNow]
+  );
+  const pendingRoomChores = useMemo(
+    () => roomTodayChores.filter((occurrence) => occurrence.status !== 'done'),
+    [roomTodayChores]
+  );
+  const overdueRoomChoreCount = useMemo(
+    () =>
+      pendingRoomChores.filter(
+        (occurrence) => getChoreTiming(occurrence, roomChoreNow) === 'overdue'
+      ).length,
+    [pendingRoomChores, roomChoreNow]
+  );
   const manageableRoomReferences = useMemo(
     () => Object.values(manageableRoomsByProviderId).flat(),
     [manageableRoomsByProviderId]
@@ -265,14 +326,23 @@ function DashboardSectionRouterComponent({ controller }: DashboardSectionRouterP
       activeRoom,
       {
         climateEntityIds: roomClimateEntityIds,
+        pendingChoreCount: roomTodayChores.length > 0 ? pendingRoomChores.length : undefined,
+        overdueChoreCount: overdueRoomChoreCount,
         routineCount,
+        securityAlertCount: controller.activeRoomSecurityAlertCount,
         temperatureUnit,
       },
       t
     );
   }, [
     activeRoom,
+    activeRoom,
+    availableDeviceMap,
+    pendingRoomChores.length,
+    overdueRoomChoreCount,
     roomClimateEntityIds,
+    controller.activeRoomSecurityAlertCount,
+    roomTodayChores.length,
     routines.automations,
     routines.quickActions,
     showSummaryBar,
@@ -364,6 +434,8 @@ function DashboardSectionRouterComponent({ controller }: DashboardSectionRouterP
         <SecuritySection
           openAddEntityRequestKey={securityAddEntityRequestKey}
           suppressEditActions={isEditMode}
+          isOverviewCustomizationOpen={isSecurityOverviewCustomizationOpen}
+          onOverviewCustomizationOpenChange={setIsSecurityOverviewCustomizationOpen}
         />
       </Suspense>
     );
@@ -376,7 +448,9 @@ function DashboardSectionRouterComponent({ controller }: DashboardSectionRouterP
               energyCustomCards={sectionData.energyCustomCards}
               energyOrderedCardIds={sectionData.energyOrderedCardIds}
               isEditMode={isEditMode}
+              isKpiCustomizationOpen={isEnergyKpiCustomizationOpen}
               onDeleteCard={handleDeleteCard}
+              onKpiCustomizationOpenChange={setIsEnergyKpiCustomizationOpen}
               onUpdateCard={handleUpdateCard}
             />
           </div>
@@ -386,7 +460,7 @@ function DashboardSectionRouterComponent({ controller }: DashboardSectionRouterP
   } else if (activeSection === 'tasks') {
     sectionContent = (
       <Suspense fallback={<LoadingSpinner />}>
-        <TasksSection />
+        {choresEnabled ? <HouseholdSection /> : <TasksSection />}
       </Suspense>
     );
   } else if (activeSection === 'climate') {
@@ -401,36 +475,19 @@ function DashboardSectionRouterComponent({ controller }: DashboardSectionRouterP
             showCustomizeButton={false}
           >
             <RenderProfiler id="ClimateSection">
-              <div className="space-y-8">
-                {sectionData.climateSections.map((section) => (
-                  <section key={section.key} className="space-y-4">
-                    <div className="flex items-center gap-3">
-                      <h2 className={`text-lg font-semibold md:text-xl ${surface.textPrimary}`}>
-                        {t(section.titleKey)}
-                      </h2>
-                      <span className={`text-xs md:text-sm ${surface.textSecondary}`}>
-                        {section.orderedIds.length}{' '}
-                        {section.orderedIds.length === 1
-                          ? t('sections.climate.singular')
-                          : t('sections.climate.plural')}
-                      </span>
-                    </div>
-                    <DeviceGrid
-                      orderedCardIds={section.orderedIds}
-                      deviceMap={sectionData.climateDeviceMap}
-                      isEditMode={isEditMode}
-                      cardSizes={cardSizes}
-                      updateCardSize={updateCardSize}
-                      onRemoveEntity={handleRemoveEntity}
-                      allowEntityRemoval
-                      usesHideAction
-                      densePerformanceMode={controller.densePerformanceMode}
-                      optimizeOffscreenPaint={controller.optimizeOffscreenPaint}
-                      getDeviceHeaderSubtitle={getDeviceRoomLabel}
-                    />
-                  </section>
-                ))}
-              </div>
+              <Suspense fallback={<LoadingSpinner message={t('common.loading')} />}>
+                <ClimateDashboard
+                  deviceMap={sectionData.climateDeviceMap}
+                  sections={sectionData.climateSections}
+                  temperatureUnit={temperatureUnit}
+                  cardSizes={cardSizes}
+                  updateCardSize={updateCardSize}
+                  isEditMode={isEditMode}
+                  onRemoveEntity={handleRemoveEntity}
+                  densePerformanceMode={controller.densePerformanceMode}
+                  optimizeOffscreenPaint={controller.optimizeOffscreenPaint}
+                />
+              </Suspense>
             </RenderProfiler>
           </SectionCustomizeShell>
         ) : (
@@ -650,6 +707,19 @@ function DashboardSectionRouterComponent({ controller }: DashboardSectionRouterP
                 usesHideAction
                 densePerformanceMode={controller.densePerformanceMode}
                 optimizeOffscreenPaint={controller.optimizeOffscreenPaint}
+                supplementalCards={pendingRoomChores.map((occurrence) => ({
+                  id: `room-chore-${occurrence.id}`,
+                  size: 'medium',
+                  content: choreWorkspace ? (
+                    <Suspense fallback={null}>
+                      <RoomChoreCard
+                        data={choreWorkspace}
+                        occurrence={occurrence}
+                        now={roomChoreNow}
+                      />
+                    </Suspense>
+                  ) : null,
+                }))}
               />
             </SummaryBarStack>
           </RenderProfiler>
@@ -662,7 +732,7 @@ function DashboardSectionRouterComponent({ controller }: DashboardSectionRouterP
     <DashboardLayout
       densePerformanceMode={controller.densePerformanceMode}
       mobileEditActions={
-        isEditMode
+        isEditMode || activeSection === 'tasks'
           ? undefined
           : {
               isEditMode,
@@ -699,6 +769,19 @@ function DashboardSectionRouterComponent({ controller }: DashboardSectionRouterP
                 : undefined
             }
             onApplyPack={isHomeOverviewEditMode ? controller.handleApplyDashboardPack : undefined}
+            onApplyEnergyLayout={
+              activeSection === 'energy'
+                ? (template) => setEnergyOverviewLayout(getEnergyOverviewTemplateLayout(template))
+                : undefined
+            }
+            onConfigureKpis={
+              activeSection === 'energy' ? () => setIsEnergyKpiCustomizationOpen(true) : undefined
+            }
+            onConfigureSecurityOverview={
+              activeSection === 'security'
+                ? () => setIsSecurityOverviewCustomizationOpen(true)
+                : undefined
+            }
             onManageRooms={roomManagement ? () => setIsRoomManagementOpen(true) : undefined}
             onRedo={isHomeOverviewEditMode ? controller.redoHomeLayout : undefined}
             onSetLayoutMode={isHomeOverviewEditMode ? controller.setHomeLayoutMode : undefined}
@@ -763,6 +846,8 @@ function areDashboardSectionRouterPropsEqual(
     previousController.roomItemCounts === nextController.roomItemCounts &&
     previousController.rooms === nextController.rooms &&
     previousController.securityAlertCount === nextController.securityAlertCount &&
+    previousController.activeRoomSecurityAlertCount ===
+      nextController.activeRoomSecurityAlertCount &&
     previousController.sectionData === nextController.sectionData &&
     previousController.setActiveSection === nextController.setActiveSection &&
     previousController.updateCardSize === nextController.updateCardSize &&
