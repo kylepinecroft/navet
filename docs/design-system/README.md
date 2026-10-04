@@ -2,8 +2,7 @@
 
 This folder documents Navet's shared UI layers, stable export surfaces, and Storybook review model.
 
-Navet does not publish a separate design-system package. The design system is an in-repo set of
-authoring layers and curated export surfaces.
+The design system consists of repository authoring layers and curated export surfaces.
 
 ## Guidance Ownership
 
@@ -60,6 +59,22 @@ Target package boundary for provider-neutral shared UI exports.
 
 Today this package remains intentionally small, so many shared UI authoring decisions still happen
 in the app-owned layers above.
+
+## Card Dialog Navigation
+
+Card settings use `BaseCardDialog`, whose card variant defaults to overflow navigation. The first entry in `tabs`
+contains the everyday controls; remaining entries are destinations in **More actions**. Each
+secondary section includes **Back to controls**. Closing and reopening returns to the first section.
+
+The shared `CardDialogOverflowMenu` pattern owns the menu placement and actions. The dialog adds
+**Edit room** when an entity or editable widget room is available, **Edit card name** when the
+name can be saved, and the provider's native entity ID for device dialogs. A supplied
+`onRemoveCard` callback exposes a destructive action with an optional `removeCardLabel`.
+
+`BaseCardDialogWithState` uses this navigation for controls, customization, and additional
+sections. Feature dialogs provide their content and callbacks without building a second menu.
+Keep live state and common device actions in the first section; use secondary sections for
+configuration, optional details, and card management.
 
 ## Storybook Role
 

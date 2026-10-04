@@ -1,3 +1,4 @@
+import { getClimateSensorGroup } from '@navet/app/core/climate-sensor-group';
 import type { DeviceWithType } from '@navet/app/types/device.types';
 
 export type ClimateDashboardGroupKey =
@@ -30,17 +31,5 @@ export function getClimateDashboardGroup(device: DeviceWithType): ClimateDashboa
     return null;
   }
 
-  switch (String(device.deviceClass ?? '').toLowerCase()) {
-    case 'temperature':
-      return 'temperature';
-    case 'humidity':
-      return 'humidity';
-    case 'air_quality':
-    case 'carbon_dioxide':
-      return 'airQuality';
-    case 'pressure':
-      return 'pressure';
-    default:
-      return null;
-  }
+  return getClimateSensorGroup(device.deviceClass);
 }

@@ -31,7 +31,7 @@ import {
   Sparkles,
   X,
 } from 'lucide-react';
-import { type CSSProperties, memo, useCallback, useMemo, useRef, useState } from 'react';
+import { type CSSProperties, memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { type LightBatchActionResult, setLightsPower } from './light-dashboard-actions';
 import {
@@ -79,12 +79,16 @@ const RoomLightCard = memo(function RoomLightCard({
   return (
     <div
       className={`relative min-w-0 border-b border-dashed last:border-b-0 ${separatorClassName} ${
-        isEditMode ? 'pr-10' : 'pr-2'
+        isEditMode ? 'pr-10' : ''
       }`}
       data-light-state={light.available ? (light.isOn ? 'on' : 'off') : 'unavailable'}
+      data-light-entity-id={light.id}
+      tabIndex={light.available ? undefined : -1}
     >
       {light.available ? (
         <LightCard
+          onRemoveCard={onRemoveEntity ? () => onRemoveEntity(light.id) : undefined}
+          removeCardLabel={t('dashboard.roomsWorkspace.hideDevice')}
           id={light.id}
           name={light.name}
           room={light.room}
@@ -101,10 +105,16 @@ const RoomLightCard = memo(function RoomLightCard({
       ) : (
         <div className="flex min-h-12 items-center gap-3 py-1">
           <div className="-ml-[5px] flex h-11 w-11 shrink-0 items-center justify-center">
-            <CircleAlert
-              className={`h-4 w-4 ${theme === 'light' ? 'text-red-600' : 'text-red-300'}`}
-              aria-hidden="true"
-            />
+            <span
+              className={`navet-card-header-control-dense flex items-center justify-center rounded-full border ${
+                theme === 'light'
+                  ? 'border-red-200 bg-red-50 text-red-600'
+                  : 'border-red-400/25 bg-red-500/10 text-red-300'
+              }`}
+              data-light-row-icon-pill
+            >
+              <CircleAlert className="h-4 w-4" aria-hidden="true" />
+            </span>
           </div>
           <span
             className={`-ml-[3px] min-w-0 flex-1 truncate text-sm font-medium ${
@@ -305,10 +315,31 @@ export const LightsDashboard = memo(function LightsDashboard({
     return next;
   }, [cardOrders, deviceMap, entities, rooms]);
   const [expandedRooms, setExpandedRooms] = useState<Record<string, boolean>>({});
+  const [navigationTargetId, setNavigationTargetId] = useState<string | null>(null);
   const [pendingBatch, setPendingBatch] = useState<'all' | string | null>(null);
   const [runningSceneId, setRunningSceneId] = useState<string | null>(null);
   const actionPendingRef = useRef(false);
   const allLights = useMemo(() => model.rooms.flatMap((room) => room.lights), [model.rooms]);
+  const showUnavailableLight = useCallback(() => {
+    const light = allLights.find((light) => !light.available);
+    if (!light) return;
+    setExpandedRooms((current) => ({ ...current, [light.room]: true }));
+    setNavigationTargetId(light.id);
+  }, [allLights]);
+  useEffect(() => {
+    if (!navigationTargetId) return;
+    const rows = outerRef.current?.querySelectorAll<HTMLElement>('[data-light-entity-id]');
+    const target = Array.from(rows ?? []).find(
+      (row) => row.dataset.lightEntityId === navigationTargetId
+    );
+    if (!target) return;
+    target.focus({ preventScroll: true });
+    target.scrollIntoView({
+      behavior: window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth',
+      block: 'center',
+    });
+    setNavigationTargetId(null);
+  }, [navigationTargetId, outerRef]);
   const actionPending = pendingBatch !== null || runningSceneId !== null;
   const summaryItems = useMemo<HomeStatusSummaryItem[]>(() => {
     const items: HomeStatusSummaryItem[] = [
@@ -333,11 +364,12 @@ export const LightsDashboard = memo(function LightsDashboard({
         icon: CircleAlert,
         iconColor: '#f59e0b',
         tone: 'warning',
+        onSelect: showUnavailableLight,
       });
     }
 
     return items;
-  }, [model.activeCount, model.totalCount, model.unavailableCount, t]);
+  }, [model.activeCount, model.totalCount, model.unavailableCount, showUnavailableLight, t]);
   const displayRooms = useMemo(
     () =>
       model.rooms

@@ -1,4 +1,5 @@
 import { createEmptyDeviceCollection } from '@navet/app/core/navet-device-collections';
+import { useCardOrdering } from '@navet/app/features/dashboard/hooks/use-card-ordering';
 import { useRoomWorkspaceStore } from '@navet/app/features/dashboard/rooms/room-workspace-store';
 import {
   migrateLegacyRoomWorkspaceV2,
@@ -15,6 +16,7 @@ import { resetAppStores } from '@navet/app/test/store-reset';
 import type { DeviceCollection } from '@navet/app/types/device.types';
 import { act } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
+import { useAggregatedRooms } from '../use-aggregated-rooms';
 import {
   DEVICE_COLLECTION_KEYS,
   filterDeviceCollectionByProvider,
@@ -187,6 +189,92 @@ describe('mergeDeviceCollections', () => {
 });
 
 describe('useDevices', () => {
+  it('includes lights from differently capitalized provider rooms in the shared room order', async () => {
+    await resetAppStores();
+
+    integrationStore.setState({
+      selectedProviderIds: ['homey', 'openhab'],
+      normalizedRoomsByCanonicalId: {
+        'homey:living_room': {
+          id: 'homey:living_room',
+          canonicalId: 'homey:living_room',
+          providerId: 'homey',
+          externalId: 'living_room',
+          name: 'Living Room',
+          normalizedName: 'living room',
+          memberIds: ['homey:ceiling'],
+          sourceType: 'provider_managed',
+          supportsOrdering: true,
+          supportsDeletion: false,
+        },
+        'openhab:NavetLivingRoom': {
+          id: 'openhab:NavetLivingRoom',
+          canonicalId: 'openhab:NavetLivingRoom',
+          providerId: 'openhab',
+          externalId: 'NavetLivingRoom',
+          name: 'Living room',
+          normalizedName: 'living room',
+          memberIds: ['openhab:NavetLivingAccent_Color'],
+          sourceType: 'derived',
+          supportsOrdering: false,
+          supportsDeletion: false,
+        },
+      },
+      providerDeviceCollectionsByProviderId: {
+        homey: {
+          ...createEmptyDeviceCollection(),
+          lights: [
+            {
+              id: 'homey:ceiling',
+              providerId: 'homey',
+              name: 'Living room ceiling',
+              room: 'Living Room',
+              roomId: 'homey:living_room',
+              size: 'small',
+              state: true,
+              brightness: 100,
+              temp: 3200,
+            },
+          ],
+        },
+        openhab: {
+          ...createEmptyDeviceCollection(),
+          lights: [
+            {
+              id: 'openhab:NavetLivingAccent_Color',
+              providerId: 'openhab',
+              name: 'Living room accent',
+              room: 'Living room',
+              roomId: 'openhab:NavetLivingRoom',
+              size: 'small',
+              state: true,
+              brightness: 68,
+              temp: 3200,
+            },
+          ],
+        },
+      },
+    });
+
+    const { result } = renderHookWithProviders(() => {
+      const devices = useAggregatedDevices({ includeFeatureCollections: false });
+      const rooms = useAggregatedRooms().map((room) => room.name);
+      const { cardOrders } = useCardOrdering(devices, rooms);
+      return { devices, rooms, cardOrders };
+    });
+
+    expect(result.current.rooms).toEqual(['Living Room']);
+    expect(result.current.devices.lights[1]).toMatchObject({
+      room: 'Living Room',
+      roomId: 'openhab:NavetLivingRoom',
+      brightness: 68,
+    });
+    expect(result.current.cardOrders['Living Room']).toEqual([
+      'homey:ceiling',
+      'openhab:NavetLivingAccent_Color',
+    ]);
+  });
+
   it('uses canonical provider selection for supported multi-provider categories', async () => {
     await resetAppStores();
 
@@ -564,6 +652,40 @@ describe('useDevices', () => {
     expect(result.current).toEqual(createEmptyDeviceCollection());
   });
 
+  it('does not rerender disabled device collections for room placement updates', async () => {
+    await resetAppStores();
+    let renderCount = 0;
+    const { rerender } = renderHookWithProviders(
+      ({ enabled }: { enabled: boolean }) => {
+        renderCount += 1;
+        useDeviceCollectionsByKeys(['lights'], { enabled });
+        useAggregatedDevices({ enabled });
+      },
+      { initialProps: { enabled: false } }
+    );
+    const disabledRenderCount = renderCount;
+
+    act(() => {
+      integrationStore.setState({ normalizedRoomsByCanonicalId: {} });
+      useRoomWorkspaceStore.setState({
+        workspace: migrateLegacyRoomWorkspaceV2({
+          discoveredRooms: [],
+          idFactory: () => 'room_test' as RoomWorkspaceRoomId,
+        }),
+      });
+      useEntityRoomOverridesStore.getState().setRoomOverride('light.kitchen', 'room_kitchen');
+    });
+
+    expect(renderCount).toBe(disabledRenderCount);
+
+    rerender({ enabled: true });
+    const enabledRenderCount = renderCount;
+    act(() => {
+      useEntityRoomOverridesStore.getState().setRoomOverride('light.kitchen', 'room_office');
+    });
+    expect(renderCount).toBeGreaterThan(enabledRenderCount);
+  });
+
   it('keeps the full hook aligned with the keyed hook contract', async () => {
     await resetAppStores();
 
@@ -590,6 +712,9 @@ describe('useDevices', () => {
             name: 'Office',
             normalizedName: 'office',
             memberIds: [],
+            sourceType: 'provider_managed',
+            supportsOrdering: true,
+            supportsDeletion: true,
           },
         },
       },
@@ -602,6 +727,9 @@ describe('useDevices', () => {
           name: 'Office',
           normalizedName: 'office',
           memberIds: [],
+          sourceType: 'provider_managed',
+          supportsOrdering: true,
+          supportsDeletion: true,
         },
       },
       providerDeviceCollectionsByProviderId: {
@@ -651,6 +779,9 @@ describe('useDevices', () => {
             name: 'Office',
             normalizedName: 'office',
             memberIds: [],
+            sourceType: 'provider_managed',
+            supportsOrdering: true,
+            supportsDeletion: true,
           },
         },
       },
@@ -663,6 +794,9 @@ describe('useDevices', () => {
           name: 'Office',
           normalizedName: 'office',
           memberIds: [],
+          sourceType: 'provider_managed',
+          supportsOrdering: true,
+          supportsDeletion: true,
         },
       },
       providerDeviceCollectionsByProviderId: {
@@ -711,6 +845,9 @@ describe('useDevices', () => {
           name: 'Office',
           normalizedName: 'office',
           memberIds: ['home_assistant:media_player.desk'],
+          sourceType: 'provider_managed',
+          supportsOrdering: true,
+          supportsDeletion: true,
         },
       },
       providerDeviceCollectionsByProviderId: {

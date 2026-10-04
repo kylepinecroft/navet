@@ -112,6 +112,17 @@ describe('SectionCanvas memoization', () => {
     expect(onResizeSection).toHaveBeenCalledWith('section-a', expect.any(Number), nextMinWidths);
   });
 
+  it('names the section editor and preserves renaming', () => {
+    const onRenameSection = vi.fn();
+    renderWithProviders(<SectionCanvas {...createProps({ onRenameSection })} />);
+
+    fireEvent.change(screen.getByRole('textbox', { name: 'Section name' }), {
+      target: { value: 'Morning controls' },
+    });
+
+    expect(onRenameSection).toHaveBeenCalledWith('section-a', 'Morning controls');
+  });
+
   it('forwards the snap drop preview to the card grid', () => {
     const snapDropPreview = { sectionId: 'section-a', x: 4, y: 1 };
     renderWithProviders(<SectionCanvas {...createProps({ snapDropPreview })} />);

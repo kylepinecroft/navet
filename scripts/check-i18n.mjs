@@ -120,6 +120,43 @@ function interpolationTokens(value) {
 
 const dictionaries = Object.fromEntries(languages.map((language) => [language, parseMessages(language)]));
 const english = dictionaries.en;
+const providerNeutralMessageKeys = [
+  'household.unavailable.description',
+  'household.unauthorized.description',
+  'dashboard.addEntity.descriptionWithHidden',
+  'dashboard.addEntity.descriptionDefault',
+  'dashboard.addEntity.defaultDescriptionAll',
+  'dashboard.addCard.libraryDescription',
+  'dashboard.addCard.tab.cardsHint',
+  'dashboard.roomNav.reorderDialog.description',
+  'dashboard.roomNav.reorderDialog.deleteDescription',
+  'dashboard.shell.noLightsEmpty',
+  'dashboard.page.connectingHomeAssistant',
+  'dashboard.loadingRecovery.description',
+  'dashboard.onboarding.route.all.body',
+  'weather.settings.locationManaged',
+  'vacuum.plan.mapHint',
+  'entityRoomSelector.createPrompt',
+  'energy.widgets.now.sparklineDescription',
+  'energy.widgets.batteryDevices.empty',
+  'energy.demo.hint',
+  'energy.demo.connect',
+  'energy.dashboard.flow.simpleDescription',
+  'userDropdown.connected',
+  'errorDisplay.connectionInterruptedDescription',
+  'errorDisplay.issue.2',
+  'errorDisplay.issue.5',
+];
+const providerBrandPattern = /home assistant|homey|openhab/i;
+
+for (const language of languages) {
+  for (const key of providerNeutralMessageKeys) {
+    const value = dictionaries[language].get(key);
+    if (value && providerBrandPattern.test(value)) {
+      failures.push(`${language}: provider-specific wording in shared message ${key}`);
+    }
+  }
+}
 
 for (const language of languages.slice(1)) {
   const dictionary = dictionaries[language];
@@ -160,7 +197,7 @@ const allowedIdenticalValuesByLanguage = {
   sv: new Set([
     'System', 'Auto', 'Standard', 'Celsius', 'Fahrenheit', 'Medium', 'Version', 'Status',
     'Media', 'Receiver', 'Soundbar', 'Sensor', 'Max', 'Live', 'tv', 'Radio', 'Person',
-    'Widget', 'Normal', 'Album', 'Orange', 'Neutral', 'Gas',
+    'Widget', 'Normal', 'Album', 'Orange', 'Neutral', 'Gas', 'period',
   ]),
   de: new Set([
     'System', 'Auto', 'Standard', 'Celsius', 'Fahrenheit', 'Routine', 'Version', 'Status',
@@ -184,6 +221,7 @@ const allowedIdenticalValuesByLanguage = {
     'Eco', 'Album', 'Comfort', 'Relax', 'Gas', 'In Navet',
   ]),
   nl: new Set([
+    'week',
     'Week {week}', 'Dashboard', 'Project', 'Celsius', 'Fahrenheit', 'Status', 'Widgets',
     'Details', 'Wind', 'Volume', 'Media', 'Soundbar', 'Sensor', 'Water', 'Zones', 'Max',
     'Later', 'Updates', 'camera', 'Routines', 'Scripts', 'scripts', 'Recent', 'Fans',
@@ -233,6 +271,12 @@ const allowedIdenticalKeys = new Set([
   'security.alarm.action.pending',
   'widgets.assist.title',
   'dashboard.addCard.templates.assist.name',
+  // Homey product terminology and the commonly shared app abbreviation.
+  'providerDetails.sections.automations',
+  'providerDetails.sections.history',
+  'providerDetails.sections.apps',
+  // This message contains only interpolated values and punctuation.
+  'energy.dashboard.usageShareStatus',
 ]);
 
 function isAllowedIdentical(language, key, value) {
@@ -240,6 +284,7 @@ function isAllowedIdentical(language, key, value) {
     universallyAllowedIdenticalValues.has(value) ||
     allowedIdenticalValuesByLanguage[language]?.has(value) ||
     allowedIdenticalKeys.has(key) ||
+    (language === 'sv' && key === 'providerDetails.period' && value === 'Period') ||
     /^(?:https?:\/\/|media-source:\/\/|sensor\.|\{domain\}\.|extra-|tiny$|small$|medium$|large$)/.test(value) ||
     key.startsWith('dashboard.addCard.size.') ||
     (language === 'sv' && value === '{count} live') ||
@@ -273,6 +318,7 @@ const allowedLiteralValues = new Set([
   'OK', 'kWh', 'kW', 'W', 'Navet', 'openHAB', 'Alert', 'Continue', 'Selected', 'Home',
   'Language', 'Loading', 'awesomestvi', 'OSM', 'CARTO',
   'OpenStreetMap copyright', 'OpenStreetMap contributors', 'CARTO attributions',
+  '© OpenMapTiles', '© OpenStreetMap',
 ]);
 
 function isProductionTsx(file) {

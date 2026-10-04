@@ -4,7 +4,6 @@ import {
   InteractivePill,
   LoadingSpinner,
   MessageBar,
-  Panel,
 } from '@navet/app/components/primitives';
 import {
   AlertDialog,
@@ -15,8 +14,6 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@navet/app/components/ui/alert-dialog';
-import { HabitInsightsPanel } from '@navet/app/features/habits/components/habit-insights-panel';
-import { useLocalHabitsFeature } from '@navet/app/features/habits/local-habits-feature';
 import { TasksSection } from '@navet/app/features/tasks/components/tasks-section';
 import { useI18n } from '@navet/app/hooks';
 import { isHomeAssistantPanelMode } from '@navet/app/runtime/app-mode';
@@ -34,6 +31,7 @@ import {
   type ChoreGamificationMode,
   type ChoreMission,
   type ChorePresentationMetadata,
+  type ChoreProgressTarget,
   type ChoreRewardGoal,
   normalizeChoreExperienceState,
 } from '@navet/core/chore-experience';
@@ -41,12 +39,21 @@ import {
   type ChoreDefinition,
   type ChoreParticipant,
   type ChoreWorkspaceAction,
-  getChoreExperiencePointBalances,
+  isChoreParticipantPausedAt,
 } from '@navet/core/chores';
-import { AlertTriangle, ClipboardList, Plus, RotateCcw, ShieldCheck, Users } from 'lucide-react';
+import {
+  AlertTriangle,
+  ClipboardList,
+  Plus,
+  RotateCcw,
+  ShieldCheck,
+  Trash2,
+  Users,
+} from 'lucide-react';
 import { type ReactNode, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { getChoreMaterializationRange, materializeChoreWorkspace } from '../chore-workspace-model';
 import { useChoreWorkspaceStore } from '../chore-workspace-store';
+import { useChoreClock } from '../use-chore-clock';
 import { useChoreReminderDelivery } from '../use-chore-reminder-delivery';
 import { useChoreWorkspaceSync } from '../use-chore-workspace-sync';
 import { ChoreDataRecovery } from './chore-data-recovery';
@@ -74,8 +81,7 @@ type HouseholdView =
   | 'rewards'
   | 'progress'
   | 'settings'
-  | 'routines'
-  | 'habits';
+  | 'routines';
 
 function HouseholdViewPanel({
   value,
@@ -159,41 +165,47 @@ function HouseholdUnavailable({
               ? t('household.unavailable.description')
               : unauthorized
                 ? t('household.unauthorized.description')
-                : t('household.error.description')
+                : error || t('household.error.description')
         }
-        actionLabel={t('household.retry')}
-        onAction={retry}
+        actionLabel={recovery ? undefined : t('household.retry')}
+        onAction={recovery ? undefined : retry}
         actionIcon={RotateCcw}
-      />
-
-      {recovery ? (
-        <Panel muted className="grid gap-3 p-4">
-          {error ? (
-            <MessageBar tone="error" title={t('household.recovery.problem')}>
-              {error}
-            </MessageBar>
-          ) : null}
-          <div className="flex flex-wrap gap-2">
-            {recovery.backupAvailable ? (
+      >
+        {recovery ? (
+          <div className="grid w-full max-w-md gap-3">
+            <div className="flex flex-wrap justify-center gap-2">
               <Button
                 variant="secondary"
-                leading={<ShieldCheck aria-hidden="true" className="h-4 w-4" />}
-                onClick={() => continueRecovery('repair')}
+                leading={<RotateCcw aria-hidden="true" className="h-4 w-4" />}
+                onClick={retry}
               >
-                {t('household.recovery.repair')}
+                {t('household.retry')}
               </Button>
+              {recovery.backupAvailable ? (
+                <Button
+                  variant="secondary"
+                  leading={<ShieldCheck aria-hidden="true" className="h-4 w-4" />}
+                  onClick={() => continueRecovery('repair')}
+                >
+                  {t('household.recovery.repair')}
+                </Button>
+              ) : null}
+              <Button
+                variant="secondary"
+                leading={<Trash2 aria-hidden="true" className="h-4 w-4" />}
+                onClick={() => continueRecovery('reset')}
+              >
+                {t('household.recovery.startOver')}
+              </Button>
+            </div>
+            {recovery.backupAvailable ? (
+              <p className="text-xs text-muted-foreground">
+                {t('household.recovery.backupAvailable')}
+              </p>
             ) : null}
-            <Button variant="ghost" onClick={() => continueRecovery('reset')}>
-              {t('household.recovery.startOver')}
-            </Button>
           </div>
-          <p className="text-xs text-muted-foreground">
-            {recovery.backupAvailable
-              ? t('household.recovery.backupAvailable')
-              : t('household.recovery.noBackup')}
-          </p>
-        </Panel>
-      ) : null}
+        ) : null}
+      </DashboardEmptyState>
 
       <ChoreManagementPinDialog
         isOpen={pinOpen}
@@ -242,7 +254,7 @@ function HouseholdUnavailable({
 
 export function HouseholdSection({ syncEnabled = true }: { syncEnabled?: boolean }) {
   const { t } = useI18n();
-  const [habitsVisible] = useLocalHabitsFeature();
+  const now = useChoreClock();
   const [view, setView] = useState<HouseholdView>('today');
   const [selectedParticipantId, setSelectedParticipantId] = useState('all');
   const [personDialogOpen, setPersonDialogOpen] = useState(false);
@@ -304,11 +316,6 @@ export function HouseholdSection({ syncEnabled = true }: { syncEnabled?: boolean
     panelAuthority || runtimeCapabilities?.projectionOwnedByAuthority === true;
   const authorityHandlesActions = panelAuthority || runtimeCapabilities?.actionServices === true;
 
-  useEffect(() => {
-    if (!habitsVisible && view === 'habits') {
-      setView('routines');
-    }
-  }, [habitsVisible, view]);
   const roomOptions = useMemo(
     () =>
       roomDescriptors.map((room) => ({
@@ -334,7 +341,7 @@ export function HouseholdSection({ syncEnabled = true }: { syncEnabled?: boolean
     let active = true;
     let unsubscribe = () => {};
     void subscribeIntegrationChoreActionRequests((request) => {
-      const reason = request.reason?.trim() || 'Home Assistant automation';
+      const reason = request.reason?.trim() || 'Provider automation';
       const action =
         request.action === 'reassign'
           ? {
@@ -365,8 +372,11 @@ export function HouseholdSection({ syncEnabled = true }: { syncEnabled?: boolean
 
   const allParticipants = useMemo(() => (data ? Object.values(data.participantsById) : []), [data]);
   const participants = useMemo(
-    () => allParticipants.filter((participant) => !participant.pausedAt),
-    [allParticipants]
+    () =>
+      allParticipants.filter(
+        (participant) => !isChoreParticipantPausedAt(participant, now.toISOString())
+      ),
+    [allParticipants, now]
   );
 
   useEffect(() => {
@@ -431,7 +441,9 @@ export function HouseholdSection({ syncEnabled = true }: { syncEnabled?: boolean
     const currentExperience = normalizeChoreExperienceState(current.experience);
     if (currentExperience.setupStartedAt) return true;
     const setupManager = Object.values(current.participantsById).find(
-      (candidate) => candidate.capabilities.includes('manage') && !candidate.pausedAt
+      (candidate) =>
+        candidate.capabilities.includes('manage') &&
+        !isChoreParticipantPausedAt(candidate, now.toISOString())
     );
     if (!setupManager) return false;
     return execute({
@@ -451,19 +463,10 @@ export function HouseholdSection({ syncEnabled = true }: { syncEnabled?: boolean
     if (!current || !managerActorId) return false;
     const experience = normalizeChoreExperienceState(current.experience);
     const changed = change(experience);
-    const persistedBalances = experience.earnedPointsByParticipant;
-    const earnedPointsByParticipant =
-      persistedBalances && Object.keys(persistedBalances).length > 0
-        ? persistedBalances
-        : experience.gamificationMode === 'off' && changed.gamificationMode !== 'off'
-          ? Object.fromEntries(Object.keys(current.participantsById).map((id) => [id, 0]))
-          : experience.gamificationMode !== 'off'
-            ? getChoreExperiencePointBalances(current)
-            : persistedBalances;
     return execute({
       type: 'experience_update',
       actorParticipantId: managerActorId,
-      experience: { ...changed, earnedPointsByParticipant },
+      experience: changed,
     });
   };
 
@@ -684,28 +687,32 @@ export function HouseholdSection({ syncEnabled = true }: { syncEnabled?: boolean
 
   if (loading) {
     return (
-      <div
-        className="flex min-h-64 items-center justify-center"
-        role="status"
-        aria-label={t('household.loading')}
-      >
-        <LoadingSpinner />
-      </div>
+      <main>
+        <div
+          className="flex min-h-64 items-center justify-center"
+          role="status"
+          aria-label={t('household.loading')}
+        >
+          <LoadingSpinner />
+        </div>
+      </main>
     );
   }
 
   if (workspaceUnavailable) {
     return (
-      <HouseholdUnavailable
-        status={choreStatus as 'unavailable' | 'unauthorized' | 'error'}
-        retry={() => void load({ force: true })}
-      />
+      <main>
+        <HouseholdUnavailable
+          status={choreStatus as 'unavailable' | 'unauthorized' | 'error'}
+          retry={() => void load({ force: true })}
+        />
+      </main>
     );
   }
 
   if (!setupComplete) {
     return (
-      <div className="h-full min-w-0 overflow-x-hidden overflow-y-auto pb-24 md:pb-0">
+      <main className="h-full min-w-0 overflow-x-hidden overflow-y-auto pb-24 md:pb-0">
         {error && data ? (
           <MessageBar tone="error" title={t('household.error.title')} className="mb-4">
             {error}
@@ -747,12 +754,12 @@ export function HouseholdSection({ syncEnabled = true }: { syncEnabled?: boolean
           onUnlockManagement={unlockManagement}
           onComplete={completeSetup}
         />
-      </div>
+      </main>
     );
   }
 
   return (
-    <div className="h-full min-w-0 overflow-x-hidden overflow-y-auto pb-24 md:pb-0">
+    <main className="h-full min-w-0 overflow-x-hidden overflow-y-auto pb-24 md:pb-0">
       {error && data ? (
         <MessageBar tone="error" title={t('household.error.title')} className="mb-4">
           {error}
@@ -772,9 +779,6 @@ export function HouseholdSection({ syncEnabled = true }: { syncEnabled?: boolean
             { value: 'progress' as const, label: t('household.tabs.progress') },
             { value: 'settings' as const, label: t('household.tabs.settings') },
             { value: 'routines' as const, label: t('household.tabs.routines') },
-            ...(habitsVisible
-              ? [{ value: 'habits' as const, label: t('settings.nav.habits') }]
-              : []),
           ].map((item) => {
             const isActive = view === item.value;
             return (
@@ -891,6 +895,26 @@ export function HouseholdSection({ syncEnabled = true }: { syncEnabled?: boolean
               data ? (
                 <RewardsView
                   data={data}
+                  selectedParticipantId={selectedParticipantId}
+                  onRequest={(rewardId, participantId) =>
+                    void execute({
+                      type: 'reward_request',
+                      requestId: createId('reward-request'),
+                      rewardId,
+                      participantId,
+                    })
+                  }
+                  onDecision={(request, decision) =>
+                    withManagementAccess(() => {
+                      if (!managerActorId) return;
+                      void execute({
+                        type: 'reward_decision',
+                        requestId: request.id,
+                        actorParticipantId: managerActorId,
+                        decision,
+                      });
+                    })
+                  }
                   onAdd={() => {
                     setRewardToEdit(null);
                     setRewardDialogOpen(true);
@@ -918,6 +942,23 @@ export function HouseholdSection({ syncEnabled = true }: { syncEnabled?: boolean
             <ProgressView
               data={data}
               onAdjustPoints={adjustParticipantPoints}
+              onSaveTarget={(kind: 'badge' | 'achievement', target: ChoreProgressTarget) =>
+                updateExperience((current) => ({
+                  ...current,
+                  [kind === 'badge' ? 'badgesById' : 'achievementsById']: {
+                    ...(kind === 'badge' ? current.badgesById : current.achievementsById),
+                    [target.id]: target,
+                  },
+                }))
+              }
+              onDeleteTarget={(kind: 'badge' | 'achievement', target: ChoreProgressTarget) =>
+                void updateExperience((current) => {
+                  const key = kind === 'badge' ? 'badgesById' : 'achievementsById';
+                  const targets = { ...current[key] };
+                  delete targets[target.id];
+                  return { ...current, [key]: targets };
+                })
+              }
               requestManagementAccess={withManagementAccess}
             />
           ) : null
@@ -939,6 +980,17 @@ export function HouseholdSection({ syncEnabled = true }: { syncEnabled?: boolean
                 setParticipantToEdit(participant);
                 setPersonDialogOpen(true);
               }}
+              onRescheduleVacation={(participantId, occurrenceIds, startDate) =>
+                managerActorId
+                  ? execute({
+                      type: 'vacation_reschedule',
+                      actorParticipantId: managerActorId,
+                      participantId,
+                      occurrenceIds,
+                      startDate,
+                    })
+                  : Promise.resolve(false)
+              }
               managementPinConfigured={managementPinConfigured}
               onManagePin={() => withManagementAccess(() => setManagementPinEditorOpen(true))}
               onRemovePin={() => withManagementAccess(() => setManagementPinRemovalOpen(true))}
@@ -958,11 +1010,6 @@ export function HouseholdSection({ syncEnabled = true }: { syncEnabled?: boolean
       <HouseholdViewPanel value="routines" activeValue={view}>
         <TasksSection />
       </HouseholdViewPanel>
-      {habitsVisible ? (
-        <HouseholdViewPanel value="habits" activeValue={view}>
-          <HabitInsightsPanel />
-        </HouseholdViewPanel>
-      ) : null}
 
       <AddPersonDialog
         isOpen={personDialogOpen}
@@ -1124,6 +1171,6 @@ export function HouseholdSection({ syncEnabled = true }: { syncEnabled?: boolean
         }}
         onSave={saveReward}
       />
-    </div>
+    </main>
   );
 }

@@ -38,6 +38,9 @@ function createRoom(
     name,
     normalizedName: name.toLocaleLowerCase(),
     memberIds,
+    sourceType: 'provider_managed',
+    supportsOrdering: true,
+    supportsDeletion: providerId === 'home_assistant',
   };
 }
 
@@ -289,7 +292,7 @@ describe('useRoomWorkspaceController', () => {
     });
   });
 
-  it('drafts an inline room rename as a Navet display override and does not send it to the provider', async () => {
+  it('drafts an inline room rename and sends it to the provider only when saved', async () => {
     const kitchen = createRoom('home_assistant', 'kitchen', 'Kitchen');
     integrationStore.setState({
       normalizedRoomsByCanonicalId: { [kitchen.canonicalId]: kitchen },
@@ -311,7 +314,6 @@ describe('useRoomWorkspaceController', () => {
     });
     expect(result.current.viewModel.hasValidationErrors).toBe(false);
     expect(result.current.draftWorkspace?.rooms[0]?.displayName).toBe('Cooking');
-    expect(result.current.viewModel.rooms[0]?.canResetName).toBe(true);
     expect(executeRoomMutationPlanMock).not.toHaveBeenCalled();
 
     act(() => {
@@ -319,38 +321,14 @@ describe('useRoomWorkspaceController', () => {
     });
 
     await waitFor(() => expect(result.current.saveOutcome.kind).toBe('saved'));
-    expect(executeRoomMutationPlanMock).not.toHaveBeenCalled();
-    expect(result.current.draftWorkspace?.rooms[0]).toMatchObject({
-      displayName: 'Cooking',
-      metadata: { nameMode: 'custom' },
-    });
-  });
-
-  it('restores the provider room name without sending a rename to the provider', async () => {
-    const kitchen = createRoom('home_assistant', 'kitchen', 'Kitchen');
-    integrationStore.setState({
-      normalizedRoomsByCanonicalId: { [kitchen.canonicalId]: kitchen },
-    });
-
-    const { result } = renderController();
-    await waitFor(() => expect(result.current.draftWorkspace?.rooms).toHaveLength(1));
-    const roomId = result.current.draftWorkspace?.rooms[0]?.id as string;
-
-    act(() => {
-      result.current.actions.onRoomNameChange?.(roomId, 'Cooking');
-    });
-    expect(result.current.viewModel.rooms[0]?.canResetName).toBe(true);
-
-    act(() => {
-      result.current.actions.onResetRoomName?.(roomId);
-    });
-
-    expect(result.current.draftWorkspace?.rooms[0]).toMatchObject({
-      displayName: 'Kitchen',
-      metadata: { nameMode: 'provider' },
-    });
-    expect(result.current.viewModel.rooms[0]?.canResetName).toBe(false);
-    expect(executeRoomMutationPlanMock).not.toHaveBeenCalled();
+    expect(executeRoomMutationPlanMock).toHaveBeenCalledTimes(1);
+    expect(executeRoomMutationPlanMock.mock.calls[0]?.[0].steps).toContainEqual(
+      expect.objectContaining({
+        operation: 'rename',
+        roomId: kitchen.canonicalId,
+        name: 'Cooking',
+      })
+    );
   });
 
   it('moves a dropped room into the target room group and preserves the dropped order', async () => {
@@ -727,11 +705,11 @@ describe('useRoomWorkspaceController', () => {
     });
 
     await waitFor(() => {
+      expect(result.current.saveOutcome.kind).toBe('saved');
       expect(
         useEntityRoomOverridesStore.getState().roomIdsByEntityId[lamp.canonicalId]
       ).toBeUndefined();
     });
-    expect(result.current.saveOutcome.kind).toBe('saved');
     expect(result.current.draftWorkspace?.rooms.some((room) => room.id === localRoomId)).toBe(
       false
     );
@@ -908,34 +886,30 @@ describe('useRoomWorkspaceController', () => {
     ).toBe(false);
   });
 
-  it('keeps Navet changes pending after a partially successful provider save', async () => {
+  it('keeps failed changes pending and clears stale overrides for successful assignments', async () => {
     const kitchen = createRoom('home_assistant', 'kitchen', 'Kitchen', [
       'home_assistant:light.ceiling',
-      'home_assistant:light.lamp',
     ]);
     const office = createRoom('home_assistant', 'office', 'Office');
-    const ceiling = createEntity(
+    const light = createEntity(
       'home_assistant',
       'light.ceiling',
       'Ceiling light',
       kitchen.canonicalId
     );
-    const lamp = createEntity('home_assistant', 'light.lamp', 'Lamp', kitchen.canonicalId);
     integrationStore.setState({
       normalizedRoomsByCanonicalId: {
         [kitchen.canonicalId]: kitchen,
         [office.canonicalId]: office,
       },
-      providerEntitiesByCanonicalId: {
-        [ceiling.canonicalId]: ceiling,
-        [lamp.canonicalId]: lamp,
-      },
+      providerEntitiesByCanonicalId: { [light.canonicalId]: light },
     });
+    useEntityRoomOverridesStore.getState().setRoomOverride(light.canonicalId, kitchen.canonicalId);
     executeRoomMutationPlanMock.mockImplementation(async (plan) => {
-      const successfulStep = plan.steps[0];
-      const failedStep = plan.steps[1];
+      const failedStep = plan.steps[0];
+      const successfulStep = plan.steps[1];
       if (!successfulStep || !failedStep) {
-        throw new Error('Expected two placement steps');
+        throw new Error('Expected rename and placement steps');
       }
       return {
         providerId: plan.providerId,
@@ -971,19 +945,16 @@ describe('useRoomWorkspaceController', () => {
       result.current.actions.onSelectRoom(officeRoomId as string);
     });
     act(() => {
-      result.current.actions.onDeviceSelectionChange?.(ceiling.canonicalId, true);
-      result.current.actions.onDeviceSelectionChange?.(lamp.canonicalId, true);
+      result.current.actions.onDeviceSelectionChange?.(light.canonicalId, true);
     });
     await waitFor(() =>
-      expect(result.current.viewModel.selectedDeviceIds).toEqual(
-        expect.arrayContaining([ceiling.canonicalId, lamp.canonicalId])
-      )
+      expect(result.current.viewModel.selectedDeviceIds).toContain(light.canonicalId)
     );
     expect(
       result.current.viewModel.changes.find((change) => change.id === 'provider-changes')?.details
     ).toEqual([
+      'Home Assistant · Kitchen → Kitchen & dining',
       'Home Assistant · Ceiling light: Kitchen → Office',
-      'Home Assistant · Lamp: Kitchen → Office',
     ]);
     act(() => {
       result.current.actions.onSave();
@@ -991,6 +962,9 @@ describe('useRoomWorkspaceController', () => {
 
     await waitFor(() => expect(result.current.saveOutcome.kind).toBe('partial'));
     expect(result.current.viewModel.hasUnsavedChanges).toBe(true);
+    expect(
+      useEntityRoomOverridesStore.getState().roomIdsByEntityId[light.canonicalId]
+    ).toBeUndefined();
     expect(
       useRoomWorkspaceStore.getState().workspace?.rooms.find((room) => room.id === kitchenRoomId)
         ?.displayName
@@ -1000,7 +974,7 @@ describe('useRoomWorkspaceController', () => {
     ).toBe('Kitchen & dining');
   });
 
-  it('plans provider-backed assignment without sending a room display-name rename', async () => {
+  it('plans provider-backed rename and assignment together', async () => {
     const kitchen = createRoom('home_assistant', 'kitchen', 'Kitchen', [
       'home_assistant:light.ceiling',
     ]);
@@ -1049,14 +1023,16 @@ describe('useRoomWorkspaceController', () => {
       providerId: 'home_assistant',
       steps: expect.arrayContaining([
         expect.objectContaining({
+          operation: 'rename',
+          roomId: kitchen.canonicalId,
+          name: 'Kitchen & dining',
+        }),
+        expect.objectContaining({
           operation: 'assign',
           entityId: light.canonicalId,
           roomId: office.canonicalId,
         }),
       ]),
     });
-    expect(executeRoomMutationPlanMock.mock.calls[0]?.[0].steps).not.toEqual(
-      expect.arrayContaining([expect.objectContaining({ operation: 'rename' })])
-    );
   });
 });

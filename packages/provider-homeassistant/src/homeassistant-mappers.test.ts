@@ -18,6 +18,24 @@ function makeEntity(entity_id: string, state: string, attributes: Record<string,
 }
 
 describe('homeassistant-mappers', () => {
+  it('defaults cover cards to small while preserving their position controls', () => {
+    const [cover] = mapHomeAssistantEntitiesToNavetEntities({
+      entities: {
+        'cover.bedroom_blind': makeEntity('cover.bedroom_blind', 'open', {
+          current_position: 35,
+          supported_features: 7,
+        }),
+      },
+      areas: [],
+      deviceRegistry: [],
+      entityRegistry: [],
+    });
+    expect(cover).toMatchObject({
+      type: 'cover',
+      attributes: { size: 'small', position: 35, hasPosition: true, supportedFeatures: 7 },
+    });
+  });
+
   it('reuses unchanged normalized entities across a large one-entity update', () => {
     const mapper = createHomeAssistantEntityMapper();
     const entities = Object.fromEntries(
@@ -300,6 +318,14 @@ describe('homeassistant-mappers', () => {
 
   it('reuses provider state and rooms when only entity state changes preserve room placement', () => {
     const mapProviderState = createHomeAssistantProviderStateMapper();
+    const runtime = {
+      connected: true,
+      connecting: false,
+      reconnecting: false,
+      entitiesHydrated: true,
+      registriesHydrated: true,
+      error: null,
+    };
     const areas = [{ area_id: 'area-kitchen', name: 'Kitchen' }];
     const entityRegistry = [{ entity_id: 'sensor.temperature', area_id: 'area-kitchen' }];
     const input = {
@@ -312,7 +338,7 @@ describe('homeassistant-mappers', () => {
       deviceRegistry: [],
       entityRegistry,
     };
-    const first = mapProviderState(input, { connected: true });
+    const first = mapProviderState(input, runtime);
     const nextInput = {
       ...input,
       entities: {
@@ -321,12 +347,12 @@ describe('homeassistant-mappers', () => {
         }),
       },
     };
-    const second = mapProviderState(nextInput, { connected: true });
+    const second = mapProviderState(nextInput, runtime);
 
     expect(second).not.toBe(first);
     expect(second.entities[0]).not.toBe(first.entities[0]);
     expect(second.rooms).toBe(first.rooms);
-    expect(mapProviderState(nextInput, { connected: true })).toBe(second);
+    expect(mapProviderState(nextInput, runtime)).toBe(second);
   });
 
   it('keeps unassigned entities out of the provider room collection', () => {
@@ -380,6 +406,9 @@ describe('homeassistant-mappers', () => {
         externalId: 'area-kitchen',
         name: 'Cooking space',
         memberIds: ['home_assistant:light.kitchen'],
+        sourceType: 'provider_managed',
+        supportsOrdering: true,
+        supportsDeletion: true,
       }),
     ]);
   });
@@ -786,8 +815,29 @@ describe('homeassistant-mappers', () => {
         primaryState: 'idle',
         attributes: expect.objectContaining({
           value: 'idle',
+          isPoweredOn: true,
           source: 'HDMI 1',
         }),
+      })
+    );
+  });
+
+  it('retains the powered state of a custom console media player', () => {
+    const entities = mapHomeAssistantEntitiesToNavetEntities({
+      entities: {
+        'media_player.playstation': makeEntity('media_player.playstation', 'on', {
+          friendly_name: 'PlayStation',
+        }),
+      },
+      areas: [],
+      deviceRegistry: [],
+      entityRegistry: [],
+    });
+
+    expect(entities.find((entity) => entity.externalId === 'media_player.playstation')).toEqual(
+      expect.objectContaining({
+        primaryState: 'idle',
+        attributes: expect.objectContaining({ isPoweredOn: true }),
       })
     );
   });

@@ -4,7 +4,7 @@ description: Connect a standalone Navet installation to Homey.
 editUrl: https://github.com/awesomestvi/navet/edit/main/docs/HOMEY.md
 ---
 
-Use this guide when you want Navet to connect to Homey as the primary provider in standalone mode.
+Use this guide to connect Navet to Homey in standalone mode.
 The same OAuth client settings can enable Homey as an additional provider in the Home Assistant
 App.
 
@@ -75,20 +75,14 @@ such as when Navet sits behind a reverse proxy or the public callback URL differ
 origin users open. Navet also supports a custom callback path if you register a different exact URL
 with Athom, such as `https://navet.example.com/callback`.
 
-For the Home Assistant App, set the corresponding `homey_client_id`, `homey_client_secret`, and
-optional `homey_redirect_uri` App options, restart the App, then connect Homey from
-**Settings -> System** inside Navet.
-
 ### 3. Start Navet
 
 ```bash
 docker compose up -d
 ```
 
-For the first Homey enrollment, run `docker compose logs navet`, copy the Navet URL containing
-`#navet_pairing=<64-character-key>`, and open that complete URL once. Navet removes the key from
-the address immediately. The key authorizes the first provider enrollment; it is not a Homey
-credential and is not needed again while the `navet-data` volume is preserved.
+Open Navet and choose Homey, or choose **Connect** under Homey in **Settings -> System**
+to add it to an existing dashboard. Sign in with your Athom account.
 
 ### 4. Sign in
 
@@ -102,20 +96,64 @@ credential and is not needed again while the `navet-data` volume is preserved.
 
 - Navet stores the Homey session through same-origin runtime endpoints in the Navet app.
 - Homey devices and zones load after sign-in.
-- The current Homey runtime contributes rooms, realtime entities, lighting, switches, and sensors.
-  Climate, media, cameras, energy, calendar, weather, notifications, tasks, history, security, and
-  provider-administration feature services are not registered for Homey yet.
+- Homey contributes rooms, lights, switches, fans, sensors, locks, covers, thermostats, speakers, people,
+  and notifications to Navet.
+- Lock cards show the device's locked or unlocked state. Lock and unlock actions use Homey's
+  writable `locked` capability.
+- Blinds, curtains, and sunshades use cover cards. Devices with a writable position capability
+  support percentage adjustments and open/close actions. Movement-only devices offer their
+  supported open, close, and stop controls. Stop is enabled only when Homey exposes that command;
+  tilt controls are unavailable through this adapter.
+- Thermostat cards show target and current temperatures, follow the device's temperature range,
+  and support target changes and available operating modes. Speakers provide playback, volume,
+  mute, and other controls when Homey exposes writable capabilities. Media browsing and speaker
+  grouping are not available through this adapter.
+- Manually runnable Flows and Advanced Flows, along with Moods, are available as scene cards.
+- Insights can show the last 24 hours, 7 days, or 31 days. Device sensor history is available when
+  Homey exposes a matching Insights log. See [Energy readings](#energy-readings) for dashboard
+  coverage.
+- Hiding a Homey notification in Navet leaves the notification in Homey. App updates and hub
+  restarts remain managed in Homey.
+- Availability depends on your Homey version and the permissions granted to the OAuth client.
+- Dedicated camera, calendar, weather, Assist, task, and provider room
+  administration services are not registered for Homey.
 - In a standalone installation, Homey can stay connected alongside Home Assistant or openHAB;
   selected providers are combined in shared dashboard collections.
-- You do not need to enter a separate Homey base URL.
 - If you sign out from Navet, the stored Homey session is cleared from the Navet side.
+
+## Scenes and flows
+
+Homey Moods and manually triggerable Flows, including Advanced Flows, appear as scene shortcuts
+in **Lights** and under **Household → Routines → Quick actions**. Select a shortcut or its **Run**
+button to activate its Mood or run its Flow through Homey. Disabled Flows
+are not offered as shortcuts.
+
+## Energy readings
+
+Homey devices with power or electricity meters appear in **Energy** alongside devices from other
+connected providers. Power and energy readings from the same Homey device share a device row.
+Current power uses the live reading; today's electricity consumption uses recorded changes in a
+matching Insights meter log. A lifetime meter total is not treated as today's consumption.
+
+Whole-home, grid, and solar totals use their configured sources. Navet does not add individual
+device readings to a household meter, since those readings can overlap. Homey Insights do not
+provide the dashboard's aggregate statistics or whole-home source configuration.
+
+## Security readings
+
+Homey contact, motion, occupancy, presence, smoke, carbon monoxide, gas, water leak, heat, tamper,
+vibration, sound, and battery alarms appear automatically in **Security**. Battery levels are
+included in system health, with low levels marked for attention. Other Homey alarm capabilities
+appear as problem readings. Sensors you hide stay hidden. Missing readings and unavailable
+devices are shown as unknown rather than clear.
+
+Recent activity includes recorded changes for entities with Homey Insights history. Current activity
+stays visible when an entity has no recorded history.
 
 ## Troubleshooting
 
 - If the `Homey` option does not appear on the login screen, check that
   `NAVET_HOMEY_CLIENT_ID` and `NAVET_HOMEY_CLIENT_SECRET` are set in the running Navet container.
-- If Navet says operator pairing is required, reopen the one-time pairing URL from the container
-  log. Preserve the `navet-data` volume so enrolled providers remain trusted across updates.
 - If sign-in returns to the wrong URL, set `NAVET_HOMEY_REDIRECT_URI` to the exact callback URL
   registered in your Athom Web API client.
 - If Navet keeps asking you to choose a Homey again, confirm the selected Homey is still available

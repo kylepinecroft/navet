@@ -1,4 +1,4 @@
-import { Button, IconButton } from '@navet/app/components/primitives';
+import { Button, IconButton, InteractivePill } from '@navet/app/components/primitives';
 import { getThemeSurfaceTokens } from '@navet/app/components/shared/theme/theme-surface-tokens';
 import {
   AlertDialog,
@@ -19,7 +19,6 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@navet/app/components/ui/dropdown-menu';
-import type { EnergyOverviewTemplate } from '@navet/app/features/energy/components/dashboard/energy-overview-layout';
 import { useI18n, useTheme } from '@navet/app/hooks';
 import {
   Columns2,
@@ -47,9 +46,8 @@ interface HomeEditCommandBarProps {
   onAddColumn?: () => void;
   onAddRow?: () => void;
   onApplyPack?: (packId: DashboardPackId) => void;
-  onApplyEnergyLayout?: (template: EnergyOverviewTemplate) => void;
-  onConfigureKpis?: () => void;
-  onConfigureSecurityOverview?: () => void;
+  energyKpisHidden?: boolean;
+  onToggleEnergyKpis?: () => void;
   onManageRooms?: () => void;
   onRedo?: () => void;
   onSetLayoutMode?: (mode: HomeLayoutMode) => void;
@@ -76,25 +74,25 @@ const CommandBarMenuButton = forwardRef<
   );
 });
 
-function useIsMobileCommandBar() {
-  const [isMobile, setIsMobile] = useState(false);
+function useIsCompactCommandBar() {
+  const [isCompact, setIsCompact] = useState(false);
 
   useEffect(() => {
     if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
       return;
     }
 
-    const mediaQuery = window.matchMedia('(max-width: 767px)');
-    const syncMobileState = () => setIsMobile(mediaQuery.matches);
-    syncMobileState();
-    mediaQuery.addEventListener('change', syncMobileState);
+    const mediaQuery = window.matchMedia('(max-width: 1100px)');
+    const syncCompactState = () => setIsCompact(mediaQuery.matches);
+    syncCompactState();
+    mediaQuery.addEventListener('change', syncCompactState);
 
     return () => {
-      mediaQuery.removeEventListener('change', syncMobileState);
+      mediaQuery.removeEventListener('change', syncCompactState);
     };
   }, []);
 
-  return isMobile;
+  return isCompact;
 }
 
 export function HomeEditCommandBar({
@@ -106,9 +104,8 @@ export function HomeEditCommandBar({
   onAddColumn,
   onAddRow,
   onApplyPack,
-  onApplyEnergyLayout,
-  onConfigureKpis,
-  onConfigureSecurityOverview,
+  energyKpisHidden = false,
+  onToggleEnergyKpis,
   onManageRooms,
   onRedo,
   onSetLayoutMode,
@@ -118,9 +115,10 @@ export function HomeEditCommandBar({
   const { t } = useI18n();
   const { theme, accentColor } = useTheme();
   const surface = getThemeSurfaceTokens(theme);
-  const isMobileCommandBar = useIsMobileCommandBar();
+  const isCompactCommandBar = useIsCompactCommandBar();
   const isSectioned = homeLayoutMode === 'sectioned';
   const showHomeLayoutControls = homeLayoutMode !== undefined && onSetLayoutMode !== undefined;
+  const showUndoRedo = showHomeLayoutControls || Boolean(onUndo || onRedo);
   const commandBarSurface =
     theme === 'light'
       ? 'bg-white'
@@ -133,10 +131,8 @@ export function HomeEditCommandBar({
   const [pendingPackId, setPendingPackId] = useState<DashboardPackId | null>(null);
   const { activeDashboard } = useDashboardSwitcher();
   const pendingPack = DASHBOARD_PACKS.find((pack) => pack.id === pendingPackId);
-  const hasMobileOverflowActions =
-    Boolean(onConfigureKpis) ||
-    Boolean(onConfigureSecurityOverview) ||
-    Boolean(onApplyEnergyLayout) ||
+  const hasOverflowActions =
+    Boolean(onToggleEnergyKpis) ||
     Boolean(onManageRooms) ||
     Boolean(onApplyPack) ||
     showHomeLayoutControls ||
@@ -154,55 +150,34 @@ export function HomeEditCommandBar({
   return (
     <>
       <div
-        className={`pointer-events-none fixed inset-x-0 top-0 z-40 border-b px-3 pb-2 pt-[calc(env(safe-area-inset-top,0px)+0.5rem)] shadow-2xl md:px-4 ${surface.border} ${commandBarSurface}`}
+        className={`pointer-events-none fixed inset-x-0 top-0 z-40 border-b px-3 pb-2 pt-[calc(env(safe-area-inset-top,0px)+0.5rem)] shadow-2xl md:pl-20 md:pr-4 ${surface.border} ${commandBarSurface}`}
         style={{
           boxShadow: `0 18px 60px -44px ${accentColor}`,
         }}
       >
-        {isMobileCommandBar ? (
-          <div className="pointer-events-auto mx-auto flex w-full max-w-[calc(100vw-1.5rem)] items-center justify-between gap-2">
+        {isCompactCommandBar ? (
+          <div className="pointer-events-auto mx-auto flex w-full max-w-[calc(100vw-1.5rem)] items-center justify-between gap-2 md:max-w-none">
             <div className="flex min-w-0 items-center gap-1.5">
-              {hasMobileOverflowActions ? (
+              {hasOverflowActions ? (
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
-                    <IconButton
-                      label={t('common.moreActions')}
-                      icon={<MoreHorizontal className="h-4 w-4" />}
+                    <Button
+                      type="button"
                       size="small"
                       variant="ghost"
-                      className="h-10 w-10 rounded-full"
-                    />
+                      aria-label={t('common.moreActions')}
+                      leading={<MoreHorizontal className="h-4 w-4 shrink-0" />}
+                      className="h-10 w-10 shrink-0 gap-0 rounded-full p-0 md:w-auto md:gap-2 md:px-3"
+                    >
+                      <span className="hidden md:block">{t('common.moreActions')}</span>
+                    </Button>
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="start" sideOffset={10} className="w-64">
-                    {onConfigureKpis ? (
-                      <DropdownMenuItem onClick={onConfigureKpis}>
-                        <SlidersHorizontal className="h-4 w-4" />
-                        KPIs
+                    {onToggleEnergyKpis ? (
+                      <DropdownMenuItem onClick={onToggleEnergyKpis}>
+                        {t(energyKpisHidden ? 'energy.edit.showKpis' : 'energy.edit.hideKpis')}
                       </DropdownMenuItem>
                     ) : null}
-
-                    {onConfigureSecurityOverview ? (
-                      <DropdownMenuItem onClick={onConfigureSecurityOverview}>
-                        <SlidersHorizontal className="h-4 w-4" />
-                        {t('security.overview.customize.action')}
-                      </DropdownMenuItem>
-                    ) : null}
-
-                    {onApplyEnergyLayout ? (
-                      <>
-                        {onConfigureKpis ? <DropdownMenuSeparator /> : null}
-                        <DropdownMenuLabel>Energy layout</DropdownMenuLabel>
-                        <DropdownMenuItem onClick={() => onApplyEnergyLayout('essentials')}>
-                          <LayoutTemplate className="h-4 w-4" />
-                          Essentials
-                        </DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => onApplyEnergyLayout('balanced')}>
-                          <LayoutDashboard className="h-4 w-4" />
-                          Balanced
-                        </DropdownMenuItem>
-                      </>
-                    ) : null}
-
                     {onManageRooms ? (
                       <DropdownMenuItem onClick={onManageRooms}>
                         <SlidersHorizontal className="h-4 w-4" />
@@ -271,16 +246,23 @@ export function HomeEditCommandBar({
               ) : null}
 
               {showHomeLayoutControls ? (
+                <DashboardSwitcherDropdown align="start">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="small"
+                    aria-label={activeDashboard?.name ?? t('dashboard.multiple.title')}
+                    leading={<LayoutDashboard className="h-4 w-4 shrink-0" />}
+                    className="h-10 w-10 shrink-0 gap-0 rounded-full p-0 md:w-auto md:gap-2 md:px-3"
+                  >
+                    <span className="hidden max-w-40 truncate md:block">
+                      {activeDashboard?.name ?? t('dashboard.multiple.title')}
+                    </span>
+                  </Button>
+                </DashboardSwitcherDropdown>
+              ) : null}
+              {showUndoRedo ? (
                 <>
-                  <DashboardSwitcherDropdown align="start">
-                    <IconButton
-                      label={activeDashboard?.name ?? t('dashboard.multiple.title')}
-                      icon={<LayoutDashboard className="h-4 w-4" />}
-                      size="small"
-                      variant="ghost"
-                      className="h-10 w-10 rounded-full"
-                    />
-                  </DashboardSwitcherDropdown>
                   <IconButton
                     label={t('common.undo')}
                     icon={<Undo2 className="h-4 w-4" />}
@@ -305,18 +287,17 @@ export function HomeEditCommandBar({
 
             <div className="flex min-w-0 shrink-0 items-center gap-2">
               {onAddCard ? (
-                <Button
-                  type="button"
-                  variant="secondary"
+                <InteractivePill
+                  intent="action"
                   size="small"
-                  leading={<Plus className="h-4 w-4" />}
                   onClick={onAddCard}
-                  className="h-10 max-w-[9.5rem] rounded-full px-3 text-xs"
+                  className={`h-10 max-w-[9.5rem] gap-2 px-3 ${surface.textSecondary}`}
                 >
+                  <Plus className="h-4 w-4 shrink-0" />
                   <span className="truncate">
                     {addActionLabel ?? t('dashboard.roomNav.addCard')}
                   </span>
-                </Button>
+                </InteractivePill>
               ) : null}
 
               {onToggleEditMode ? (
@@ -333,7 +314,10 @@ export function HomeEditCommandBar({
             </div>
           </div>
         ) : (
-          <div className="pointer-events-auto mx-auto flex w-full max-w-[calc(100vw-1.5rem)] items-center justify-center gap-2 overflow-x-auto md:max-w-[calc(100vw-7rem)]">
+          <div
+            className="pointer-events-auto flex w-full items-center gap-2 overflow-x-auto whitespace-nowrap [&>*]:shrink-0"
+            style={{ justifyContent: 'safe center' }}
+          >
             {showHomeLayoutControls ? (
               <DashboardSwitcherDropdown align="start">
                 <CommandBarMenuButton
@@ -443,7 +427,7 @@ export function HomeEditCommandBar({
               <div className={`hidden h-6 w-px md:block ${dividerClass}`} />
             ) : null}
 
-            {showHomeLayoutControls ? (
+            {showUndoRedo ? (
               <div className="flex items-center gap-1">
                 <IconButton
                   label={t('common.undo')}
@@ -470,65 +454,26 @@ export function HomeEditCommandBar({
               <div className={`hidden h-6 w-px md:block ${dividerClass}`} />
             ) : null}
 
-            {onConfigureKpis ? (
+            {onToggleEnergyKpis ? (
               <Button
-                type="button"
                 variant="secondary"
                 size="small"
-                leading={<SlidersHorizontal className="h-4 w-4" />}
-                onClick={onConfigureKpis}
+                onClick={onToggleEnergyKpis}
                 className="h-9 rounded-full px-3 text-xs md:text-sm"
               >
-                KPIs
+                {t(energyKpisHidden ? 'energy.edit.showKpis' : 'energy.edit.hideKpis')}
               </Button>
             ) : null}
-
-            {onConfigureSecurityOverview ? (
-              <Button
-                type="button"
-                variant="secondary"
-                size="small"
-                leading={<SlidersHorizontal className="h-4 w-4" />}
-                onClick={onConfigureSecurityOverview}
-                className="h-9 rounded-full px-3 text-xs md:text-sm"
-              >
-                {t('security.overview.customize.action')}
-              </Button>
-            ) : null}
-
-            {onApplyEnergyLayout ? (
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <CommandBarMenuButton
-                    icon={<LayoutTemplate className="h-4 w-4" />}
-                    label="Layout"
-                  />
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="center" sideOffset={8}>
-                  <DropdownMenuLabel>Energy layout</DropdownMenuLabel>
-                  <DropdownMenuItem onClick={() => onApplyEnergyLayout('essentials')}>
-                    <LayoutTemplate className="h-4 w-4" />
-                    Essentials
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => onApplyEnergyLayout('balanced')}>
-                    <LayoutDashboard className="h-4 w-4" />
-                    Balanced
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            ) : null}
-
             {onAddCard ? (
-              <Button
-                type="button"
-                variant="secondary"
+              <InteractivePill
+                intent="action"
                 size="small"
-                leading={<Plus className="h-4 w-4" />}
                 onClick={onAddCard}
-                className="h-9 rounded-full px-3 text-xs md:text-sm"
+                className={`gap-2 px-3 md:gap-2.5 md:px-3.5 md:text-sm ${surface.textSecondary}`}
               >
+                <Plus className="h-4 w-4 shrink-0" />
                 {addActionLabel ?? t('dashboard.roomNav.addCard')}
-              </Button>
+              </InteractivePill>
             ) : null}
 
             {onToggleEditMode ? (

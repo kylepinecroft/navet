@@ -47,6 +47,8 @@ fi
 chmod 600 "${INSTALLATION_KEY_PATH}"
 chown nginx:nginx "${INSTALLATION_KEY_PATH}" 2>/dev/null || true
 
+
+
 write_runtime_resolver() {
   resolver_addresses="$(
     awk '
@@ -190,11 +192,8 @@ mv "${INSTALLATION_CONFIG_PATH}.tmp" "${INSTALLATION_CONFIG_PATH}"
 chown nginx:nginx "${INSTALLATION_CONFIG_PATH}" 2>/dev/null || true
 
 if [ "${PAIRING_KEY_GENERATED}" = "true" ]; then
-  echo "Navet operator pairing key created." >&2
-  echo "Append #navet_pairing=${NAVET_INSTALLATION_KEY} to your trusted Navet URL for first enrollment." >&2
-  echo "The fragment remains browser-local and is removed before Navet sends network requests." >&2
+  echo "Navet installation security initialized." >&2
 fi
-
 export NAVET_HASS_URL NAVET_HASS_URL_JS NAVET_DASHBOARD_CONFIG_URL_JS NAVET_PROVIDER_TLS_VERIFY
 
 envsubst '${NAVET_HASS_URL}' \

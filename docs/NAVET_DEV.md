@@ -13,15 +13,16 @@ copy of important Navet dashboard configuration before switching to it.
 | Installation | Published Dev channel | Best for |
 |---|---|---|
 | HACS custom panel | No | Stable, Home Assistant-hosted Navet |
-| Home Assistant App | Yes: main-backed `Navet Dev` | Easiest Home Assistant development build |
+| Home Assistant App | Reviewed metadata updates | Home Assistant development builds |
 | Standalone Docker | Yes: `dev`, `edge`, and exact branch versions | Independent app, testing, and rollback control |
 
-Navet Dev publishes update the Home Assistant App and Docker images. They intentionally do not publish HACS
-updates. If you need the current development build inside the Home Assistant custom panel, use the
-advanced manual build below or choose the `Navet Dev` App instead.
+Navet Dev publishes update Docker images, including the image used by the Home Assistant App. They
+do not change protected App store metadata or publish HACS updates. If you need the current
+development build inside the Home Assistant custom panel, use the advanced manual build below.
 
 Every named clean branch can publish an immutable exact Dev version. Only a publish sourced from
-`main` advances the moving `dev` and `edge` tags or the Home Assistant App store metadata.
+`main` advances the moving `dev` and `edge` image tags. App store metadata changes require normal
+review through `main`.
 
 ## Home Assistant App
 
@@ -47,20 +48,17 @@ This is the recommended development installation for Home Assistant OS users.
 6. Enable `Show in sidebar`, or select `Open Web UI`.
 
 The App runs through Home Assistant Ingress and reuses the authenticated parent Home Assistant
-session. It does not need a Home Assistant URL or long-lived access token in normal Ingress use.
+session.
 
-The App is Ingress-only so its trusted Home Assistant user headers are never exposed on a
-directly reachable port. Use the standalone Docker app when testing the direct-access OAuth flow.
-
-To test Homey as an additional provider, set the App's `homey_client_id`,
-`homey_client_secret`, and optional `homey_redirect_uri` options, restart it, then connect Homey in
-**Settings -> System**. openHAB can be added there with a container-reachable URL and credentials.
+The App uses Ingress by default. To test direct access, assign an available host port to the
+optional direct Navet web interface in **Network**, restart the App, and complete the separate
+Home Assistant sign-in. openHAB can be added in **Settings -> System** with a
+container-reachable URL and credentials.
 
 ### Update
 
-Each main-backed Navet Dev publish advances the version in the App repository. Home Assistant
-will show an update when it refreshes that repository. An exact publish from another branch is not
-offered by the App store until matching metadata lands on `main`.
+Home Assistant shows an update only when reviewed App metadata advances on `main`. Automatic Dev
+image publishes do not change that metadata, so the App store does not offer every merged-PR build.
 
 1. Open `Settings -> Apps -> Navet Dev`.
 2. Create a Home Assistant backup if the update is important to your setup.
@@ -124,7 +122,8 @@ volumes:
 
 Remove any environment variables for providers you are not testing. For Home Assistant, change
 `NAVET_HASS_URL` to an upstream reachable from the Navet container, or omit it and use first-run
-discovery and pairing. Each browser may then enter a LAN, VPN, Tailscale, or external address for
+discovery and sign-in. Without an explicit upstream, Navet uses the address entered in the login form
+for both authorization and token exchange. With an explicit upstream, browser addresses must reach
 that same Home Assistant installation. After authorization, Home Assistant API traffic, token
 renewal, and provider-managed HTTP camera resources use Navet's same-origin proxy. For Homey,
 register the exact callback URL described in the [Homey guide](/install/homey/). openHAB needs no
@@ -136,8 +135,7 @@ Start Navet Dev:
 docker compose up -d
 ```
 
-For a fresh unpinned installation, run `docker compose logs navet-dev` and open the complete Navet
-URL containing `#navet_pairing=<64-character-key>` before enrolling the first provider. Then open
+Open
 `http://localhost:8081` when Docker runs on this computer, or replace `localhost` with the Docker
 host's LAN, VPN, or public name from another device. Port `8081` lets this Dev container run
 alongside a stable Navet container using port `8080`. Navet stores provider sessions and dashboard
@@ -159,10 +157,10 @@ non-main branch publish, replace `dev` with an exact version from a `navet-dev-*
 for example:
 
 ```yaml
-image: ghcr.io/awesomestvi/navet:0.8.0-dev.YYYYMMDDHHMMSS
+image: ghcr.io/awesomestvi/navet:0.x.y-dev.YYYYMMDDHHMMSS
 ```
 
-Use a real published version in place of the example timestamp, then run:
+Use the full published version in place of `0.x.y-dev.YYYYMMDDHHMMSS`, then run:
 
 ```bash
 docker compose pull
@@ -177,18 +175,16 @@ exact branch build on a household dashboard.
 ## HACS Custom Panel
 
 HACS installs the stable Navet custom-panel release from
-`https://github.com/awesomestvi/navet-hacs`. The Navet Dev publish workflow does not update that
-repository, so there is no supported `Navet Dev` HACS channel.
+`https://github.com/awesomestvi/navet-home-assistant`. The Navet Dev publish workflow does not
+update that repository, so there is no supported `Navet Dev` HACS channel.
 
 For the supported stable installation:
 
-1. Add `https://github.com/awesomestvi/navet-hacs` to HACS as an `Integration` custom repository.
+1. Add `https://github.com/awesomestvi/navet-home-assistant` to HACS as an `Integration` custom
+   repository.
 2. Install `Navet`.
 3. Restart Home Assistant.
 4. Add `Navet` from `Settings -> Devices & services`.
-
-Do not add the main `awesomestvi/navet` monorepo to HACS. Its root is a Home Assistant App repository, not a
-publishable HACS integration repository.
 
 ### Advanced: Build The Current Custom Panel Source
 
@@ -228,8 +224,8 @@ this manual build with the latest stable release.
 
 - Home Assistant App: stop `Navet Dev`, install or start the stable `Navet` App, and verify its configuration.
 - Docker: change `ghcr.io/awesomestvi/navet:dev` to `ghcr.io/awesomestvi/navet:latest`.
-- Custom panel: install or redownload Navet from the `awesomestvi/navet-hacs` repository and restart
-  Home Assistant.
+- Custom panel: install or redownload Navet from the `awesomestvi/navet-home-assistant` repository
+  and restart Home Assistant.
 
 Development and stable installations may not share the same storage location. Export important
 dashboard configuration before switching rather than assuming it will appear in the other runtime.
@@ -242,7 +238,7 @@ dashboard configuration before switching rather than assuming it will appear in 
 - Home Assistant authorization page does not open: confirm the address entered in Navet is
   reachable from the current browser, including through the intended VPN or external route.
 - Home Assistant accepts authorization but returning to Navet fails: confirm `NAVET_HASS_URL`, or
-  the previously paired upstream, is reachable from the Navet container; avoid `localhost` when
+  the address entered at sign-in, is reachable from the Navet container; avoid `localhost` when
   Home Assistant runs on another host.
 - OAuth loops after changing hostnames, TLS, reverse proxies, or ports: sign in again so Navet can
   create a session for the current Home Assistant URL.

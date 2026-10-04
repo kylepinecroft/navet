@@ -3,14 +3,35 @@ set -euo pipefail
 
 CONFIG_DIR="/usr/share/nginx/html"
 CONFIG_FILE="${CONFIG_DIR}/config.js"
+DIRECT_CONFIG_FILE="${CONFIG_DIR}/direct-config.js"
 NGINX_CONF="/etc/nginx/http.d/default.conf"
+DIRECT_NGINX_CONF="/etc/nginx/http.d/direct.conf"
 
-DASHBOARD_CONFIG_URL="$(bashio::config 'dashboard_config_url')"
-HOMEY_CLIENT_ID="$(bashio::config 'homey_client_id')"
-HOMEY_CLIENT_SECRET="$(bashio::config 'homey_client_secret')"
-HOMEY_REDIRECT_URI="$(bashio::config 'homey_redirect_uri')"
 ALLOW_INSECURE_PROVIDER_TLS="$(bashio::config 'allow_insecure_provider_tls')"
 RESOLVED_HASS_PROXY_BASE="http://supervisor/core"
+
+remove_obsolete_options() {
+  local saved_options
+  if ! saved_options="$(bashio::addon.options 2>/dev/null)"; then
+    return
+  fi
+
+  local option
+  for option in \
+    dashboard_config_url \
+    homey_client_id \
+    homey_client_secret \
+    homey_redirect_uri \
+    hass_url \
+    token; do
+    if bashio::jq.exists "${saved_options}" ".${option}"; then
+      bashio::log.info "Removing obsolete ${option} option"
+      bashio::addon.option "${option}"
+    fi
+  done
+}
+
+remove_obsolete_options
 
 mkdir -p /data
 chown nginx:nginx /data 2>/dev/null || true
@@ -32,6 +53,21 @@ else
 fi
 chmod 600 "${INSTALLATION_KEY_PATH}"
 chown nginx:nginx "${INSTALLATION_KEY_PATH}" 2>/dev/null || true
+
+INSTALLATION_SETUP_MARKER_PATH="/data/navet-setup-code-initialized"
+if [[ ! -f "${INSTALLATION_SETUP_MARKER_PATH}" ]]; then
+  /usr/local/bin/navet-setup-code >&2
+  touch "${INSTALLATION_SETUP_MARKER_PATH}"
+  chmod 600 "${INSTALLATION_SETUP_MARKER_PATH}"
+  chown nginx:nginx "${INSTALLATION_SETUP_MARKER_PATH}" 2>/dev/null || true
+fi
+
+INSTALLATION_CONFIG_PATH="/data/navet-installation-config.json"
+printf '{"version":1,"hassUrl":null,"openhabUrl":null}\n' \
+  > "${INSTALLATION_CONFIG_PATH}.tmp"
+chmod 600 "${INSTALLATION_CONFIG_PATH}.tmp"
+mv "${INSTALLATION_CONFIG_PATH}.tmp" "${INSTALLATION_CONFIG_PATH}"
+chown nginx:nginx "${INSTALLATION_CONFIG_PATH}" 2>/dev/null || true
 
 RESOLVER_ADDRESSES="$(
   awk '
@@ -57,26 +93,29 @@ if [[ "${ALLOW_INSECURE_PROVIDER_TLS}" == "true" ]]; then
   echo "WARNING: provider TLS certificate verification is explicitly disabled" >&2
 fi
 
-export NAVET_HOMEY_CLIENT_ID="${HOMEY_CLIENT_ID}"
-export NAVET_HOMEY_CLIENT_SECRET="${HOMEY_CLIENT_SECRET}"
-export NAVET_HOMEY_REDIRECT_URI="${HOMEY_REDIRECT_URI}"
 export NAVET_ALLOW_INSECURE_PROVIDER_TLS="${ALLOW_INSECURE_PROVIDER_TLS}"
 export NAVET_TRUST_HOME_ASSISTANT_INGRESS="true"
-
-if [[ "${DASHBOARD_CONFIG_URL}" == *\"* || "${DASHBOARD_CONFIG_URL}" == *\'* || "${DASHBOARD_CONFIG_URL}" == *";"* ]]; then
-  echo "dashboard_config_url must not contain quotes or semicolons" >&2
-  exit 1
-fi
-
-DASHBOARD_CONFIG_URL_JS="${DASHBOARD_CONFIG_URL//\\/\\\\}"
-DASHBOARD_CONFIG_URL_JS="${DASHBOARD_CONFIG_URL_JS//\"/\\\"}"
+export NAVET_HOME_ASSISTANT_INGRESS_PORT="8099"
+export NAVET_PROVIDER_TLS_VERIFY="${PROVIDER_TLS_VERIFY}"
 
 cat > "${CONFIG_FILE}" <<EOF
 window.__NAVET_CONFIG__ = {
-  dashboardConfigUrl: "${DASHBOARD_CONFIG_URL_JS}",
+  runtime: "ha-ingress",
   proxyBaseUrl: "/__navet_ha_proxy__"
 };
 EOF
+
+cat > "${DIRECT_CONFIG_FILE}" <<EOF
+window.__NAVET_CONFIG__ = {
+  proxyBaseUrl: "/__navet_ha_proxy__"
+};
+EOF
+
+printf '%s\n' \
+  '{"candidates":[{"url":"http://homeassistant.local:8123","source":"hostname","reachable":false}]}' \
+  > "${CONFIG_DIR}/navet-discovery-home-assistant.json"
+
+cp /etc/navet-nginx/ha-proxy.template.js /etc/nginx/njs/ha-proxy.js
 
 PROXY_AUTH_DIRECTIVE='    proxy_set_header Authorization "";'
 if [[ -n "${SUPERVISOR_TOKEN:-}" ]]; then
@@ -280,7 +319,7 @@ ${PROXY_AUTH_DIRECTIVE}
     proxy_send_timeout 60s;
   }
 
-  include /etc/nginx/snippets/navet-rss-proxy.conf;
+  include /etc/nginx/snippets/navet-rss-proxy-ingress.conf;
 
   location = /config.js {
     include /etc/nginx/snippets/navet-security-headers.conf;
@@ -307,4 +346,24 @@ ${PROXY_AUTH_DIRECTIVE}
 }
 EOF
 
-nginx -g 'daemon off;'
+awk '
+  /^  listen 80;$/ {
+    print "  listen 8080;"
+    next
+  }
+  /^  location = \/config\.js \{$/ {
+    in_runtime_config = 1
+  }
+  in_runtime_config && /try_files \$uri =404;/ {
+    print "    alias /usr/share/nginx/html/direct-config.js;"
+    next
+  }
+  in_runtime_config && /^  \}$/ {
+    in_runtime_config = 0
+  }
+  { print }
+' /etc/navet-nginx/direct.conf.template \
+  | envsubst '${NAVET_PROVIDER_TLS_VERIFY}' \
+  > "${DIRECT_NGINX_CONF}"
+
+exec /usr/local/bin/navet-runtime nginx -g 'daemon off;'

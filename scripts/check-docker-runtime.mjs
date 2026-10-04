@@ -2,6 +2,7 @@ import { spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { request as httpRequest } from 'node:http';
 import { setTimeout as delay } from 'node:timers/promises';
+import { startRssFixture } from './docker-rss-fixture.mjs';
 
 function run(command, args, options = {}) {
   const result = spawnSync(command, args, {
@@ -71,6 +72,8 @@ function resolveHomeAssistantAddonTarget() {
     throw new Error(`Unsupported Home Assistant add-on host architecture: ${architecture}`);
   }
 
+  if (process.env.NAVET_TEST_ADDON_IMAGE) return { ...target, compatibilityEntrypoint: false, exactBase: true };
+
   const exactBase = spawnSync(
     'docker',
     ['manifest', 'inspect', target.buildFrom],
@@ -123,8 +126,39 @@ function ensureSerializedProfileRuntime() {
   ];
   for (const file of addonConfigs) {
     const source = readFileSync(file, 'utf8');
-    if (/^ports(?:_description)?:/m.test(source)) {
-      throw new Error(`${file} must remain Ingress-only without a published host port`);
+    if (!/^ports:\s*\n\s+8080\/tcp:\s+null$/m.test(source)) {
+      throw new Error(`${file} must expose the optional direct listener disabled by default`);
+    }
+    if (!/^ingress_port:\s+8099$/m.test(source)) {
+      throw new Error(`${file} must keep the dedicated Ingress listener on port 8099`);
+    }
+    for (const obsoleteOption of [
+      'dashboard_config_url',
+      'homey_client_id',
+      'homey_client_secret',
+      'homey_redirect_uri',
+      'hass_url',
+      'token',
+    ]) {
+      if (new RegExp(`^\\s+${obsoleteOption}:`, 'm').test(source)) {
+        throw new Error(`${file} must not expose obsolete option ${obsoleteOption}`);
+      }
+    }
+    if (!/^\s+allow_insecure_provider_tls:\s+bool$/m.test(source)) {
+      throw new Error(`${file} must retain the advanced provider TLS option`);
+    }
+
+    const translations = readFileSync(
+      file.replace(/config\.yaml$/, 'translations/en.yaml'),
+      'utf8'
+    );
+    if (
+      !/^configuration:\s*$/m.test(translations) ||
+      !/^\s+allow_insecure_provider_tls:\s*$/m.test(translations) ||
+      !/^network:\s*$/m.test(translations) ||
+      !/^\s+8080\/TCP:/m.test(translations)
+    ) {
+      throw new Error(`${file} must provide English option and network translations`);
     }
   }
 
@@ -137,6 +171,7 @@ function ensureSerializedProfileRuntime() {
     'docker/snippets/navet-profile-store.conf',
     'docker/snippets/navet-profile-store-ingress.conf',
     'docker/snippets/navet-rss-proxy.conf',
+    'docker/snippets/navet-rss-proxy-ingress.conf',
   ];
   const runtimeConfigs = [
     {
@@ -188,6 +223,11 @@ function ensurePersistentDataConfiguration() {
 
   const standaloneEntrypoint = readFileSync('docker/30-navet-config.sh', 'utf8');
   const addonEntrypoint = readFileSync('platform/home-assistant/addons/navet/run.sh', 'utf8');
+  if (!addonEntrypoint.includes('runtime: "ha-ingress"')) {
+    throw new Error(
+      'Home Assistant add-on config must explicitly select the Ingress runtime'
+    );
+  }
   for (const [file, source] of [
     ['docker/30-navet-config.sh', standaloneEntrypoint],
     ['platform/home-assistant/addons/navet/run.sh', addonEntrypoint],
@@ -477,19 +517,11 @@ async function startHomeAssistantOAuth(
         returnTo: '/wall-panel?view=home&code=stale&state=stale#lights',
       }),
     });
-  for (const rejectedKey of [null, 'b'.repeat(64)]) {
-    const rejected = await requestStart(rejectedKey);
-    if (rejected.status !== 403) {
-      throw new Error(
-        `Unknown Home Assistant target accepted ${
-          rejectedKey ? 'an incorrect key' : 'without pairing'
-        }`
-      );
-    }
-  }
   const response = await requestStart(installationKey);
   if (response.status !== 200) {
-    throw new Error(`Docker NJS OAuth authorize endpoint failed with ${response.status}`);
+    throw new Error(
+      `Docker NJS OAuth authorize endpoint did not start Home Assistant login: ${response.status}`
+    );
   }
 
   const payload = await response.json();
@@ -534,7 +566,8 @@ async function startHomeAssistantOAuth(
 async function startHomeAssistantOAuthThroughAlternateBrowserRoute(
   baseUrl,
   containerName,
-  browserSession
+  browserSession,
+  installationKey
 ) {
   const browserHassUrl = 'http://100.77.118.32:8123';
   const response = await fetch(`${baseUrl}/__navet_auth__/authorize`, {
@@ -544,18 +577,13 @@ async function startHomeAssistantOAuthThroughAlternateBrowserRoute(
       Origin: baseUrl,
       'Content-Type': 'application/json',
       'X-Navet-OAuth-Binding': browserSession.metadata.sessionId,
+      'X-Navet-Installation-Key': installationKey,
     },
     body: JSON.stringify({
       hassUrl: browserHassUrl,
       returnTo: '/wall-panel?view=home#lights',
     }),
   });
-  if (response.status !== 200) {
-    throw new Error(
-      `Trusted Home Assistant rejected an alternate browser route with ${response.status}`
-    );
-  }
-
   const payload = await response.json();
   const authorizeUrl = new URL(payload.authorizeUrl);
   const cookieId = cookieValue(browserSession.cookie);
@@ -570,21 +598,23 @@ async function startHomeAssistantOAuthThroughAlternateBrowserRoute(
     { stdio: 'pipe', encoding: 'utf8' }
   );
   const pendingSession =
-    !pendingResult.error && pendingResult.status === 0
-      ? JSON.parse(pendingResult.stdout)
-      : null;
+    !pendingResult.error && pendingResult.status === 0 ? JSON.parse(pendingResult.stdout) : null;
   if (
-    authorizeUrl.origin !== browserHassUrl ||
+    response.status !== 200 ||
+    authorizeUrl.origin !== new URL(browserHassUrl).origin ||
     authorizeUrl.pathname !== '/auth/authorize' ||
-    pendingSession?.pending?.hassUrl !== 'http://provider-check:8080/ha' ||
-    pendingSession?.pending?.browserHassUrl !== browserHassUrl ||
-    !/^[a-f0-9]{64}$/.test(authorizeUrl.searchParams.get('state') ?? '')
+    authorizeUrl.searchParams.get('response_type') !== 'code' ||
+    authorizeUrl.searchParams.get('client_id') !== `${baseUrl}/` ||
+    authorizeUrl.searchParams.get('redirect_uri') !== `${baseUrl}/__navet_auth__/callback` ||
+    !/^[a-f0-9]{64}$/.test(authorizeUrl.searchParams.get('state') ?? '') ||
+    pendingSession?.pending?.state !== authorizeUrl.searchParams.get('state') ||
+    pendingSession?.pending?.hassUrl !== browserHassUrl ||
+    pendingSession?.pending?.browserHassUrl !== browserHassUrl
   ) {
     throw new Error(
-      `Alternate Home Assistant browser route changed trusted upstream authority: ${JSON.stringify(payload)}`
+      `Alternate Home Assistant route did not start its own login: ${response.status} ${JSON.stringify(payload)}`
     );
   }
-  return authorizeUrl.searchParams.get('state');
 }
 
 async function completeHomeAssistantOAuth(baseUrl, browserSession, state) {
@@ -828,6 +858,97 @@ async function waitForProvider(containerName) {
   throw new Error(`Timed out waiting for the fake provider container: ${lastError.trim()}`);
 }
 
+function rssFixtureContainerArgs() {
+  return rssFixture ? [
+    '--mount', `type=bind,source=${rssFixture.caFile},target=/etc/navet/rss-test-ca.pem,readonly`,
+    '-e', 'SSL_CERT_FILE=/etc/navet/rss-test-ca.pem',
+  ] : [];
+}
+
+async function verifyRssBoundary(baseUrl, headers, privateHostname, fixtureUrl) {
+  const path = (target) => '/__navet_rss_proxy__?url=' + encodeURIComponent(target);
+  const cases = [
+    ['/__navet_rss_transport__', headers, 404],
+    [path(fixtureUrl + '/feed'), {}, 401],
+    [path('https://127.0.0.1/feed'), headers, 400],
+    [path('https://' + privateHostname + '/feed'), headers, 400],
+    [path(fixtureUrl + '/feed'), headers, 200],
+    [path(fixtureUrl + '/large'), headers, 200],
+    [path(fixtureUrl + '/oversized'), headers, 502],
+    [path(fixtureUrl + '/wrong-type'), headers, 502],
+    [path(fixtureUrl + '/redirect'), headers, 502],
+    // Error responses must leave the transport able to serve the next valid feed.
+    [path(fixtureUrl + '/feed'), headers, 200],
+  ];
+  for (const [route, requestHeaders, expected] of cases) {
+    const response = await fetch(baseUrl + route, {
+      headers: requestHeaders, signal: AbortSignal.timeout(20_000),
+    }).catch((error) => { throw new Error('RSS request failed for ' + route + ': ' + error.message); });
+    const body = await response.text();
+    if (response.status !== expected) {
+      throw new Error('RSS boundary ' + route + ': expected ' + expected + ', got ' +
+        response.status + ': ' + body.slice(0, 200));
+    }
+    if (expected === 200) {
+      if (route.includes(encodeURIComponent('/large'))) {
+        if (body.length !== 1024 * 1024) throw new Error('RSS subrequest truncated the bounded XML response');
+      } else if (!body.includes('<title>Navet fixture</title>')) {
+        throw new Error('RSS transport did not return the verified TLS fixture');
+      }
+      if (!response.headers.get('content-type')?.includes('application/rss+xml')) {
+        throw new Error('RSS transport lost the XML content type');
+      }
+    }
+  }
+}
+
+function verifyAddonRssBoundary(probeContainerName) {
+  const headers = {
+    'X-Forwarded-Proto': 'https',
+    'X-Ingress-Path': addonIngressPath,
+    'X-Remote-User-Id': 'actual-addon-user',
+    'X-Remote-User-Name': 'Actual add-on user',
+    'Authorization': 'Bearer must-not-reach-feed',
+    'X-Navet-Installation-Key': 'must-not-reach-feed',
+  };
+  run('docker', ['exec', probeContainerName, 'node', '-e',
+    '(' + verifyRssBoundary.toString() + ')(' + JSON.stringify('http://navet-addon-check:8099') +
+    ',' + JSON.stringify(headers) + ',' + JSON.stringify('supervisor') + ',' +
+    JSON.stringify(rssFixture.url) + ').catch((error) => { console.error(error); process.exit(1); })',
+  ]);
+}
+
+async function verifyRssServiceSupervision(containerName) {
+  const identity = spawnSync('docker', ['exec', containerName, 'stat', '-c', '%U:%G:%a',
+    '/run/navet/rss-transport.sock'], { encoding: 'utf8' });
+  if (identity.status !== 0 || identity.stdout.trim() !== 'nginx:nginx:660') {
+    throw new Error('RSS Unix socket must be private to the nginx identity');
+  }
+  run('docker', [
+    'exec',
+    containerName,
+    'pkill',
+    '-KILL',
+    '-f',
+    '/etc/navet/rss-transport$',
+  ]);
+  // QEMU can take several seconds to propagate the child failure through the
+  // Home Assistant base image's s6 shutdown path. Keep polling so native runs
+  // still finish immediately, but give emulated release architectures a fair
+  // bounded window to prove that the container exits.
+  for (let attempt = 0; attempt < 120; attempt++) {
+    const result = spawnSync('docker', ['inspect', '--format', '{{.State.Running}} {{.State.ExitCode}}',
+      containerName], { encoding: 'utf8' });
+    if (result.status === 0 && result.stdout.startsWith('false ')) {
+      if (result.stdout.trim() === 'false 0') throw new Error('Transport failure reported a clean container exit');
+      return;
+    }
+    await delay(250);
+  }
+  const processes = spawnSync('docker', ['exec', containerName, 'ps', '-o', 'pid,ppid,comm,args'], { encoding: 'utf8' });
+  throw new Error('container remained running after the RSS transport failed\n' + processes.stdout);
+}
+
 function startNavetContainer(containerName, networkName, volumeName, imageTag) {
   run('docker', [
     'run',
@@ -844,8 +965,11 @@ function startNavetContainer(containerName, networkName, volumeName, imageTag) {
     'NAVET_HOMEY_CLIENT_ID=actual-image-homey-client',
     '-e',
     'NAVET_HOMEY_CLIENT_SECRET=actual-image-homey-secret',
+    ...rssFixtureContainerArgs(),
     imageTag,
   ]);
+
+  rssFixture?.attach(containerName);
 
   const portResult = spawnSync('docker', ['port', containerName, '80/tcp'], {
     stdio: 'pipe',
@@ -860,19 +984,12 @@ function startNavetContainer(containerName, networkName, volumeName, imageTag) {
 
 function seedHomeAssistantAddonOptions(imageTag, volumeName) {
   const options = JSON.stringify({
-    dashboard_config_url: '',
-    homey_client_id: '',
-    homey_client_secret: '',
-    homey_redirect_uri: '',
     allow_insecure_provider_tls: false,
   });
   const bashioShim = `bashio::config() {
   case "$1" in
     allow_insecure_provider_tls)
       printf '%s\\n' 'false'
-      ;;
-    dashboard_config_url|homey_client_id|homey_client_secret|homey_redirect_uri)
-      printf '%s\\n' ''
       ;;
     *)
       return 1
@@ -928,14 +1045,74 @@ function startHomeAssistantAddonContainer({
       '/bin/bash'
     );
   }
-  args.push(imageTag);
+  args.push(...rssFixtureContainerArgs(), imageTag);
   if (compatibilityEntrypoint) {
     args.push('/run.sh');
   }
   run('docker', args);
+  rssFixture?.attach(containerName);
 }
 
 const addonIngressPath = '/api/hassio_ingress/navet-runtime-check';
+const addonDirectProbeSource = `
+  async function run() {
+    const baseUrl = 'http://navet-addon-check:8080';
+    const configResponse = await fetch(baseUrl + '/config.js', {
+      signal: AbortSignal.timeout(2000)
+    });
+    const config = await configResponse.text();
+    const authResponse = await fetch(baseUrl + '/__navet_auth__/session', {
+      signal: AbortSignal.timeout(2000)
+    });
+    const auth = await authResponse.json();
+    const authCookie = (authResponse.headers.get('set-cookie') || '').split(';')[0];
+    const setupResponse = await fetch(baseUrl + '/__navet_auth__/setup', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Origin': baseUrl
+      },
+      body: JSON.stringify({ code: process.env.NAVET_SETUP_CODE }),
+      signal: AbortSignal.timeout(2000)
+    });
+    const setupCookie = (setupResponse.headers.get('set-cookie') || '').split(';')[0];
+    const authorizeResponse = await fetch(baseUrl + '/__navet_auth__/authorize', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Cookie': [authCookie, setupCookie].filter(Boolean).join('; '),
+        'Origin': baseUrl,
+        'X-Navet-OAuth-Binding': auth.sessionId
+      },
+      body: JSON.stringify({
+        hassUrl: 'http://homeassistant.local:8123',
+        returnTo: '/'
+      }),
+      signal: AbortSignal.timeout(2000)
+    });
+    const authorize = await authorizeResponse.json();
+    const spoofedProfileResponse = await fetch(baseUrl + '/__navet_profile__/preferences/client', {
+      headers: {
+        'X-Remote-User-Id': 'spoofed-direct-user',
+        'X-Remote-User-Name': 'Spoofed direct user'
+      },
+      signal: AbortSignal.timeout(2000)
+    });
+    process.stdout.write(JSON.stringify({
+      auth,
+      authStatus: authResponse.status,
+      authorize,
+      authorizeStatus: authorizeResponse.status,
+      config,
+      configStatus: configResponse.status,
+      spoofedProfileStatus: spoofedProfileResponse.status
+    }));
+  }
+  run().catch((error) => {
+    process.stderr.write(error instanceof Error ? error.message : String(error));
+    process.exit(1);
+  });
+`;
 const addonIngressProbeSource = `
   const headers = {
     'X-Forwarded-Proto': 'https',
@@ -1118,6 +1295,51 @@ function readHomeAssistantAddonIngressProfile(probeContainerName, cookie = '') {
       error: `Add-on Ingress probe returned invalid JSON: ${result.stdout.trim()}`,
       response: null,
     };
+  }
+}
+
+function assertHomeAssistantAddonDirectListener(probeContainerName, addonContainerName) {
+  const setupCodeResult = spawnSync(
+    'docker',
+    ['exec', addonContainerName, 'cat', '/data/navet-setup-code.json'],
+    { stdio: 'pipe', encoding: 'utf8' }
+  );
+  if (setupCodeResult.error || setupCodeResult.status !== 0) {
+    throw new Error(setupCodeResult.error?.message || setupCodeResult.stderr.trim());
+  }
+  const setupCodeRecord = JSON.parse(setupCodeResult.stdout);
+  const result = spawnSync(
+    'docker',
+    [
+      'exec',
+      '-e',
+      `NAVET_SETUP_CODE=${setupCodeRecord.code}`,
+      probeContainerName,
+      'node',
+      '-e',
+      addonDirectProbeSource,
+    ],
+    { stdio: 'pipe', encoding: 'utf8' }
+  );
+  if (result.error || result.status !== 0) {
+    throw new Error(result.error?.message || result.stderr.trim() || result.stdout.trim());
+  }
+  const response = JSON.parse(result.stdout);
+  if (
+    response.configStatus !== 200 ||
+    response.config.includes('runtime: "ha-ingress"') ||
+    !response.config.includes('proxyBaseUrl: "/__navet_ha_proxy__"') ||
+    response.authStatus !== 200 ||
+    response.auth?.authenticated !== false ||
+    response.authorizeStatus !== 200 ||
+    !String(response.authorize?.authorizeUrl || '').startsWith(
+      'http://homeassistant.local:8123/auth/authorize?'
+    ) ||
+    response.spoofedProfileStatus !== 401
+  ) {
+    throw new Error(
+      `Home Assistant add-on direct listener boundary check failed: ${JSON.stringify(response)}`
+    );
   }
 }
 
@@ -1352,27 +1574,26 @@ async function verifyTwoInstallationCookieJar({
   }
 }
 
-async function startHomeyOAuth(baseUrl, installationKey) {
-  const requestStart = (key) =>
+async function startHomeyOAuth(baseUrl) {
+  const requestStart = (origin) =>
     fetch(`${baseUrl}/__navet_homey__/authorize`, {
       method: 'POST',
       headers: {
-        Origin: baseUrl,
+        ...(origin ? { Origin: origin } : {}),
         'Content-Type': 'application/json',
-        ...(key ? { 'X-Navet-Installation-Key': key } : {}),
       },
       body: JSON.stringify({ returnTo: '/' }),
     });
-  for (const rejectedKey of [null, 'b'.repeat(64)]) {
-    const rejected = await requestStart(rejectedKey);
+  for (const rejectedOrigin of [null, 'https://attacker.example']) {
+    const rejected = await requestStart(rejectedOrigin);
     if (
       rejected.status !== 403 ||
       extractCookie(rejected, 'navet_homey_session')
     ) {
-      throw new Error('Fresh Homey enrollment did not require operator pairing');
+      throw new Error('Homey OAuth start accepted a missing or cross-origin Origin');
     }
   }
-  const response = await requestStart(installationKey);
+  const response = await requestStart(baseUrl);
   const cookie = extractScopedCookie(response, 'navet_homey_session');
   const body = await response.json();
   const state =
@@ -1395,26 +1616,25 @@ async function createOpenHABSession(baseUrl, installationKey) {
       username: 'navet',
       password: 'actual-image-secret',
   });
-  const requestLogin = (key) =>
+  const requestLogin = (origin) =>
     fetch(`${baseUrl}/__navet_openhab__/session`, {
       method: 'PUT',
       headers: {
-        Origin: baseUrl,
+        ...(origin ? { Origin: origin } : {}),
         'Content-Type': 'application/json',
-        ...(key ? { 'X-Navet-Installation-Key': key } : {}),
       },
       body,
     });
-  for (const rejectedKey of [null, 'b'.repeat(64)]) {
-    const rejected = await requestLogin(rejectedKey);
+  for (const rejectedOrigin of [null, 'https://attacker.example']) {
+    const rejected = await requestLogin(rejectedOrigin);
     if (
       rejected.status !== 403 ||
       extractCookie(rejected, 'navet_openhab_session')
     ) {
-      throw new Error('Fresh openHAB enrollment did not require operator pairing');
+      throw new Error('openHAB login accepted a missing or cross-origin Origin');
     }
   }
-  const response = await requestLogin(installationKey);
+  const response = await requestLogin(baseUrl);
   const responseBody = await response.text();
   const cookie = extractScopedCookie(response, 'navet_openhab_session');
   if (response.status !== 200 || !cookie) {
@@ -1908,9 +2128,16 @@ async function verifyPersistedStateAfterReplacement({
   }
 }
 
-const imageTag = `navet-docker-runtime-check:${Date.now()}`;
-const addonImageTag = `navet-addon-runtime-check:${Date.now()}`;
-const expectedBuildVersion = '0.0.0-dev.20990101010101';
+let rssFixture = null;
+const imageTag = process.env.NAVET_TEST_STANDALONE_IMAGE || `navet-docker-runtime-check:${Date.now()}`;
+const addonImageTag = process.env.NAVET_TEST_ADDON_IMAGE || `navet-addon-runtime-check:${Date.now()}`;
+const expectedBuildVersion = process.env.NAVET_TEST_BUILD_VERSION || '0.0.0-dev.20990101010101';
+if (Boolean(process.env.NAVET_TEST_STANDALONE_IMAGE) !== Boolean(process.env.NAVET_TEST_ADDON_IMAGE)) {
+  throw new Error('Prebuilt runtime validation requires both standalone and add-on images.');
+}
+for (const reference of [process.env.NAVET_TEST_STANDALONE_IMAGE, process.env.NAVET_TEST_ADDON_IMAGE].filter(Boolean)) {
+  if (!/(?:^|@)sha256:[a-f0-9]{64}$/.test(reference)) throw new Error('Prebuilt images must be pinned by digest.');
+}
 const containerName = `navet-docker-runtime-check-${process.pid}-${Date.now()}`;
 const addonContainerName = `${containerName}-addon`;
 const addonProbeContainerName = `${containerName}-addon-probe`;
@@ -1963,7 +2190,7 @@ try {
   ensureSerializedProfileRuntime();
   ensurePersistentDataConfiguration();
   ensureDockerAvailable();
-  run(
+  if (!process.env.NAVET_TEST_STANDALONE_IMAGE) run(
     'docker',
     [
       'build',
@@ -2004,7 +2231,7 @@ try {
   ]);
   assertConfiguredInstallationKeyIsNotLogged(imageTag);
   const addonTarget = resolveHomeAssistantAddonTarget();
-  run(
+  if (!process.env.NAVET_TEST_ADDON_IMAGE) run(
     'docker',
     [
       'build',
@@ -2034,6 +2261,7 @@ try {
       cwd: process.cwd(),
     }
   );
+  rssFixture = await startRssFixture(containerName);
   run('docker', ['volume', 'create', addonVolumeName]);
   seedHomeAssistantAddonOptions(addonImageTag, addonVolumeName);
   run('docker', [
@@ -2070,6 +2298,8 @@ try {
     addonContainerName,
     addonProbeContainerName
   );
+  assertBuiltStandaloneMetadata(addonContainerName, expectedBuildVersion);
+  assertHomeAssistantAddonDirectListener(addonProbeContainerName, addonContainerName);
   const addonCookie = assertHomeAssistantAddonIngressCookie(
     firstAddonProfile.cookie
   );
@@ -2116,6 +2346,12 @@ try {
     addonChoreRevision
   );
 
+  verifyAddonRssBoundary(addonProbeContainerName);
+  await verifyRssServiceSupervision(addonContainerName);
+  run('docker', ['start', addonContainerName]);
+  await waitForHomeAssistantAddonIngressProfile(addonContainerName, addonProbeContainerName, addonCookie);
+  verifyAddonRssBoundary(addonProbeContainerName);
+
   run('docker', ['volume', 'create', volumeName]);
   run('docker', ['network', 'create', networkName]);
   run('docker', [
@@ -2137,6 +2373,8 @@ try {
   assertBuiltStandaloneMetadata(containerName, expectedBuildVersion);
 
   const firstBrowser = await waitForAuthMetadata(baseUrl, containerName);
+  run('docker', ['cp', 'scripts/check-chore-durable-njs.js', `${containerName}:/tmp/check-chore-durable-njs.js`]);
+  run('docker', ['exec', containerName, 'njs', '/tmp/check-chore-durable-njs.js']);
   const secondBrowser = await waitForAuthMetadata(baseUrl, containerName);
   const installationKey = readInstallationKey(containerName);
   const htmlResponse = await fetch(`${baseUrl}/`);
@@ -2194,22 +2432,16 @@ try {
     firstBrowser,
     state
   );
-  const alternateState = await startHomeAssistantOAuthThroughAlternateBrowserRoute(
+  await verifyRssBoundary(baseUrl, { Cookie: authenticatedCookie,
+    Authorization: 'Bearer must-not-reach-feed',
+    'X-Navet-Installation-Key': 'must-not-reach-feed',
+  }, 'provider-check', rssFixture.url);
+  await startHomeAssistantOAuthThroughAlternateBrowserRoute(
     baseUrl,
     containerName,
-    secondBrowser
-  );
-  const alternateAuthenticatedCookie = await completeHomeAssistantOAuth(
-    baseUrl,
     secondBrowser,
-    alternateState
+    installationKey
   );
-  const alternateMetadata = await fetch(`${baseUrl}/__navet_auth__/session`, {
-    headers: { Cookie: alternateAuthenticatedCookie },
-  }).then((response) => response.json());
-  if (alternateMetadata.hassUrl !== 'http://provider-check:8080/ha') {
-    throw new Error('Alternate browser route replaced the trusted Home Assistant upstream');
-  }
   await verifyHomeAssistantProxyTokenRefresh(baseUrl, authenticatedCookie);
   const authRefresh = await verifyHomeAssistantRefreshRevision(
     baseUrl,
@@ -2288,7 +2520,7 @@ try {
       `Cross-origin Homey mutation was not blocked (${blockedHomeyMutation.status})`
     );
   }
-  await startHomeyOAuth(baseUrl, installationKey);
+  await startHomeyOAuth(baseUrl);
   const openHABCookie = await createOpenHABSession(baseUrl, installationKey);
   const profileCookie = await verifyProfileColdBinding(baseUrl, authenticatedCookie);
   const corruptAuthRecord = await seedAndVerifyUnavailableAuthRecord({
@@ -2330,14 +2562,20 @@ try {
   ) {
     throw new Error('The profile runtime logged a JavaScript exception or crashed');
   }
-  const keyLogLines = combinedRuntimeLogs
+  if (combinedRuntimeLogs.includes(installationKey)) {
+    throw new Error('The installation key leaked into runtime logs');
+  }
+  const setupCodeLogLines = combinedRuntimeLogs
     .split('\n')
-    .filter((line) => line.includes(installationKey));
-  if (
-    keyLogLines.length !== 1 ||
-    !keyLogLines[0].includes(`#navet_pairing=${installationKey}`)
-  ) {
-    throw new Error('The installation key appeared outside its startup pairing instruction');
+    .filter((line) => /Navet setup code: [a-f0-9]{4}(?:-[a-f0-9]{4}){3}/.test(line));
+  if (setupCodeLogLines.length !== 0) {
+    throw new Error('Standalone startup unexpectedly logged a temporary setup code');
+  }
+  const initializationLogLines = combinedRuntimeLogs
+    .split('\n')
+    .filter((line) => line === 'Navet installation security initialized.');
+  if (initializationLogLines.length !== 1) {
+    throw new Error('Installation security initialization was not logged exactly once at startup');
   }
 
   const resolverConfig = spawnSync(
@@ -2365,6 +2603,7 @@ try {
     );
   }
 
+  await verifyRssServiceSupervision(containerName);
   run('docker', ['rm', '-f', containerName]);
   assertConfiguredInstallationKeyMismatchRejected({
     imageTag,
@@ -2389,17 +2628,26 @@ try {
     profileCookie,
   });
 
+  await verifyRssBoundary(replacementBaseUrl, { Cookie: authenticatedCookie }, 'provider-check', rssFixture.url);
+
   console.log(
     `Docker NJS auth smoke check passed with a Home Assistant add-on startup/replacement cycle using ${
       addonTarget.exactBase
         ? 'the exact Home Assistant base image'
         : 'the explicit Alpine with-contenv/bashio compatibility fallback'
-    }, exact standalone build metadata, no anonymous record minting, OAuth rotation, proxied token renewal, verified alternate browser routes, two-installation host cookie isolation, runtime hostname resolution, provider confinement, stable parallel profile binding, njs-safe two-client profile ordering, cross-request chore management PIN sessions, and persisted auth/profile state after container replacement.`
+    }, separate add-on Ingress and direct OAuth listeners, exact standalone build metadata, no anonymous record minting, OAuth rotation, proxied token renewal, direct alternate-target Home Assistant login, two-installation host cookie isolation, runtime hostname resolution, pinned RSS HTTPS with private-DNS rejection and isolated credentials, bounded XML, transport supervision/recovery, provider confinement, stable parallel profile binding, njs-safe two-client profile ordering, cross-request chore management PIN sessions, and persisted auth/profile state after container replacement.`
   );
 } catch (error) {
   console.error(error instanceof Error ? error.message : String(error));
+  for (const name of [containerName, addonContainerName]) {
+    const logs = spawnSync('docker', ['logs', '--tail', '60', name], { encoding: 'utf8' });
+    if (logs.status === 0) console.error(logs.stdout + logs.stderr);
+    const nginxLog = spawnSync('docker', ['exec', name, 'tail', '-60', '/var/log/nginx/error.log'], { encoding: 'utf8', timeout: 2000 });
+    if (nginxLog.status === 0) console.error(nginxLog.stdout);
+  }
   process.exitCode = 1;
 } finally {
+  await rssFixture?.cleanup();
   spawnSync('docker', ['rm', '-f', containerName], {
     stdio: 'ignore',
   });
@@ -2424,10 +2672,10 @@ try {
   spawnSync('docker', ['volume', 'rm', '-f', volumeName], {
     stdio: 'ignore',
   });
-  spawnSync('docker', ['image', 'rm', '-f', addonImageTag], {
+  if (!process.env.NAVET_TEST_ADDON_IMAGE) spawnSync('docker', ['image', 'rm', '-f', addonImageTag], {
     stdio: 'ignore',
   });
-  spawnSync('docker', ['image', 'rm', '-f', imageTag], {
+  if (!process.env.NAVET_TEST_STANDALONE_IMAGE) spawnSync('docker', ['image', 'rm', '-f', imageTag], {
     stdio: 'ignore',
   });
 }

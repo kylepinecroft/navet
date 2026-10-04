@@ -1,5 +1,6 @@
 import { resetRuntimeContextForTests } from '@navet/app/infrastructure/home-assistant/runtime/runtime-detector';
 import { homeyService } from '@navet/app/services/homey.service';
+import { useErrorStore } from '@navet/app/stores/error-store';
 import { homeAssistantStore } from '@navet/app/stores/home-assistant-store';
 import { integrationStore } from '@navet/app/stores/integration-store';
 import { useSettingsStore } from '@navet/app/stores/settings-store';
@@ -35,6 +36,7 @@ type StubHomeAssistantService = {
   areas: Array<{ area_id: string; name: string }>;
   deviceRegistry: Array<{ id: string; area_id?: string | null }>;
   entityRegistry: Array<{ entity_id: string; area_id?: string | null }>;
+  automationCategories: Array<{ id: string; name: string }>;
   setPanelHass: ReturnType<typeof vi.fn>;
 };
 
@@ -58,6 +60,7 @@ const { getAuthAppMock, homeAssistantServiceStub } = vi.hoisted(() => ({
     areas: [] as Array<{ area_id: string; name: string }>,
     deviceRegistry: [] as Array<{ id: string; area_id?: string | null }>,
     entityRegistry: [] as Array<{ entity_id: string; area_id?: string | null }>,
+    automationCategories: [] as Array<{ id: string; name: string }>,
     addListener: vi.fn(function (
       this: StubHomeAssistantService,
       type: keyof StubListenerMap,
@@ -97,6 +100,9 @@ const { getAuthAppMock, homeAssistantServiceStub } = vi.hoisted(() => ({
     getEntityRegistry: vi.fn(function (this: StubHomeAssistantService) {
       return this.entityRegistry;
     }),
+    getAutomationCategories: vi.fn(function (this: StubHomeAssistantService) {
+      return this.automationCategories;
+    }),
     getConnection: vi.fn(function (this: StubHomeAssistantService) {
       return this.connection;
     }),
@@ -127,12 +133,15 @@ vi.mock('../features/dashboard/page', () => ({
   DashboardPage: () => {
     const connecting = useStoreWithEqualityFn(homeAssistantStore, (state) => state.connecting);
     const logout = useLogout();
-    const { setActiveProvider } = useAuthSession();
+    const { logout: disconnectProvider, setActiveProvider } = useAuthSession();
     return (
       <main>
         {connecting ? 'Connecting to Home Assistant...' : 'dashboard'}
         <button type="button" onClick={logout}>
           Logout
+        </button>
+        <button type="button" onClick={() => void disconnectProvider('home_assistant')}>
+          Disconnect provider
         </button>
         <button type="button" onClick={() => setActiveProvider('homey')}>
           Use Homey
@@ -170,6 +179,7 @@ describe('App Home Assistant connection recovery', () => {
     homeAssistantServiceStub.areas = [];
     homeAssistantServiceStub.deviceRegistry = [];
     homeAssistantServiceStub.entityRegistry = [];
+    homeAssistantServiceStub.automationCategories = [];
     Object.values(homeAssistantServiceStub.listeners).forEach((listeners) => {
       listeners.clear();
     });
@@ -304,6 +314,29 @@ describe('App Home Assistant connection recovery', () => {
     });
   });
 
+  it('keeps only the error screen reachable while a dashboard error is shown', async () => {
+    vi.useRealTimers();
+    setStoredHomeySession();
+
+    await act(async () => {
+      render(<App />);
+    });
+    await screen.findByText('dashboard');
+    screen.getByRole('button', { name: 'Logout' }).focus();
+
+    act(() => useErrorStore.getState().setError('Connection lost'));
+    await screen.findByText('Connection lost');
+    const errorMain = screen.getByRole('main');
+    expect(errorMain).toHaveTextContent('Connection lost');
+    expect(document.activeElement).toBe(errorMain);
+    expect(screen.getByText('dashboard').parentElement).toHaveAttribute('inert');
+    expect(screen.getByText('dashboard').parentElement).toHaveAttribute('aria-hidden', 'true');
+
+    act(() => useErrorStore.getState().clearError());
+    await waitFor(() => expect(screen.getByRole('main')).toHaveTextContent('dashboard'));
+    expect(screen.getByText('dashboard').parentElement).not.toHaveAttribute('inert');
+  });
+
   it('hydrates a saved openHAB session without opening a Home Assistant connection', async () => {
     vi.useRealTimers();
     setStoredOpenHABSession();
@@ -388,6 +421,37 @@ describe('App Home Assistant connection recovery', () => {
     });
   });
 
+  it('keeps Home Assistant connected when Homey is active but its runtime is unavailable', async () => {
+    vi.useRealTimers();
+    setStoredMultiProviderSessions();
+    homeyService.setClient({
+      setCapabilityValue: vi.fn(),
+      loadSnapshot: vi
+        .fn()
+        .mockRejectedValue(
+          Object.assign(new Error('Homey request failed with status 502'), { unreachable: true })
+        ),
+    });
+
+    await act(async () => {
+      render(<App />);
+    });
+
+    await waitFor(() => expect(homeAssistantStore.getState().connected).toBe(true));
+    expect(homeAssistantServiceStub.authenticate).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Use Homey' }));
+
+    await waitFor(() => expect(integrationStore.getState().currentProviderId).toBe('homey'));
+    expect(integrationStore.getState().providerHealth.homey.connected).toBe(false);
+    expect(integrationStore.getState().providerHealth.homey.lastError).toBe(
+      'Homey request failed with status 502'
+    );
+    expect(integrationStore.getState().providerHealth.homey.unreachable).toBe(true);
+    expect(homeAssistantServiceStub.authenticate).toHaveBeenCalledTimes(1);
+    expect(homeAssistantStore.getState()).toMatchObject({ connected: true, connecting: false });
+  });
+
   it('keeps startup pending and preserves the browser session when auth bootstrap stalls', async () => {
     vi.spyOn(globalThis, 'fetch').mockReturnValue(new Promise(() => {}));
 
@@ -396,6 +460,7 @@ describe('App Home Assistant connection recovery', () => {
     });
 
     expect(screen.getByText('Starting your dashboard...')).toBeInTheDocument();
+    expect(screen.getByRole('main')).toHaveAttribute('aria-busy', 'true');
     expect(screen.queryByRole('button', { name: 'Back to login' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /retry/i })).not.toBeInTheDocument();
     expect(screen.queryByText('login')).not.toBeInTheDocument();
@@ -407,6 +472,7 @@ describe('App Home Assistant connection recovery', () => {
 
     expect(screen.queryByText('login')).not.toBeInTheDocument();
     expect(screen.getByText('Starting your dashboard...')).toBeInTheDocument();
+    expect(screen.getByRole('main')).toHaveAttribute('aria-busy', 'false');
     expect(screen.getByRole('button', { name: /retry/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Back to login' })).toBeInTheDocument();
   });
@@ -950,6 +1016,17 @@ describe('App Home Assistant connection recovery', () => {
     expect(localStorage.getItem('hassTokens')).toBe('{"data":"home-assistant-session"}');
     expect(localStorage.getItem('ha_auth_config')).toBeNull();
     expect(localStorage.getItem('ha-dashboard-config')).toBeNull();
+  });
+
+  it('shows login immediately after the final provider disconnects without a page refresh', async () => {
+    vi.useRealTimers();
+    setAuthenticatedSession();
+    await act(async () => {
+      render(<App />);
+    });
+    fireEvent.click(await screen.findByRole('button', { name: 'Disconnect provider' }));
+    await waitFor(() => expect(screen.getByText('login')).toBeInTheDocument());
+    expect(screen.queryByRole('button', { name: 'Disconnect provider' })).not.toBeInTheDocument();
   });
 
   it('keeps stale Home Assistant auth errors hidden after logout', async () => {

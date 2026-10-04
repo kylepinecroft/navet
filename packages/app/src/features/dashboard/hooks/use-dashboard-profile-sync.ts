@@ -5,12 +5,6 @@ import {
 import { ALL_ROOMS_ID } from '@navet/app/constants/rooms';
 import { STORAGE_KEYS } from '@navet/app/constants/storage-keys';
 import {
-  useCardZonesStore,
-  useCustomCardsStore,
-  useDashboardEntitiesStore,
-  useHomeDashboardLayoutStore,
-} from '@navet/app/features/dashboard';
-import {
   DASHBOARD_CLIENT_IDENTITY_EVENT,
   type DashboardClientIdentity,
   getDashboardClientIdentity,
@@ -35,6 +29,10 @@ import {
 import { useDashboardCollectionStore } from '@navet/app/features/dashboard/dashboards';
 import { useDashboardPreferenceSync } from '@navet/app/features/dashboard/hooks/use-dashboard-preference-sync';
 import { useDeviceDisplayProfileSync } from '@navet/app/features/dashboard/hooks/use-device-display-profile-sync';
+import { useCardZonesStore } from '@navet/app/features/dashboard/stores/card-zones-store';
+import { useCustomCardsStore } from '@navet/app/features/dashboard/stores/custom-cards-store';
+import { useDashboardEntitiesStore } from '@navet/app/features/dashboard/stores/dashboard-entities-store';
+import { useHomeDashboardLayoutStore } from '@navet/app/features/dashboard/stores/home-dashboard-layout-store';
 import { useLightPresetStore } from '@navet/app/features/lighting/stores/light-preset-store';
 import { useI18n } from '@navet/app/hooks';
 import { isHomeAssistantAddonMode, isHomeAssistantPanelMode } from '@navet/app/runtime/app-mode';
@@ -66,6 +64,7 @@ import { projectSettingsPreferenceLayer } from '@navet/app/utils/settings-profil
 import { createElement, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { useShallow } from 'zustand/react/shallow';
+import { createDashboardSyncRuntime } from '../sync/dashboard-sync-runtime';
 
 const PROFILE_SAVE_DEBOUNCE_MS = 2_000;
 const PROFILE_REMOTE_POLL_INTERVAL_MS = 60_000;
@@ -108,10 +107,6 @@ function getProfileForSync(): DashboardConfigPayload {
     },
   };
   return JSON.parse(JSON.stringify(transportProfile)) as DashboardConfigPayload;
-}
-
-function getDocumentVisibility() {
-  return typeof document === 'undefined' ? 'visible' : document.visibilityState;
 }
 
 function getNextPollDelay(failureCount: number) {
@@ -209,7 +204,7 @@ export function useDashboardProfileSync() {
       return;
     }
 
-    let cancelled = false;
+    const syncRuntime = createDashboardSyncRuntime();
     let loaded = false;
     let applyingRemote = false;
     let saving = false;
@@ -220,8 +215,6 @@ export function useDashboardProfileSync() {
     let clientRegistrationPending = false;
     let writesBlocked = false;
     let permanentAccessFailure = false;
-    let isOnline = typeof navigator === 'undefined' ? true : navigator.onLine;
-    let isVisible = getDocumentVisibility() === 'visible';
     let failureCount = 0;
     let remoteResult: DashboardProfileLoadResult | null = null;
     let saveTimeout: number | null = null;
@@ -244,35 +237,40 @@ export function useDashboardProfileSync() {
 
     function clearSaveTimeout() {
       if (saveTimeout !== null) {
-        window.clearTimeout(saveTimeout);
+        syncRuntime.clear(saveTimeout);
         saveTimeout = null;
       }
     }
 
     function clearPollTimeout() {
       if (pollTimeout !== null) {
-        window.clearTimeout(pollTimeout);
+        syncRuntime.clear(pollTimeout);
         pollTimeout = null;
       }
     }
 
     function clearConflictReminderTimeout() {
       if (conflictReminderTimeout !== null) {
-        window.clearTimeout(conflictReminderTimeout);
+        syncRuntime.clear(conflictReminderTimeout);
         conflictReminderTimeout = null;
       }
     }
 
     function scheduleConflictReminder() {
       clearConflictReminderTimeout();
-      if (cancelled || !pendingConflict) {
+      if (syncRuntime.disposed || !pendingConflict) {
         return;
       }
 
-      conflictReminderTimeout = window.setTimeout(() => {
+      conflictReminderTimeout = syncRuntime.schedule(() => {
         conflictReminderTimeout = null;
         const currentConflict = pendingConflict;
-        if (cancelled || !currentConflict || conflictToastId !== null || !isVisible) {
+        if (
+          syncRuntime.disposed ||
+          !currentConflict ||
+          conflictToastId !== null ||
+          !syncRuntime.visible
+        ) {
           return;
         }
         showConflict(currentConflict);
@@ -408,7 +406,7 @@ export function useDashboardProfileSync() {
       const response = touch
         ? (await touchCurrentClientWithRecovery()).registry
         : await loadDashboardProfileClients(client);
-      if (!cancelled) {
+      if (!syncRuntime.disposed) {
         setRegisteredClients(response);
       }
     }
@@ -569,7 +567,14 @@ export function useDashboardProfileSync() {
     }
 
     function shouldPoll() {
-      return loaded && isOnline && isVisible && !saving && !cancelled && !permanentAccessFailure;
+      return (
+        loaded &&
+        syncRuntime.online &&
+        syncRuntime.visible &&
+        !saving &&
+        !syncRuntime.disposed &&
+        !permanentAccessFailure
+      );
     }
 
     function schedulePoll(delay = PROFILE_REMOTE_POLL_INTERVAL_MS) {
@@ -578,14 +583,20 @@ export function useDashboardProfileSync() {
         return;
       }
 
-      pollTimeout = window.setTimeout(() => {
+      pollTimeout = syncRuntime.schedule(() => {
         pollTimeout = null;
         void refreshRemote();
       }, delay);
     }
 
     function drainRefreshAfterAuthentication() {
-      if (!refreshAfterAuthentication || cancelled || !loaded || saving || loadingRemote) {
+      if (
+        !refreshAfterAuthentication ||
+        syncRuntime.disposed ||
+        !loaded ||
+        saving ||
+        loadingRemote
+      ) {
         return false;
       }
 
@@ -599,7 +610,7 @@ export function useDashboardProfileSync() {
       profile: DashboardConfigPayload,
       options: { keepalive?: boolean } = {}
     ) {
-      if (cancelled || writesBlocked || !remoteResult || pendingConflict) {
+      if (syncRuntime.disposed || writesBlocked || !remoteResult || pendingConflict) {
         return false;
       }
       if (saving) {
@@ -644,7 +655,7 @@ export function useDashboardProfileSync() {
           }
         }
         saving = false;
-        if (cancelled) {
+        if (syncRuntime.disposed) {
           return false;
         }
 
@@ -863,78 +874,76 @@ export function useDashboardProfileSync() {
     }
 
     async function refreshRemote(options: { forceFull?: boolean } = {}) {
-      if (cancelled || loadingRemote || (!options.forceFull && !shouldPoll())) {
-        return;
-      }
-      if (saving) {
-        schedulePoll();
+      if (syncRuntime.disposed || (!options.forceFull && !shouldPoll())) {
         return;
       }
 
-      loadingRemote = true;
-      try {
-        const requestOptions: DashboardProfileLoadOptions = options.forceFull
-          ? {}
-          : {
-              etag: remoteResult?.etag ?? undefined,
-              lastModified: remoteResult?.etag
-                ? undefined
-                : (remoteResult?.lastModified ?? undefined),
-            };
-        const result = await loadDashboardProfile(requestOptions);
-        if (cancelled) {
+      return syncRuntime.runLatest('profile-refresh', async () => {
+        if (saving) {
+          schedulePoll();
           return;
         }
 
-        if (!result.available) {
-          if (result.failureCode === DASHBOARD_PROFILE_ERROR_CODES.workspaceTenantMismatch) {
-            writesBlocked = true;
-            permanentAccessFailure = true;
-            clearPollTimeout();
-            runtime.markError(
-              tRef.current('dashboard.profileSync.tenantMismatch'),
-              DASHBOARD_PROFILE_ERROR_CODES.workspaceTenantMismatch
-            );
+        loadingRemote = true;
+        try {
+          const requestOptions: DashboardProfileLoadOptions = options.forceFull
+            ? {}
+            : {
+                etag: remoteResult?.etag ?? undefined,
+                lastModified: remoteResult?.etag
+                  ? undefined
+                  : (remoteResult?.lastModified ?? undefined),
+              };
+          const result = await loadDashboardProfile(requestOptions);
+          if (syncRuntime.disposed) {
             return;
           }
-          runtime.markError(
-            tRef.current(
-              result.unauthorized
-                ? 'dashboard.profileSync.unauthorized'
-                : 'dashboard.profileSync.unavailable'
-            )
-          );
-          schedulePoll(getNextPollDelay(++failureCount));
-          return;
-        }
 
-        await handleRemoteResult(result);
-        if (clientRegistrationPending) {
-          await refreshRegisteredClients(true);
-        }
-      } catch (error) {
-        console.warn('[DashboardProfile] Unable to reconcile the shared dashboard:', error);
-        runtime.markError(tRef.current('dashboard.profileSync.unavailable'));
-        schedulePoll(getNextPollDelay(++failureCount));
-      } finally {
-        loadingRemote = false;
-        if (pendingLocalChanges && !pendingConflict) {
-          syncCurrentLocalState();
-        }
-        if (!drainRefreshAfterAuthentication()) {
-          // Preserve an error backoff already scheduled above. Replacing it with
-          // the normal poll interval makes an unavailable profile service wake
-          // every client aggressively during an outage.
-          if (pollTimeout === null) {
+          if (!result.available) {
+            if (result.failureCode === DASHBOARD_PROFILE_ERROR_CODES.workspaceTenantMismatch) {
+              writesBlocked = true;
+              permanentAccessFailure = true;
+              clearPollTimeout();
+              runtime.markError(
+                tRef.current('dashboard.profileSync.tenantMismatch'),
+                DASHBOARD_PROFILE_ERROR_CODES.workspaceTenantMismatch
+              );
+              return;
+            }
+            runtime.markError(
+              tRef.current(
+                result.unauthorized
+                  ? 'dashboard.profileSync.unauthorized'
+                  : 'dashboard.profileSync.unavailable'
+              )
+            );
+            schedulePoll(getNextPollDelay(++failureCount));
+            return;
+          }
+
+          await handleRemoteResult(result);
+          if (clientRegistrationPending) {
+            await refreshRegisteredClients(true);
+          }
+        } catch (error) {
+          console.warn('[DashboardProfile] Unable to reconcile the shared dashboard:', error);
+          runtime.markError(tRef.current('dashboard.profileSync.unavailable'));
+          schedulePoll(getNextPollDelay(++failureCount));
+        } finally {
+          loadingRemote = false;
+          if (pendingLocalChanges && !pendingConflict) {
+            syncCurrentLocalState();
+          }
+          if (!drainRefreshAfterAuthentication() && pollTimeout === null) {
             schedulePoll();
           }
         }
-      }
+      });
     }
 
     function syncCurrentLocalState() {
       if (
-        cancelled ||
+        syncRuntime.disposed ||
         !loaded ||
         !onboardingCompletedRef.current ||
         applyingRemote ||
@@ -962,7 +971,7 @@ export function useDashboardProfileSync() {
 
       pendingLocalChanges = true;
       clearSaveTimeout();
-      saveTimeout = window.setTimeout(() => {
+      saveTimeout = syncRuntime.schedule(() => {
         saveTimeout = null;
         void saveProfile(getProfileForSync());
       }, PROFILE_SAVE_DEBOUNCE_MS);
@@ -1014,18 +1023,15 @@ export function useDashboardProfileSync() {
       }
     };
     const handleOnline = () => {
-      isOnline = true;
       syncCurrentLocalState();
       void refreshRemote();
     };
     const handleOffline = () => {
-      isOnline = false;
       clearPollTimeout();
       runtime.markOffline();
     };
     const handleVisibilityChange = () => {
-      isVisible = getDocumentVisibility() === 'visible';
-      if (!isVisible) {
+      if (!syncRuntime.visible) {
         clearPollTimeout();
         if (pendingLocalChanges) {
           void saveProfile(getProfileForSync(), { keepalive: true });
@@ -1054,7 +1060,7 @@ export function useDashboardProfileSync() {
       void refreshRegisteredClients(true);
     };
     const handleRefreshRequest = () => {
-      if (cancelled || loadingRemote || saving) {
+      if (syncRuntime.disposed || loadingRemote || saving) {
         return;
       }
       clearPollTimeout();
@@ -1062,7 +1068,7 @@ export function useDashboardProfileSync() {
       void refreshRemote({ forceFull: true });
     };
     const handleRebindRequest = async () => {
-      if (cancelled || saving || rebindingWorkspace) {
+      if (syncRuntime.disposed || saving || rebindingWorkspace) {
         return;
       }
 
@@ -1071,7 +1077,7 @@ export function useDashboardProfileSync() {
       const profile = getProfileForSync();
       try {
         const result = await rebindDashboardProfileWorkspace(profile, client);
-        if (cancelled) {
+        if (syncRuntime.disposed) {
           return;
         }
         if (!result.saved) {
@@ -1087,7 +1093,7 @@ export function useDashboardProfileSync() {
         pendingLocalChanges = false;
         failureCount = 0;
         const refreshed = await loadDashboardProfile();
-        if (!refreshed.available || cancelled) {
+        if (!refreshed.available || syncRuntime.disposed) {
           runtime.markError(tRef.current('dashboard.profileSync.unavailable'));
           return;
         }
@@ -1121,9 +1127,12 @@ export function useDashboardProfileSync() {
 
     window.addEventListener(PERSISTED_STATE_EVENT, handlePersistedState as EventListener);
     window.addEventListener('storage', handleStorage);
-    window.addEventListener('online', handleOnline);
-    window.addEventListener('offline', handleOffline);
-    window.addEventListener('pagehide', handlePageHide);
+    syncRuntime.listen({
+      online: handleOnline,
+      offline: handleOffline,
+      pagehide: handlePageHide,
+      visibility: handleVisibilityChange,
+    });
     window.addEventListener(DASHBOARD_CLIENT_IDENTITY_EVENT, handleIdentityChange as EventListener);
     window.addEventListener(DASHBOARD_PROFILE_REFRESH_EVENT, handleRefreshRequest);
     window.addEventListener(DASHBOARD_PROFILE_REBIND_EVENT, handleRebindRequest);
@@ -1131,11 +1140,10 @@ export function useDashboardProfileSync() {
       AUTH_SESSION_REFRESHED_EVENT,
       handleAuthSessionRefreshed as EventListener
     );
-    document.addEventListener('visibilitychange', handleVisibilityChange);
 
     async function initialize() {
       try {
-        if (!isOnline) {
+        if (!syncRuntime.online) {
           runtime.markOffline();
           loaded = true;
           setProfileLoadCompleted(true);
@@ -1146,7 +1154,7 @@ export function useDashboardProfileSync() {
           loadDashboardProfile(),
           touchCurrentClientWithRecovery(),
         ]);
-        if (cancelled) {
+        if (syncRuntime.disposed) {
           return;
         }
 
@@ -1179,7 +1187,7 @@ export function useDashboardProfileSync() {
         console.warn('[DashboardProfile] Unable to initialize shared dashboard sync:', error);
         runtime.markError(tRef.current('dashboard.profileSync.unavailable'));
       } finally {
-        if (!cancelled) {
+        if (!syncRuntime.disposed) {
           loaded = true;
           setProfileLoadCompleted(true);
           syncCurrentLocalState();
@@ -1193,7 +1201,7 @@ export function useDashboardProfileSync() {
     void initialize();
 
     return () => {
-      cancelled = true;
+      syncRuntime.dispose();
       syncCurrentLocalStateRef.current = () => undefined;
       clearSaveTimeout();
       clearPollTimeout();
@@ -1203,9 +1211,6 @@ export function useDashboardProfileSync() {
       });
       window.removeEventListener(PERSISTED_STATE_EVENT, handlePersistedState as EventListener);
       window.removeEventListener('storage', handleStorage);
-      window.removeEventListener('online', handleOnline);
-      window.removeEventListener('offline', handleOffline);
-      window.removeEventListener('pagehide', handlePageHide);
       window.removeEventListener(
         DASHBOARD_CLIENT_IDENTITY_EVENT,
         handleIdentityChange as EventListener
@@ -1216,7 +1221,6 @@ export function useDashboardProfileSync() {
         AUTH_SESSION_REFRESHED_EVENT,
         handleAuthSessionRefreshed as EventListener
       );
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
   }, [panelMode]);
 

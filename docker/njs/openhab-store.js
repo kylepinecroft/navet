@@ -115,7 +115,6 @@ function isAllowedOpenHABHostname(value) {
   }
   if (
     !hostname ||
-    hostname === 'localhost' ||
     hostname.length > 253 ||
     !/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)*$/.test(
       hostname
@@ -404,6 +403,7 @@ function createOpenHABSessionStore(options) {
       ? ngx.fetch.bind(ngx)
       : null);
   const bindingStore = createProviderSessionStore({
+    providerId: 'openhab',
     cookieName: OPENHAB_COOKIE_NAME,
     cookieNames: settings.cookieNames,
     installationKey: settings.installationKey,
@@ -525,6 +525,7 @@ function createOpenHABSessionStore(options) {
       }
       if (
         !installationAuthority.commitOpenHAB(
+          r,
           parsed.hassUrl,
           normalizeOpenHABBaseUrl,
           installationAccess.pairingVerified === true

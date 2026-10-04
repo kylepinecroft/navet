@@ -4,30 +4,51 @@ description: Edit recurring work, review progress, protect management, and back 
 editUrl: https://github.com/awesomestvi/navet/edit/main/docs/how-to/everyday-control/manage-household-chores.md
 ---
 
-Use the management views when the household plan changes. Daily completion stays in **Today** so
-setup and recovery controls do not compete with work that needs attention.
+Use **Chores** to manage recurring work and **Progress** to review activity. Open
+**Household → Settings** to protect or back up your household. Use **Today** to complete daily work.
 
-![The Chore library with one-row filters and ChoreBaseCard rows showing room, schedule, points, assignee, Edit, and more actions.](/docs/how-to/everyday-control/household-chore-library.webp)
+![The Chore library with search, filters, assignments, schedules, and actions for each chore.](/docs/how-to/everyday-control/household-chore-library.webp)
 
 ## Edit, pause, or archive a chore
 
 1. Open **Household → Chores**.
 2. Search by name or filter by room, person, schedule, or status.
 3. Choose **Edit** on the chore card.
-4. Update its title, Lucide icon, card colour, instructions, room, time, points, assignment,
-   schedule, missed-work behavior, approval, or reminders.
-5. Choose **Save changes**.
+4. Use the sidebar steps **The chore**, **Who does it**, and **When it repeats** to update the
+   work, assignment, and schedule. On a small screen, the steps appear across the top. Choose
+   **Next** and **Back**, or select a step directly; your edits stay in place as you move between
+   them. The **More options** section below each step's main fields holds instructions, points,
+   approval, missed-work behavior, or reminders. The card colour can be changed in the chore
+   preview.
+5. On **When it repeats**, choose **Save changes**.
 
-The card colour is automatic unless someone overrides it. Automatic colours are stable from the
-chore ID and are not based on the selected dashboard accent. Overdue red and completed green remain
-semantic and cannot be replaced by the custom colour.
+Each chore has a consistent automatic colour unless someone overrides it. Overdue red and
+completed green take priority over the custom colour.
+
+On **Who does it**, choose a standby for a person's chore or choose **Fewest assigned or completed chores**
+for rotation. **More options** can set a later due date for each person, open claiming shortly
+before the scheduled start, wait for an earlier claim's approval, and keep a claim when work is
+sent back. On **When it repeats**, choose **Hourly interval** for an elapsed-hour repeat or
+**After completion** to keep the chosen clock time a set number of days after finished work.
 
 Open the card's **More actions** menu, then choose **Pause** to stop creating new occurrences while
 keeping the chore and its history. Choose **Archive** when the definition should leave the active
 library; archived chores can be restored later. Deleting a chore stops future reminders but
 preserves completed history.
 
-## Review progress without ranking people
+## Plan a person's time away
+
+1. Open **Household → Settings → People** and choose **Edit** for the person.
+2. Turn on **Paused** and optionally choose **Resume on**. Chores assigned to a standby can still
+   be done while the primary person is away.
+3. If the person has a return date, choose **Review due dates** in People. Select unfinished work
+   from the absence and choose **First new due date**. Navet previews the number of selected chores
+   and moves them one per day after the return.
+
+Paused work does not create overdue reminders. Existing claims remain available for manager
+review. Long-cycle chores appear in the review list but are not preselected.
+
+## Review progress
 
 1. Open **Progress**.
 2. Choose the last 7 or 30 days.
@@ -35,20 +56,51 @@ preserves completed history.
 4. Review completed and missed work, the upcoming week, and the workload note.
 5. Export CSV or JSON when you need a copy of the filtered history.
 
-An uneven-workload note is a suggestion. Navet does not silently reassign future chores.
+Choose **Weekly report** in Progress to review the current week. Select Markdown or HTML, then
+copy the report to share it. The report includes completed and missed work, pending approvals,
+and the next week's schedule.
+
+In the Home Assistant panel, `navet.weekly_report` returns the same kind of report to an
+automation. For scheduled delivery, set a weekly time trigger, call `navet.weekly_report` with
+`format: markdown` and a `response_variable`, then pass that variable's `content` to your
+notification action. The calendar entity **Navet chores** lists upcoming due work for calendar
+automations. Home Assistant also provides typed `navet.reward_decision` and
+`navet.adjust_points` actions for Home Assistant administrators and system automations.
+Give point adjustments a stable `command_id` so a retried
+automation cannot apply the same change twice.
+
+Each chore's notification settings can select which claim, completion, approval, and missed-work
+events send alerts. Today shows current alerts with the actions available to their recipient.
+On Home Assistant mobile notifications, the action buttons apply to the exact chore revision
+that produced the alert; an older button has no effect after the chore changes.
+
+To set a badge or personal achievement, choose **Add badge** or **Add achievement** in Progress.
+Choose what to measure and a target number. Select chores when the goal should count only those
+chores, choose whether it runs once, every week, or every month, and optionally add award points.
+A personal achievement also needs a person. The cards show each person's current progress and
+earned awards. A missed due day breaks a due-day streak; days with no scheduled work, including a
+pause, leave it unchanged.
 
 ## Manage missions and rewards
 
-Open **Missions** or **Rewards** to create and edit supporting goals. Their cards follow the same
-chore card geometry, but they do not appear in Today by default. From Today, choose **See rewards**
-in House pulse when you want to reveal the current mission and reward cards for that visit.
+Open **Missions** or **Rewards** to create and edit supporting goals. From Today, choose
+**See rewards** in Chores today to reveal the current mission and reward cards for that visit.
+
+To use a reward, open **Rewards**, choose the person under **Request reward for**, and select
+**Request reward** on a goal. The person needs enough points for its cost. The request holds the
+reward's current name and cost, while their point balance stays available until review.
+
+A household manager reviews requests in **Rewards**. **Approve** spends the points once;
+**Decline** leaves the balance alone. After approval, **Mark fulfilled** records that the reward
+was delivered. **Refund points** returns the approved cost if the reward cannot be given. The
+request status and point decisions stay in the household record even if the goal is edited.
 
 ## Hide household chores
 
 Chores are enabled by default. To hide the feature, open **Settings → Dashboard**, find
 **Household chores**, and choose **Off**. Navet removes the Household chores workspace, Home and
-room summary pills, and pending chore cards from room dashboards. Your chore definitions and
-history stay saved, so choosing **On** later restores the feature with its existing data.
+room chore pills. Your chore definitions and history stay saved, so choosing
+**On** later restores the feature with its existing data.
 
 ## Protect management changes
 
@@ -59,27 +111,9 @@ in chores backups. To replace it later, open **Household → Settings → Manage
 **Change PIN**, and confirm the new 4–8 digit PIN. Navet asks for the current PIN first whenever
 management is locked.
 
-## Finish setup after a management PIN error
-
-If **Open Today** reports **Unlock chore management to continue**, the PIN was saved but the
-temporary management session was lost before setup finished. The people, chores, and rewards
-already entered are still saved.
-
-1. Keep the setup window open. If it was closed, return to **Household**, choose
-   **Create your chore list**, and advance to the final review.
-2. Choose **Open Today**. Navet opens **Unlock chore management** when the saved PIN is locked.
-3. Enter the management PIN created during setup and choose **Unlock**.
-4. Navet retries the final setup step automatically and opens **Today** when it succeeds.
-
-If the PIN is rejected, check the digits and wait 30 seconds after five unsuccessful attempts. If
-the correct PIN unlocks the dialog but the same prompt immediately returns, update Navet to the
-latest add-on version, restart the add-on once, reopen its **Web UI**, and repeat the steps above.
-Restarting or updating the add-on does not remove the saved chore workspace in `/data`.
-
 ## Restore a backup during first setup
 
-If this is a new Navet installation and you already have a Navet chores backup, you do not need to
-repeat the guided setup.
+You can restore a Navet chores backup from the welcome screen of a new installation.
 
 1. Open **Household**.
 2. On the welcome screen, choose **Import backup**.

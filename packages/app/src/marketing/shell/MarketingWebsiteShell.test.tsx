@@ -1,5 +1,5 @@
 import { renderWithProviders } from '@navet/app/test/render';
-import { fireEvent, screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { MarketingWebsiteShell } from './MarketingWebsiteShell';
 
@@ -28,12 +28,16 @@ describe('MarketingWebsiteShell', () => {
   it('renders the premium navbar links without a Home link', () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(null, { status: 500 }));
 
-    renderWithProviders(
+    render(
       <MarketingWebsiteShell currentPathname="/">
         <div>Marketing body</div>
       </MarketingWebsiteShell>
     );
 
+    expect(screen.getByRole('link', { name: 'Skip to main content' })).toHaveAttribute(
+      'href',
+      '#marketing-main-content'
+    );
     const header = screen.getByRole('banner');
 
     expect(within(header).getByRole('link', { name: 'Navet home' })).toBeInTheDocument();
@@ -54,6 +58,10 @@ describe('MarketingWebsiteShell', () => {
     expect(within(communityLinks).getByRole('link', { name: 'Navet on Reddit' })).toHaveAttribute(
       'href',
       'https://www.reddit.com/r/navet/'
+    );
+    expect(within(communityLinks).getByRole('link', { name: 'Navet on YouTube' })).toHaveAttribute(
+      'href',
+      'https://www.youtube.com/@navetapp'
     );
   });
 
@@ -106,6 +114,24 @@ describe('MarketingWebsiteShell', () => {
     );
     expect(within(mobileNav).getByRole('link', { name: 'Storybook' })).toBeInTheDocument();
     expect(within(mobileNav).getByRole('link', { name: /^GitHub$/i })).toBeInTheDocument();
+  });
+
+  it('returns keyboard focus to the mobile toggle when Escape closes navigation', () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(null, { status: 500 }));
+    renderWithProviders(
+      <MarketingWebsiteShell currentPathname="/">
+        <div>Marketing body</div>
+      </MarketingWebsiteShell>
+    );
+    const toggle = screen.getByRole('button', { name: 'Open navigation menu' });
+    fireEvent.click(toggle);
+    const mobileNav = screen.getByRole('navigation', { name: 'Mobile primary' });
+    const docsLink = within(mobileNav).getByRole('link', { name: 'Docs' });
+    docsLink.focus();
+    expect(docsLink).toHaveFocus();
+    fireEvent.keyDown(docsLink, { key: 'Escape' });
+    expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    expect(toggle).toHaveFocus();
   });
 
   it('shows the cached GitHub star count when available', () => {

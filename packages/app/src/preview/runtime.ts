@@ -14,9 +14,11 @@ import type {
   PlatformTaskRuntimeSnapshot,
 } from '@navet/core/provider-feature-models';
 import type {
+  ProviderClimateFeatureService,
   ProviderHistoryFeatureService,
   ProviderLightFeatureService,
   ProviderMediaFeatureService,
+  ProviderNotificationFeatureService,
   ProviderSecurityFeatureService,
   ProviderTaskFeatureService,
 } from '@navet/core/provider-feature-services';
@@ -155,6 +157,9 @@ function createPreviewRoom(name: string, memberEntityIds: string[]): NavetProvid
     memberIds: memberEntityIds.map((entityId) =>
       createProviderScopedId(PREVIEW_PROVIDER_ID, entityId)
     ),
+    sourceType: 'provider_managed',
+    supportsOrdering: true,
+    supportsDeletion: true,
   };
 }
 
@@ -1170,6 +1175,11 @@ function getPreviewProviderState(): NavetProviderState {
   return {
     providerId: PREVIEW_PROVIDER_ID,
     connected: true,
+    connecting: false,
+    reconnecting: false,
+    entitiesHydrated: true,
+    registriesHydrated: true,
+    error: null,
     entities: scenario.entities,
     rooms: scenario.rooms,
   };
@@ -1251,6 +1261,24 @@ const previewLightFeatureService: ProviderLightFeatureService = {
             ? options.kelvin
             : entity.attributes.colorTemperatureKelvin,
         effect: typeof options.effect === 'string' ? options.effect : entity.attributes.effect,
+      },
+    }));
+  },
+};
+
+const previewClimateFeatureService: ProviderClimateFeatureService = {
+  setTargetTemperature: async (entityId, update) => {
+    updatePreviewEntity(entityId, (entity) => ({
+      ...entity,
+      attributes: {
+        ...entity.attributes,
+        ...(typeof update.temperature === 'number' ? { temperature: update.temperature } : {}),
+        ...(typeof update.targetTemperatureLow === 'number'
+          ? { targetTemperatureLow: update.targetTemperatureLow }
+          : {}),
+        ...(typeof update.targetTemperatureHigh === 'number'
+          ? { targetTemperatureHigh: update.targetTemperatureHigh }
+          : {}),
       },
     }));
   },
@@ -1602,6 +1630,19 @@ const previewTaskFeatureService: ProviderTaskFeatureService = {
   },
 };
 
+const previewNotificationFeatureService: ProviderNotificationFeatureService = {
+  getSnapshot: async () => ({ persistentNotifications: [], repairIssues: [] }),
+  subscribePersistentNotifications: async () => () => undefined,
+  dismissPersistentNotification: async () => undefined,
+  installUpdate: async () => undefined,
+  restartSystem: async () => undefined,
+  getDeliveryTargets: async () => [
+    { id: 'mobile_app_alex_iphone', label: "Alex's iPhone" },
+    { id: 'mobile_app_kitchen_tablet', label: 'Kitchen tablet' },
+  ],
+  sendNotification: async () => undefined,
+};
+
 const previewContract: NavetProviderContract = {
   providerId: PREVIEW_PROVIDER_ID,
   bootstrapSession: () => ({
@@ -1669,14 +1710,16 @@ const previewProviderPackageRegistration: ProviderPackageRegistration = {
       energyNow: false,
       calendar: true,
       weather: true,
-      notifications: false,
+      notifications: true,
       tasks: true,
       conversation: false,
     },
     lightFeatureService: previewLightFeatureService,
+    climateFeatureService: previewClimateFeatureService,
     mediaFeatureService: previewMediaFeatureService,
     securityFeatureService: previewSecurityFeatureService,
     historyFeatureService: previewHistoryFeatureService,
+    notificationFeatureService: previewNotificationFeatureService,
     taskFeatureService: previewTaskFeatureService,
     entityRuntimeService: createPreviewEntityRuntimeService({
       defaultConfig: PREVIEW_HOME_ASSISTANT_CONFIG,

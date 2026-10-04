@@ -98,9 +98,6 @@ export interface ClimateDevice extends BaseDevice {
   serviceDomain?: 'climate' | 'water_heater';
 }
 
-/** @deprecated Use ClimateDevice. */
-export type HVACDevice = ClimateDevice;
-
 // Weather device
 export interface WeatherDevice extends BaseDevice {
   room: string;
@@ -141,6 +138,7 @@ export interface WeatherDevice extends BaseDevice {
 
 // Media device
 export interface MediaDevice extends BaseDevice {
+  isPoweredOn?: boolean;
   room: string;
   title: string;
   artist: string;
@@ -245,6 +243,7 @@ export interface SensorDevice extends BaseDevice {
   deviceClass?: string;
   groupMembers?: string[];
   sourceDeviceId?: string;
+  sourceDeviceName?: string;
   status?: 'measurement' | 'active' | 'clear' | 'unavailable';
   lastUpdated?: string;
   alarmState?: NavetAlarmState;
@@ -354,7 +353,7 @@ export interface GroupedSensorDevice extends BaseDevice {
 export type Device =
   | LightDevice
   | FanDevice
-  | HVACDevice
+  | ClimateDevice
   | ClimateDevice
   | WeatherDevice
   | MediaDevice
@@ -374,7 +373,7 @@ export type Device =
 export interface DeviceCollection {
   lights: LightDevice[];
   fans: FanDevice[];
-  hvac: HVACDevice[];
+  hvac: ClimateDevice[];
   climate: ClimateDevice[];
   media: MediaDevice[];
   weather: WeatherDevice[];

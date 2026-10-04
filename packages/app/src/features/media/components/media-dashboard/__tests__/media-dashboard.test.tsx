@@ -3,11 +3,14 @@ import {
   MEDIA_PLAYER_FEATURES,
 } from '@navet/app/constants/media-player-features';
 import { STORAGE_KEYS } from '@navet/app/constants/storage-keys';
+import { mediaCatalog } from '@navet/app/features/media/catalog/media-catalog';
 import type { PlatformEntityRegistryEntry } from '@navet/app/platform/provider-feature-models';
+import { useSettingsStore } from '@navet/app/stores/settings-store';
+import { useThemeStore } from '@navet/app/stores/theme-store';
 import { setMediaQueryMatch, setVisualViewportSize } from '@navet/app/test/browser-mocks';
 import { renderWithProviders } from '@navet/app/test/render';
 import type { MediaDevice } from '@navet/app/types/device.types';
-import { fireEvent, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, screen, waitFor } from '@testing-library/react';
 import { toast } from 'sonner';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { MediaDashboard, resolveMusicAssistantThumbnailSourceUrl } from '../media-dashboard';
@@ -141,10 +144,44 @@ describe('MediaDashboard', () => {
       ],
     });
     liveMediaEntityMock.mockReturnValue(undefined);
+    useThemeStore.getState().setTheme('glass');
+  });
+
+  it('uses opaque media source tiles in dark theme', async () => {
+    useThemeStore.getState().setTheme('dark');
+    browseMediaPlayerMock.mockResolvedValue({
+      title: 'Media Library',
+      children: [
+        {
+          title: 'Albums',
+          mediaContentId: 'spotify:directory:albums',
+          mediaContentType: 'album',
+          mediaClass: 'directory',
+          canExpand: true,
+          canPlay: false,
+        },
+      ],
+    });
+
+    renderWithProviders(<MediaDashboard devices={[createMediaDevice()]} />);
+
+    const sourceTile = await screen.findByRole('button', { name: /^Albums/ });
+    expect(sourceTile).toHaveClass('bg-[rgba(24,24,27,0.97)]');
+    expect(sourceTile).toHaveClass('rounded-[24px]');
+    expect(sourceTile).not.toHaveClass('backdrop-blur-xl', 'bg-white/[0.04]');
+    expect(screen.getByTestId('media-library-directory-icon')).toHaveClass(
+      'bg-[rgba(39,39,42,0.94)]'
+    );
   });
 
   afterEach(() => {
     vi.unstubAllGlobals();
+  });
+
+  it('renders safely while no media devices are available', () => {
+    const { container } = renderWithProviders(<MediaDashboard devices={[]} />);
+
+    expect(container).toBeEmptyDOMElement();
   });
 
   it('shows browse without source selection for an idle Spotify account', async () => {
@@ -839,12 +876,24 @@ describe('MediaDashboard', () => {
         expect(screen.queryByRole('button', { name: 'Show all' })).not.toBeInTheDocument();
         expect(screen.queryByRole('button', { name: 'Show less' })).not.toBeInTheDocument();
 
-        fireEvent.change(screen.getByRole('searchbox', { name: 'Search' }), {
-          target: { value: 'Radio folder 245' },
+        await act(async () => {
+          fireEvent.change(screen.getByRole('searchbox', { name: 'Search' }), {
+            target: { value: 'Radio folder 245' },
+          });
         });
-        expect(
-          await screen.findByText('Radio folder 245', undefined, { timeout: 5_000 })
-        ).toBeInTheDocument();
+        expect(screen.getByText('Radio folder 245')).toBeInTheDocument();
+        const browseCount = browseMediaPlayerMock.mock.calls.length;
+        const originalTimePreference = useSettingsStore.getState().use24HourTime;
+        try {
+          await act(async () => {
+            useSettingsStore.setState({ use24HourTime: !originalTimePreference });
+          });
+          expect(browseMediaPlayerMock).toHaveBeenCalledTimes(browseCount);
+          expect(screen.getByRole('searchbox', { name: 'Search' })).toHaveValue('Radio folder 245');
+          expect(screen.getByText('Radio folder 245')).toBeInTheDocument();
+        } finally {
+          act(() => useSettingsStore.setState({ use24HourTime: originalTimePreference }));
+        }
       }
     );
   }, 10_000);
@@ -1054,7 +1103,7 @@ describe('MediaDashboard', () => {
     );
   });
 
-  it('shows unsupported browser UI when neither the entity nor provider supports browsing', () => {
+  it('leaves the browser area blank when neither the entity nor provider supports browsing', () => {
     renderWithProviders(
       <MediaDashboard
         devices={[
@@ -1067,8 +1116,8 @@ describe('MediaDashboard', () => {
     );
 
     expect(
-      screen.getByText('This player or provider did not expose a media browser.')
-    ).toBeInTheDocument();
+      screen.queryByText('This player or provider did not expose a media browser.')
+    ).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Load media browser' })).not.toBeInTheDocument();
   });
 
@@ -1497,6 +1546,21 @@ describe('MediaDashboard', () => {
   });
 
   it('prefers Spotify artist metadata over incorrect provider labels in recently played rows', async () => {
+    const spotifyTrackId = '1234567890123456789012';
+    const spotifyMetadata = {
+      title: 'Bed Head',
+      artistName: 'Manchester Orchestra',
+      albumTitle: 'The Million Masks Of God',
+      artworkUrls: ['https://i.scdn.co/image/ab67616d00001e02bedheadart'],
+    };
+    vi.spyOn(mediaCatalog, 'resolveItem').mockImplementation(async (item) => ({
+      openArtwork: { artworkUrls: [] },
+      spotifyMetadata:
+        item.mediaContentId === `spotify:track:${spotifyTrackId}`
+          ? spotifyMetadata
+          : { artworkUrls: [] },
+    }));
+    vi.spyOn(mediaCatalog, 'resolveSpotifyTrack').mockResolvedValue(spotifyMetadata);
     localStorage.setItem(
       STORAGE_KEYS.mediaDefaultViews,
       JSON.stringify({
@@ -1515,7 +1579,7 @@ describe('MediaDashboard', () => {
       children: [
         {
           title: 'Bed Head',
-          mediaContentId: 'spotify:track:1234567890123456789012',
+          mediaContentId: `spotify:track:${spotifyTrackId}`,
           mediaContentType: 'track',
           mediaClass: 'track',
           thumbnail: '/image/ab67616d00001e02bedheadart',
@@ -1531,24 +1595,10 @@ describe('MediaDashboard', () => {
         })),
       ],
     });
-    vi.stubGlobal(
-      'fetch',
-      vi.fn().mockResolvedValue(
-        new Response(
-          JSON.stringify({
-            title: 'Bed Head',
-            artistName: 'Manchester Orchestra',
-            albumTitle: 'The Million Masks Of God',
-            artworkUrls: ['https://image-cdn-fa.spotifycdn.com/image/ab67616d00001e02bedheadart'],
-          }),
-          { status: 200, headers: { 'Content-Type': 'application/json' } }
-        )
-      )
-    );
 
     const { container } = renderWithProviders(<MediaDashboard devices={[createMediaDevice()]} />);
 
-    await waitFor(() => expect(screen.getByText('Manchester Orchestra')).toBeInTheDocument());
+    expect(await screen.findByText('Manchester Orchestra')).toBeInTheDocument();
     expect(screen.queryByText('Deer')).not.toBeInTheDocument();
     expect(container.querySelector('img')).toHaveAttribute(
       'src',

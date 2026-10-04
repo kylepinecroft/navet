@@ -2,6 +2,33 @@
 
 Use this page as the map for the documentation set.
 
+## Keep guidance matched to the product
+
+Before writing or reusing product instructions, tutorials, or marketing claims, cross-check the
+current implementation and supported provider/deployment behavior. Inspect the running product
+or the exact Storybook component when practical. Existing Markdown, screenshots, and plans are
+references to verify, not evidence that a feature still behaves as described.
+
+When a discrepancy is found, update the affected current guide and any working tutorial or plan
+that repeats it. Record the implementation reference and what was verified. Distinguish a
+component preview or preset demo from a complete workflow on a connected installation. Keep
+historical changelog entries as historical records.
+
+## Document lifecycle
+
+Every maintained document must have one clear role:
+
+- **Current guidance** describes the product or architecture as it works today and belongs in the
+  user, contributor, maintainer, or AI maps below.
+- **Open roadmap** describes outcomes that have not shipped. Remove completed items as part of the
+  implementation that ships them.
+- **Historical record** belongs in changelog entries, issues, pull requests, and Git history—not in
+  required reading or beside current architecture guidance.
+
+Delete completed implementation plans after durable behavior has been captured in current guides
+or architecture documents. Do not keep an outdated plan merely to explain why current code exists;
+Git history and the linked issue retain that context without presenting it as a current interface.
+
 ## Start Here
 
 - If you want to run Navet: start with the provider setup guides.
@@ -34,6 +61,13 @@ Use this page as the map for the documentation set.
 
 ## Contributor Docs
 
+- [product/vision.md](product/vision.md)
+  Durable product purpose, audience, and non-goals.
+- [product/design-principles.md](product/design-principles.md)
+  Product-level design decisions that outrank temporary UI conventions.
+- [product/dashboard-principles.md](product/dashboard-principles.md)
+  Dashboard hierarchy, density, responsiveness, and control principles.
+
 - [../CONTRIBUTING.md](../CONTRIBUTING.md)
   Onboarding, local setup, and validation flow.
 - [agents/commands.md](agents/commands.md)
@@ -48,6 +82,8 @@ Use this page as the map for the documentation set.
   Shared UI boundary rules.
 - [architecture/dashboard-profile-ownership.md](architecture/dashboard-profile-ownership.md)
   Multi-dashboard settings ownership, revision sync, recovery, and credential-session boundaries.
+- [architecture/persisted-data-migrations.md](architecture/persisted-data-migrations.md)
+  Active compatibility reads, review releases, and evidence required before retirement.
 - [architecture/media-dashboard-provider-limitations.md](architecture/media-dashboard-provider-limitations.md)
   Media dashboard contract, Home Assistant behavior, artwork handling, and current limits.
 - [architecture/marketing-website.md](architecture/marketing-website.md)
@@ -65,6 +101,11 @@ Use this page as the map for the documentation set.
 
 ## Maintainer Docs
 
+- [engineering/agentic-development.md](engineering/agentic-development.md)
+  Issue-to-preview workflow, agent roles, permissions, approval gates, and stewardship.
+- [engineering/private-home-testing.md](engineering/private-home-testing.md)
+  Secure branch testing against a private Home Assistant installation.
+
 - [release-workflow.md](release-workflow.md)
   Release lanes, artifact surfaces, and version alignment.
 - [agents/release-and-publishing.md](agents/release-and-publishing.md)
@@ -78,8 +119,10 @@ Use this page as the map for the documentation set.
 
 ## AI And Agent Docs
 
+- [../AGENTS.md](../AGENTS.md)
+  Complete baseline rules, code-location shortcuts, and task router.
 - [../ai/agents.md](../ai/agents.md)
-  Canonical agent framing for architecture, vocabulary, and repo layout.
+  Optional navigation index for locating deeper area guidance.
 - [../ai/skills/home-assistant-integration.md](../ai/skills/home-assistant-integration.md)
 - [../ai/skills/auth-deployment.md](../ai/skills/auth-deployment.md)
 - [../ai/skills/testing-architecture.md](../ai/skills/testing-architecture.md)

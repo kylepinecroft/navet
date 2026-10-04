@@ -1,6 +1,4 @@
 import { RoomNav } from '@navet/app/components/layout/room-nav';
-import { useRoomWorkspaceStore } from '@navet/app/features/dashboard/rooms/room-workspace-store';
-import { migrateLegacyRoomWorkspaceV2 } from '@navet/app/features/dashboard/rooms/room-workspace-v2';
 import { renderWithProviders } from '@navet/app/test/render';
 import { resetAppStores } from '@navet/app/test/store-reset';
 import { fireEvent, screen, waitFor, within } from '@testing-library/react';
@@ -120,6 +118,25 @@ describe('RoomNav', () => {
     expect(screen.queryByRole('menu')).not.toBeInTheDocument();
   });
 
+  it('shows one active room with its display casing when group and hidden labels differ in case', async () => {
+    mockRoomLayout({ containerWidth: 800 });
+    renderWithProviders(
+      <RoomNav
+        rooms={['Kitchen', 'kitchen', 'Bedroom']}
+        roomGroups={[{ id: 'downstairs', name: 'Downstairs', rooms: ['KITCHEN'] }]}
+        hiddenRoomNames={['BEDROOM']}
+        activeRoom="kitchen"
+        onRoomChange={() => undefined}
+        isEditMode={false}
+        onToggleEditMode={() => undefined}
+      />
+    );
+
+    await waitFor(() => expect(screen.getAllByRole('button', { name: 'Kitchen' })).toHaveLength(1));
+    expect(screen.getByRole('button', { name: 'Kitchen' })).toHaveAttribute('aria-current', 'page');
+    expect(screen.queryByRole('button', { name: 'Bedroom' })).not.toBeInTheDocument();
+  });
+
   it('keeps all rooms inline when there is enough width', async () => {
     mockRoomLayout({
       containerWidth: 600,
@@ -237,32 +254,37 @@ describe('RoomNav', () => {
     expect(screen.getByText('+2 rooms')).toBeInTheDocument();
   });
 
-  it('keeps the active room visible when it would otherwise overflow', async () => {
-    mockRoomLayout({
-      containerWidth: 320,
-      roomWidths: {
-        Home: 72,
-        'Living Room': 104,
-        Kitchen: 88,
-        Bedroom: 92,
-      },
-    });
+  it.each(['Bedroom', 'BEDROOM'])(
+    'keeps the active room %s visible when it would otherwise overflow',
+    async (activeRoom) => {
+      mockRoomLayout({
+        containerWidth: 320,
+        roomWidths: {
+          Home: 72,
+          'Living Room': 104,
+          Kitchen: 88,
+          Bedroom: 92,
+        },
+      });
 
-    renderWithProviders(
-      <RoomNav
-        rooms={['Living Room', 'Kitchen', 'Bedroom']}
-        activeRoom="Bedroom"
-        onRoomChange={() => undefined}
-        isEditMode={false}
-        onToggleEditMode={() => undefined}
-      />
-    );
+      renderWithProviders(
+        <RoomNav
+          rooms={['Living Room', 'Kitchen', 'Bedroom']}
+          activeRoom={activeRoom}
+          onRoomChange={() => undefined}
+          isEditMode={false}
+          onToggleEditMode={() => undefined}
+        />
+      );
 
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Rooms' })).toBeInTheDocument());
-    expect(screen.getByRole('button', { name: 'Bedroom' })).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Kitchen' })).not.toBeInTheDocument();
-    expect(screen.getByText('+2 rooms')).toBeInTheDocument();
-  });
+      await waitFor(() =>
+        expect(screen.getByRole('button', { name: 'Rooms' })).toBeInTheDocument()
+      );
+      expect(screen.getByRole('button', { name: 'Bedroom' })).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Kitchen' })).not.toBeInTheDocument();
+      expect(screen.getByText('+2 rooms')).toBeInTheDocument();
+    }
+  );
 
   it('does not render a duplicate interactive tree just to measure room labels', async () => {
     mockRoomLayout({
@@ -457,43 +479,5 @@ describe('RoomNav', () => {
     expect(
       within(screen.getByRole('menu')).queryByRole('menuitem', { name: 'Kitchen' })
     ).not.toBeInTheDocument();
-  });
-
-  it('opens a room bar editor from the customize pencil', () => {
-    const workspace = migrateLegacyRoomWorkspaceV2({
-      discoveredRooms: [
-        {
-          displayName: 'Kitchen',
-          sourceRef: {
-            providerId: 'home_assistant',
-            canonicalId: 'home_assistant:area_kitchen',
-            sourceType: 'provider_managed',
-          },
-        },
-      ],
-    });
-    useRoomWorkspaceStore.getState().replaceWorkspace(workspace);
-
-    renderWithProviders(
-      <RoomNav
-        rooms={['Kitchen']}
-        activeRoom="All"
-        onRoomChange={() => undefined}
-        isEditMode
-        suppressEditActions
-        onToggleEditMode={() => undefined}
-      />
-    );
-
-    fireEvent.click(screen.getByRole('button', { name: 'Edit rooms' }));
-
-    const roomGroup = screen.getByRole('group', { name: 'Hide Kitchen' });
-    fireEvent.click(within(roomGroup).getByRole('button', { name: 'Hidden' }));
-
-    expect(
-      useRoomWorkspaceStore
-        .getState()
-        .workspace?.rooms.find((room) => room.displayName === 'Kitchen')?.metadata.visibility
-    ).toBe('hidden');
   });
 });

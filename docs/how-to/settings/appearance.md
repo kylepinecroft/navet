@@ -25,12 +25,15 @@ does not replace semantic colors for warnings, security, or device state.
 
 ## Choose a wallpaper
 
-1. Select a built-in wallpaper, or choose **Upload wallpaper**.
-2. Use a PNG or JPG up to the size shown in Settings.
-3. Review the preview.
-4. Apply the change.
+1. Select a built-in wallpaper, or choose **Upload wallpaper**. If a wallpaper is already set,
+   use **Replace wallpaper** to choose a different file.
+2. For an upload, use a PNG or JPG up to the size shown in Settings.
+3. The selection applies immediately; review it in the preview and on your dashboard.
 
 Choose **Remove wallpaper** to return to the theme background.
+
+During first-run onboarding, only the built-in wallpaper choices are available. Upload,
+replacement, removal, and **Auto** appearance are available here in Settings after setup.
 
 ## Light card ambience
 
@@ -40,6 +43,6 @@ modes disable expensive ambience automatically.
 ## Apply to the right screens
 
 Visual quality and layout stay independent on each device by default. To reuse them elsewhere,
-open **Settings → System → Connected devices → Device settings**, then either copy the current
+open **Settings → System → Device settings**, then either copy the current
 settings once or create a sync group. See
 [Keep dashboards synchronized across devices](/guide/dashboards/sync-across-devices/).

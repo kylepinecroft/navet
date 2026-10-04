@@ -10,8 +10,7 @@ dashboard directly from the sidebar.
 3. Select **Add integration**, search for **Navet**, and confirm the setup.
 4. Open **Navet** from the Home Assistant sidebar.
 
-Navet uses your current Home Assistant session, so there is no separate URL, access token, or Navet
-account to configure. Your rooms and devices should appear automatically.
+Navet uses your current Home Assistant session. Your rooms and devices should appear automatically.
 
 ## Use Navet Full Screen
 

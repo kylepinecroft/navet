@@ -16,7 +16,7 @@ export type EntityCardHeaderVariant = 'default' | 'dense' | 'large';
 
 interface EntityCardHeaderProps {
   title: string;
-  subtitle: string;
+  subtitle: ReactNode;
   size: CardSize;
   compact?: boolean;
   layout?: 'title-first' | 'eyebrow-first';
@@ -25,6 +25,7 @@ interface EntityCardHeaderProps {
   align?: 'start' | 'center';
   tone?: CardTextTone;
   titleClassName?: string;
+  titleOverflow?: 'truncate' | 'wrap';
   subtitleClassName?: string;
   className?: string;
   contentClassName?: string;
@@ -47,6 +48,7 @@ export function EntityCardHeader({
   align = 'start',
   tone = 'neutral',
   titleClassName = '',
+  titleOverflow = 'truncate',
   subtitleClassName = '',
   className = '',
   contentClassName = '',
@@ -87,17 +89,19 @@ export function EntityCardHeader({
       ? 'gap-1.5'
       : 'gap-2';
   const subtitleClassBase = useLargeVariant
-    ? 'truncate text-[11px] leading-[15px] tracking-normal'
+    ? 'truncate text-[11px] leading-snug tracking-normal'
     : useDenseVariant
-      ? 'truncate text-[10px] leading-[12px] tracking-normal'
+      ? 'truncate text-[10px] leading-tight tracking-normal'
       : layout === 'eyebrow-first'
-        ? 'truncate text-[11px] leading-[14px] tracking-normal'
-        : 'truncate text-[11px] leading-[14px]';
+        ? 'truncate text-[11px] leading-tight tracking-normal'
+        : 'truncate text-[11px] leading-tight';
+  const titleOverflowClass =
+    titleOverflow === 'wrap' ? 'whitespace-normal wrap-break-word' : 'truncate';
   const titleClassBase = useLargeVariant
-    ? 'truncate text-[14px] font-semibold leading-[18px]'
+    ? `${titleOverflowClass} text-[14px] font-semibold leading-tight`
     : useDenseVariant
-      ? 'truncate text-[11px] font-semibold leading-[13px]'
-      : 'truncate text-[12px] font-semibold leading-[18px]';
+      ? `${titleOverflowClass} text-[11px] font-semibold leading-tight`
+      : `${titleOverflowClass} text-[12px] font-semibold leading-normal`;
   const crossAxisAlignment = align === 'center' || useLargeVariant ? 'items-center' : 'items-start';
   const contentFrameClassName = useLargeVariant
     ? 'flex min-h-10 items-center'
@@ -108,7 +112,7 @@ export function EntityCardHeader({
     ? 'flex min-h-10 min-w-0 flex-col justify-center overflow-hidden'
     : useDenseVariant || isTiny || (isExtraSmall && !useCompactLayout)
       ? ''
-      : 'flex h-8 min-w-0 flex-col justify-center overflow-hidden';
+      : 'flex min-h-8 min-w-0 flex-col justify-center overflow-hidden';
 
   return (
     <div

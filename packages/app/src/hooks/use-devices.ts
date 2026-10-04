@@ -7,6 +7,7 @@ import {
   buildRoomWorkspaceIndexV2,
   type RoomWorkspaceV2,
 } from '@navet/app/features/dashboard/rooms/room-workspace-v2';
+import { normalizeRoomName } from '@navet/app/utils/room-name';
 import type { NavetProviderRoom } from '@navet/core/types';
 import { useCallback, useMemo } from 'react';
 import { useEntityRoomOverridesStore } from '../stores/entity-room-overrides-store';
@@ -28,6 +29,8 @@ const EMPTY_DEVICE_COLLECTION = Object.freeze(mapNavetEntitiesToDeviceCollection
 const EMPTY_DEVICE_COLLECTIONS: DeviceCollection[] = [];
 const EMPTY_DEVICE_GROUP_SLICES: ReadonlyArray<readonly unknown[]> = [];
 const EMPTY_SENSOR_ENTITY_IDS: string[] = [];
+const EMPTY_NORMALIZED_ROOMS_BY_CANONICAL_ID: Record<string, NavetProviderRoom> = {};
+const EMPTY_ROOM_IDS_BY_ENTITY_ID: Record<string, string> = {};
 
 export const DEVICE_COLLECTION_KEYS = [
   'lights',
@@ -68,13 +71,20 @@ function buildRoomPlacementLookup(
 ): RoomPlacementLookup {
   const roomNamesById: Record<string, string> = {};
   const workspaceRoomIdsBySourceCanonicalId: Record<string, string> = {};
+  const displayNamesByNormalizedName = new Map<string, string>();
 
   Object.values(normalizedRoomsByCanonicalId).forEach((room) => {
-    roomNamesById[room.canonicalId] = room.name;
-    roomNamesById[room.id] = room.name;
-    roomNamesById[room.normalizedName] = room.name;
-    roomNamesById[room.externalId] = room.name;
-    roomNamesById[createProviderScopedId(room.providerId, room.externalId)] = room.name;
+    // Match the display name chosen by useAggregatedRooms for shared provider rooms.
+    // Otherwise differently capitalized source labels produce invisible room card orders.
+    const roomKey = normalizeRoomName(room.name);
+    const displayName = displayNamesByNormalizedName.get(roomKey) ?? room.name;
+    displayNamesByNormalizedName.set(roomKey, displayName);
+    roomNamesById[roomKey] = displayName;
+    roomNamesById[room.canonicalId] = displayName;
+    roomNamesById[room.id] = displayName;
+    roomNamesById[room.normalizedName] = displayName;
+    roomNamesById[room.externalId] = displayName;
+    roomNamesById[createProviderScopedId(room.providerId, room.externalId)] = displayName;
   });
 
   if (workspace) {
@@ -88,6 +98,24 @@ function buildRoomPlacementLookup(
   }
 
   return { roomNamesById, workspaceRoomIdsBySourceCanonicalId };
+}
+
+function useRoomPlacementLookup(enabled: boolean) {
+  const normalizedRoomsByCanonicalId = useIntegrationStore((state) =>
+    enabled
+      ? integrationSelectors.normalizedRoomsByCanonicalId(state)
+      : EMPTY_NORMALIZED_ROOMS_BY_CANONICAL_ID
+  );
+  const roomWorkspace = useRoomWorkspaceStore((state) => (enabled ? state.workspace : null));
+  const roomIdsByEntityId = useEntityRoomOverridesStore((state) =>
+    enabled ? state.roomIdsByEntityId : EMPTY_ROOM_IDS_BY_ENTITY_ID
+  );
+  const roomPlacementLookup = useMemo(
+    () => buildRoomPlacementLookup(normalizedRoomsByCanonicalId, roomWorkspace),
+    [normalizedRoomsByCanonicalId, roomWorkspace]
+  );
+
+  return { roomIdsByEntityId, roomPlacementLookup };
 }
 
 function getRoomOverrideIdForDevice(
@@ -139,12 +167,17 @@ function applyRoomOverridesToDevices<
   let nextDevices: T[] | null = null;
 
   devices.forEach((device, index) => {
-    const requestedRoomId = getRoomOverrideIdForDevice(device, roomIdsByEntityId) ?? device.roomId;
+    const overrideRoomId = getRoomOverrideIdForDevice(device, roomIdsByEntityId);
+    const requestedRoomId = overrideRoomId ?? device.roomId;
     const roomId = requestedRoomId
       ? (roomPlacementLookup.workspaceRoomIdsBySourceCanonicalId[requestedRoomId] ??
         requestedRoomId)
       : undefined;
-    const roomName = roomId ? roomPlacementLookup.roomNamesById[roomId] : undefined;
+    const roomName =
+      (roomId ? roomPlacementLookup.roomNamesById[roomId] : undefined) ??
+      (!overrideRoomId
+        ? roomPlacementLookup.roomNamesById[normalizeRoomName(device.room)]
+        : undefined);
     if (!roomName || (roomName === device.room && roomId === device.roomId)) {
       return;
     }
@@ -285,7 +318,7 @@ function applyRoomOverrides(
 ): DeviceCollection {
   if (
     Object.keys(roomIdsByEntityId).length === 0 &&
-    Object.keys(roomPlacementLookup.workspaceRoomIdsBySourceCanonicalId).length === 0
+    Object.keys(roomPlacementLookup.roomNamesById).length === 0
   ) {
     return collection;
   }
@@ -439,13 +472,6 @@ function useSelectedProviderFeatureCollections({
   const openhabCalendars = useProviderCalendarDevicesCollection('openhab', {
     enabled: enabled && includeCalendars && selectedProviderIdSet.has('openhab'),
   });
-  const hubitatCalendars = useProviderCalendarDevicesCollection('hubitat', {
-    enabled: enabled && includeCalendars && selectedProviderIdSet.has('hubitat'),
-  });
-  const smartthingsCalendars = useProviderCalendarDevicesCollection('smartthings', {
-    enabled: enabled && includeCalendars && selectedProviderIdSet.has('smartthings'),
-  });
-
   const homeAssistantWeather = useProviderWeatherDevicesCollection('home_assistant', {
     enabled: enabled && includeWeather && selectedProviderIdSet.has('home_assistant'),
   });
@@ -455,38 +481,13 @@ function useSelectedProviderFeatureCollections({
   const openhabWeather = useProviderWeatherDevicesCollection('openhab', {
     enabled: enabled && includeWeather && selectedProviderIdSet.has('openhab'),
   });
-  const hubitatWeather = useProviderWeatherDevicesCollection('hubitat', {
-    enabled: enabled && includeWeather && selectedProviderIdSet.has('hubitat'),
-  });
-  const smartthingsWeather = useProviderWeatherDevicesCollection('smartthings', {
-    enabled: enabled && includeWeather && selectedProviderIdSet.has('smartthings'),
-  });
-
   const calendars = useMemo(
-    () => [
-      ...homeAssistantCalendars,
-      ...homeyCalendars,
-      ...openhabCalendars,
-      ...hubitatCalendars,
-      ...smartthingsCalendars,
-    ],
-    [
-      homeAssistantCalendars,
-      homeyCalendars,
-      hubitatCalendars,
-      openhabCalendars,
-      smartthingsCalendars,
-    ]
+    () => [...homeAssistantCalendars, ...homeyCalendars, ...openhabCalendars],
+    [homeAssistantCalendars, homeyCalendars, openhabCalendars]
   );
   const weather = useMemo(
-    () => [
-      ...homeAssistantWeather,
-      ...homeyWeather,
-      ...openhabWeather,
-      ...hubitatWeather,
-      ...smartthingsWeather,
-    ],
-    [homeAssistantWeather, homeyWeather, hubitatWeather, openhabWeather, smartthingsWeather]
+    () => [...homeAssistantWeather, ...homeyWeather, ...openhabWeather],
+    [homeAssistantWeather, homeyWeather, openhabWeather]
   );
 
   return { calendars, weather };
@@ -596,16 +597,8 @@ export const useDeviceCollectionsByKeys = (
             areArraysEqual(leftSlice, rightSlice, Object.is))
       )
   );
-  const normalizedRoomsByCanonicalId = useIntegrationStore(
-    integrationSelectors.normalizedRoomsByCanonicalId
-  );
-  const roomWorkspace = useRoomWorkspaceStore((state) => state.workspace);
-  const roomIdsByEntityId = useEntityRoomOverridesStore((state) => state.roomIdsByEntityId);
+  const { roomIdsByEntityId, roomPlacementLookup } = useRoomPlacementLookup(enabled);
   const entityDisplayNames = useSettingsStore((state) => state.entityDisplayNames);
-  const roomPlacementLookup = useMemo(
-    () => buildRoomPlacementLookup(normalizedRoomsByCanonicalId, roomWorkspace),
-    [normalizedRoomsByCanonicalId, roomWorkspace]
-  );
   const { calendars, weather } = useSelectedProviderFeatureCollections({
     selectedProviderIds,
     enabled,
@@ -674,16 +667,8 @@ export const useAggregatedDevices = (options?: UseDevicesOptions): DeviceCollect
         : EMPTY_DEVICE_COLLECTIONS,
     (left, right) => areArraysEqual(left, right, Object.is)
   );
-  const normalizedRoomsByCanonicalId = useIntegrationStore(
-    integrationSelectors.normalizedRoomsByCanonicalId
-  );
-  const roomWorkspace = useRoomWorkspaceStore((state) => state.workspace);
-  const roomIdsByEntityId = useEntityRoomOverridesStore((state) => state.roomIdsByEntityId);
+  const { roomIdsByEntityId, roomPlacementLookup } = useRoomPlacementLookup(enabled);
   const entityDisplayNames = useSettingsStore((state) => state.entityDisplayNames);
-  const roomPlacementLookup = useMemo(
-    () => buildRoomPlacementLookup(normalizedRoomsByCanonicalId, roomWorkspace),
-    [normalizedRoomsByCanonicalId, roomWorkspace]
-  );
   const { calendars, weather } = useSelectedProviderFeatureCollections({
     selectedProviderIds,
     enabled,

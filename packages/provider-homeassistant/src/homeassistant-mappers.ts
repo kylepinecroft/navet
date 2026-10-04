@@ -1147,7 +1147,7 @@ function createHomeAssistantState(
           ? 'paused'
           : entity.state === 'idle'
             ? 'idle'
-            : entity.state === 'on' && deviceClass === 'tv'
+            : entity.state === 'on'
               ? 'idle'
               : 'off';
     const entityPicture =
@@ -1161,6 +1161,7 @@ function createHomeAssistantState(
     return {
       ...commonState,
       value: normalizedState,
+      isPoweredOn: entity.state === 'on',
       title:
         (typeof entity.attributes?.media_title === 'string' && entity.attributes.media_title) ||
         (typeof entity.attributes?.app_name === 'string' && entity.attributes.app_name) ||
@@ -1222,7 +1223,7 @@ function createHomeAssistantState(
       deviceClass,
       supportedFeatures: readNumberish(entity.attributes?.supported_features),
       hasPosition: position != null || tiltPosition != null,
-      size: 'medium',
+      size: 'small',
     };
   }
 
@@ -2056,6 +2057,9 @@ export function buildHomeAssistantProviderRooms(
       name: area.name,
       normalizedName: normalizeRoomName(area.name),
       memberIds: memberIdsByRoomId.get(canonicalId) ?? [],
+      sourceType: 'provider_managed',
+      supportsOrdering: true,
+      supportsDeletion: true,
     });
   }
 
@@ -2075,6 +2079,9 @@ export function buildHomeAssistantProviderRooms(
       name,
       normalizedName: normalizeRoomName(name),
       memberIds: memberIdsByRoomId.get(entity.roomId) ?? [],
+      sourceType: 'derived',
+      supportsOrdering: false,
+      supportsDeletion: false,
     });
   }
 
@@ -2086,7 +2093,7 @@ export function createHomeAssistantProviderStateMapper() {
   let cache:
     | {
         areas: HomeAssistantNavetMappingInput['areas'];
-        connected: boolean;
+        runtimeSignature: string;
         deviceRegistry: HomeAssistantNavetMappingInput['deviceRegistry'];
         entities: HomeAssistantNavetMappingInput['entities'];
         entityRegistry: HomeAssistantNavetMappingInput['entityRegistry'];
@@ -2097,11 +2104,12 @@ export function createHomeAssistantProviderStateMapper() {
 
   return (
     input: HomeAssistantNavetMappingInput,
-    options: { connected: boolean }
+    options: Omit<NavetProviderState, 'entities' | 'rooms' | 'providerId'>
   ): NavetProviderState => {
+    const runtimeSignature = JSON.stringify(options);
     if (
       cache &&
-      cache.connected === options.connected &&
+      cache.runtimeSignature === runtimeSignature &&
       cache.entities === input.entities &&
       cache.areas === input.areas &&
       cache.deviceRegistry === input.deviceRegistry &&
@@ -2118,20 +2126,20 @@ export function createHomeAssistantProviderStateMapper() {
         : buildHomeAssistantProviderRooms(input, entities);
     const providerState: NavetProviderState =
       cache &&
-      cache.connected === options.connected &&
+      cache.runtimeSignature === runtimeSignature &&
       cache.providerState.entities === entities &&
       cache.providerState.rooms === rooms
         ? cache.providerState
         : {
             providerId: 'home_assistant',
-            connected: options.connected,
+            ...options,
             entities,
             rooms,
           };
 
     cache = {
       areas: input.areas,
-      connected: options.connected,
+      runtimeSignature,
       deviceRegistry: input.deviceRegistry,
       entities: input.entities,
       entityRegistry: input.entityRegistry,

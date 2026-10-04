@@ -32,6 +32,72 @@ function createEntity({
 }
 
 describe('mapNavetEntitiesToDeviceCollection', () => {
+  it.each(['home_assistant', 'homey', 'openhab'] as const)(
+    'defaults climate and speaker cards to medium for %s',
+    (providerId) => {
+      const entities = (['climate', 'hvac', 'media_player', 'switch', 'cover'] as const).map(
+        (type) => ({
+          ...createEntity({
+            canonicalId: `${providerId}:${type}.living_room`,
+            externalId: `${type}.living_room`,
+            type,
+            name: type,
+            attributes: {},
+          }),
+          providerId,
+        })
+      );
+      const devices = mapNavetEntitiesToDeviceCollection(entities);
+
+      expect(devices.climate.map((device) => device.size)).toEqual(['medium', 'medium']);
+      expect(devices.media[0].size).toBe('medium');
+      expect(devices.switches[0].size).toBe('small');
+      expect(devices.covers[0].size).toBe('small');
+    }
+  );
+
+  it.each(['small', 'medium', 'large'] as const)(
+    'preserves an explicit %s climate, speaker, or cover size',
+    (size) => {
+      const entities = (['climate', 'media_player', 'cover'] as const).map((type) =>
+        createEntity({
+          canonicalId: `homey:${type}.living_room`,
+          externalId: `${type}.living_room`,
+          type,
+          name: type,
+          attributes: { size },
+        })
+      );
+      const devices = mapNavetEntitiesToDeviceCollection(entities);
+
+      expect(devices.climate[0].size).toBe(size);
+      expect(devices.media[0].size).toBe(size);
+      expect(devices.covers[0].size).toBe(size);
+    }
+  );
+
+  it('preserves provider-neutral electrical metrics on an off switch card', () => {
+    const metrics = [
+      { label: 'Power', value: 0, unit: 'W', icon: 'zap', category: 'measurement' },
+      { label: 'Voltage', value: 230.1, unit: 'V', icon: 'gauge', category: 'measurement' },
+      { label: 'Current', value: 0, unit: 'A', icon: 'activity', category: 'measurement' },
+      { label: 'Energy', value: 12.45, unit: 'kWh', icon: 'activity', category: 'measurement' },
+    ];
+    const entity: NavetEntity = {
+      ...createEntity({
+        canonicalId: 'homey:socket',
+        externalId: 'socket',
+        type: 'switch',
+        name: 'Coffee maker',
+        attributes: { on: false, metrics },
+      }),
+      providerId: 'homey',
+    };
+    expect(mapNavetEntitiesToDeviceCollection([entity]).switches).toMatchObject([
+      { id: 'homey:socket', providerId: 'homey', state: false, metrics },
+    ]);
+  });
+
   it('preserves the stable provider room identity on mapped devices', () => {
     const devices = mapNavetEntitiesToDeviceCollection([
       createEntity({
@@ -95,6 +161,95 @@ describe('mapNavetEntitiesToDeviceCollection', () => {
     ]);
     expect(devices.helpers).toHaveLength(0);
     expect(devices.sensors).toHaveLength(0);
+  });
+
+  it.each([
+    'temperature',
+    'humidity',
+    'air_quality',
+    'carbon_dioxide',
+    'pm1',
+    'pm25',
+    'pm10',
+    'volatile_organic_compounds',
+    'volatile_organic_compounds_parts',
+    'pressure',
+  ])('keeps a %s sensor alongside its air purifier fan', (deviceClass) => {
+    const devices = mapNavetEntitiesToDeviceCollection([
+      createEntity({
+        canonicalId: 'home_assistant:fan.office_air_purifier',
+        externalId: 'fan.office_air_purifier',
+        type: 'fan',
+        name: 'Office air purifier',
+        attributes: { value: 'on', deviceId: 'device-air-purifier' },
+      }),
+      createEntity({
+        canonicalId: `home_assistant:sensor.office_air_purifier_${deviceClass}`,
+        externalId: `sensor.office_air_purifier_${deviceClass}`,
+        type: 'sensor',
+        name: `Office ${deviceClass}`,
+        attributes: { value: '55', unit: '%', deviceId: 'device-air-purifier', deviceClass },
+      }),
+    ]);
+
+    expect(devices.fans).toHaveLength(1);
+    expect(devices.sensors).toMatchObject([{ deviceClass, value: '55' }]);
+  });
+
+  it('keeps environmental measurements beside climate controls without surfacing accessory sensors', () => {
+    const climate = createEntity({
+      canonicalId: 'home_assistant:climate.bedroom',
+      externalId: 'climate.bedroom',
+      type: 'climate',
+      name: 'Bedroom thermostat',
+      attributes: { value: 'heat', deviceId: 'device-thermostat' },
+    });
+    const sensor = (name: string, deviceClass: string, entityCategory?: string) =>
+      createEntity({
+        canonicalId: `home_assistant:sensor.bedroom_${name}`,
+        externalId: `sensor.bedroom_${name}`,
+        type: 'sensor',
+        name,
+        attributes: { value: '21', deviceId: 'device-thermostat', deviceClass, entityCategory },
+      });
+    const devices = mapNavetEntitiesToDeviceCollection([
+      climate,
+      sensor('temperature', 'temperature'),
+      sensor('power', 'power'),
+      sensor('diagnostic_humidity', 'humidity', 'diagnostic'),
+    ]);
+
+    expect(devices.climate).toHaveLength(1);
+    expect(devices.sensors.map((device) => device.id)).toEqual([
+      'home_assistant:sensor.bedroom_temperature',
+    ]);
+  });
+
+  it('retains independent measurements alongside their device control when requested', () => {
+    const devices = mapNavetEntitiesToDeviceCollection([
+      createEntity({
+        canonicalId: 'openhab:WasherPower',
+        externalId: 'WasherPower',
+        type: 'switch',
+        name: 'Washing machine',
+        attributes: { on: true, sourceDeviceId: 'Washer' },
+      }),
+      createEntity({
+        canonicalId: 'openhab:WasherUsage',
+        externalId: 'WasherUsage',
+        type: 'sensor',
+        name: 'Washing machine power',
+        attributes: {
+          value: 485,
+          unit: 'W',
+          deviceClass: 'power',
+          sourceDeviceId: 'Washer',
+          retainSensorCard: true,
+        },
+      }),
+    ]);
+    expect(devices.switches).toHaveLength(1);
+    expect(devices.sensors).toMatchObject([{ id: 'openhab:WasherUsage', value: '485', unit: 'W' }]);
   });
 
   it('suppresses secondary switch cards attached to climate devices', () => {

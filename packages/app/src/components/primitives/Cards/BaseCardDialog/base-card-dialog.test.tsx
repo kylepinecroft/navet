@@ -1,3 +1,4 @@
+import { CardDialogHeader } from '@navet/app/components/patterns/card-dialog';
 import { renderWithProviders } from '@navet/app/test/render';
 import { fireEvent, screen, within } from '@testing-library/react';
 import { Sliders } from 'lucide-react';
@@ -5,6 +6,107 @@ import { describe, expect, it, vi } from 'vitest';
 import { BaseCardDialog } from '.';
 
 describe('BaseCardDialog', () => {
+  it('keeps primary controls visible and returns to them after secondary navigation and reopening', () => {
+    const onRoomChange = vi.fn();
+    const props = {
+      isOpen: true,
+      onOpenChange: vi.fn(),
+      title: 'Photo settings',
+      theme: 'dark' as const,
+      roomSelector: {
+        value: 'kitchen',
+        label: 'Kitchen',
+        options: [
+          { label: 'Kitchen', value: 'kitchen' },
+          { label: 'Office', value: 'office' },
+        ],
+        onChange: onRoomChange,
+      },
+      tabs: [
+        { key: 'controls', label: 'Controls', icon: Sliders, content: <p>Photo sources</p> },
+        {
+          key: 'customize',
+          label: 'Customize',
+          icon: Sliders,
+          content: <p>Appearance settings</p>,
+        },
+      ],
+    };
+    const { rerender } = renderWithProviders(<BaseCardDialog {...props} />);
+    expect(screen.getByText('Photo sources')).toBeVisible();
+    expect(screen.queryByRole('button', { name: 'Customize' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('combobox', { name: 'Room' })).not.toBeInTheDocument();
+    fireEvent.keyDown(screen.getAllByRole('button', { name: 'More actions' })[0], { key: 'Enter' });
+    expect(screen.queryByRole('menuitem', { name: 'Edit card name' })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Edit room' }));
+    fireEvent.change(screen.getByRole('combobox', { name: 'Room' }), {
+      target: { value: 'office' },
+    });
+    expect(onRoomChange).toHaveBeenCalledWith('office');
+    fireEvent.click(screen.getByRole('button', { name: 'Back to controls' }));
+    expect(screen.getByText('Photo sources')).toBeVisible();
+    fireEvent.keyDown(screen.getAllByRole('button', { name: 'More actions' })[0], { key: 'Enter' });
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Customize' }));
+    expect(screen.getByText('Appearance settings')).toBeVisible();
+    rerender(<BaseCardDialog {...props} isOpen={false} />);
+    rerender(<BaseCardDialog {...props} />);
+    expect(screen.getByText('Photo sources')).toBeVisible();
+    expect(screen.getByText('Appearance settings')).not.toBeVisible();
+  });
+
+  it.each([
+    ['home_assistant:sensor.office_temperature', 'sensor.office_temperature'],
+    ['sensor.office_temperature', 'sensor.office_temperature'],
+    ['homey:device-123#measure_temperature', 'device-123#measure_temperature'],
+    ['openhab:Office_Temperature', 'Office_Temperature'],
+  ])('shows the native provider ID for %s while editing', (entityId, nativeId) => {
+    renderWithProviders(
+      <BaseCardDialog
+        navigation="tabs"
+        isOpen
+        onOpenChange={vi.fn()}
+        title="Temperature"
+        entityId={entityId}
+        theme="dark"
+        tabs={[{ key: 'controls', label: 'Controls', icon: Sliders, content: null }]}
+      />
+    );
+
+    expect(screen.getByText(nativeId, { selector: 'code' })).toBeVisible();
+    fireEvent.click(screen.getByRole('button', { name: 'Edit Temperature' }));
+    expect(screen.getByText(nativeId, { selector: 'code' })).toBeVisible();
+  });
+
+  it('uses one title ID when the visible content supplies the dialog title', () => {
+    renderWithProviders(
+      <BaseCardDialog
+        variant="modal"
+        isOpen
+        onOpenChange={vi.fn()}
+        title="Add card"
+        description="Choose a card"
+        titleInContent
+        theme="dark"
+      >
+        <CardDialogHeader
+          title="Add card"
+          description="Choose a card"
+          editableTitle={false}
+          showRoomSelector={false}
+        />
+      </BaseCardDialog>
+    );
+
+    expect(screen.queryByText('Entity id:')).not.toBeInTheDocument();
+    const dialog = screen.getByRole('dialog', { name: 'Add card' });
+    expect(within(dialog).getByRole('heading', { name: 'Add card' })).toBeInTheDocument();
+    const titleId = dialog.getAttribute('aria-labelledby');
+    expect(titleId).toBeTruthy();
+    expect(
+      Array.from(document.querySelectorAll('[id]')).filter((node) => node.id === titleId)
+    ).toHaveLength(1);
+  });
+
   it('anchors the mobile sheet dismiss independently from its header', () => {
     const onOpenChange = vi.fn();
     renderWithProviders(
@@ -58,6 +160,7 @@ describe('BaseCardDialog', () => {
       'max-sm:!bottom-0',
       'max-sm:!left-0',
       'max-sm:!h-[80dvh]',
+      'max-sm:[--navet-safe-area-top-offset:0px]',
       'max-sm:!rounded-t-[30px]',
       'max-sm:!rounded-b-none'
     );
@@ -77,16 +180,34 @@ describe('BaseCardDialog', () => {
 
     fireEvent.pointerDown(dragHandle, { clientY: 600, pointerId: 1, pointerType: 'touch' });
     fireEvent.pointerMove(window, { clientY: 500, pointerId: 1, pointerType: 'touch' });
+    expect(dialog.style.getPropertyValue('--mobile-cover-sheet-top')).toContain(
+      'env(safe-area-inset-top, 0px)'
+    );
     fireEvent.pointerUp(window, { clientY: 500, pointerId: 1, pointerType: 'touch' });
 
     expect(dialog).toHaveClass('max-sm:!h-auto');
-    expect(dialog.style.getPropertyValue('--mobile-cover-sheet-top')).toBe('0.5rem');
-    expect(screen.getByRole('button', { name: 'Close dialog' })).toBeInTheDocument();
+    expect(dialog.style.getPropertyValue('--mobile-cover-sheet-top')).toBe(
+      'calc(max(env(safe-area-inset-top, 0px), 0px) + 0.5rem)'
+    );
+    const fullscreenDragHandle = screen.getByRole('button', { name: 'Close dialog' });
+    expect(fullscreenDragHandle).toBeInTheDocument();
+
+    onOpenChange.mockClear();
+    fireEvent.pointerDown(fullscreenDragHandle, {
+      clientY: 100,
+      pointerId: 2,
+      pointerType: 'touch',
+    });
+    fireEvent.pointerMove(window, { clientY: 700, pointerId: 2, pointerType: 'touch' });
+    fireEvent.pointerUp(window, { clientY: 700, pointerId: 2, pointerType: 'touch' });
+
+    expect(onOpenChange).toHaveBeenCalledWith(false);
   });
 
   it('renders the room selector as a plain eyebrow and keeps actions palette-aware', () => {
     renderWithProviders(
       <BaseCardDialog
+        navigation="tabs"
         isOpen
         onOpenChange={vi.fn()}
         title="Plant Light"
@@ -115,7 +236,8 @@ describe('BaseCardDialog', () => {
 
     const dialog = screen.getByRole('dialog', { name: 'Plant Light' });
     const wholeSheetScrollArea = dialog.querySelector('[dir="ltr"]');
-    expect(wholeSheetScrollArea).toHaveClass('max-sm:-mt-5', 'max-sm:min-h-0', 'max-sm:flex-1');
+    expect(wholeSheetScrollArea).toHaveClass('max-sm:min-h-0', 'max-sm:flex-1');
+    expect(wholeSheetScrollArea).not.toHaveClass('max-sm:-mt-5');
     expect(wholeSheetScrollArea?.parentElement).toHaveClass(
       'max-sm:flex',
       'max-sm:min-h-0',
@@ -153,6 +275,7 @@ describe('BaseCardDialog', () => {
   it('renders entity-backed room selectors as plain eyebrows above the title', () => {
     renderWithProviders(
       <BaseCardDialog
+        navigation="tabs"
         isOpen
         onOpenChange={vi.fn()}
         title="Window Lamp"

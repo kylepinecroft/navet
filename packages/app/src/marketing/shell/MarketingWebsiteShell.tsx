@@ -1,18 +1,19 @@
 import logoHorizontalLight from '@assets/public/logo-horizontal-light.svg';
+import { SkipLink } from '@navet/app/components/primitives/skip-link';
 import { Text } from '@navet/app/components/primitives/text';
-import { DiscordMark, RedditMark } from '@navet/app/components/shared/social-marks';
+import { DiscordMark, RedditMark, YouTubeMark } from '@navet/app/components/shared/social-marks';
 import {
   getThemeFocusRingClassName,
   navetSpacingTokens,
   navetTypographyTokens,
 } from '@navet/app/components/system/tokens';
 import { cn } from '@navet/app/components/ui/utils';
-import { APP_VERSION } from '@navet/app/constants/app-version';
 import { useTheme } from '@navet/app/hooks/use-theme';
 import {
   getMarketingWebsitePath,
   MARKETING_URLS,
 } from '@navet/app/marketing/constants/marketingLinks';
+import { useLatestGithubRelease } from '@navet/app/marketing/hooks/use-latest-github-release';
 import { GithubMark } from '@navet/app/marketing/icons/GithubMark';
 import { storage } from '@navet/app/utils/storage';
 import { AnimatedGridPattern } from '@website/components/effects/animated-grid-pattern';
@@ -141,7 +142,17 @@ function GithubNavLink({
   );
 }
 
-function SocialIconLink({ href, label, icon }: { href: string; label: string; icon: ReactNode }) {
+function SocialIconLink({
+  href,
+  label,
+  icon,
+  className,
+}: {
+  href: string;
+  label: string;
+  icon: ReactNode;
+  className?: string;
+}) {
   const { theme } = useTheme();
 
   return (
@@ -153,10 +164,9 @@ function SocialIconLink({ href, label, icon }: { href: string; label: string; ic
       title={label}
       className={cn(
         getThemeFocusRingClassName(theme),
-        'inline-flex h-9 w-9 items-center justify-center rounded-full border transition-[color,background-color,border-color] motion-reduce:transition-none',
-        theme === 'light'
-          ? 'border-slate-200 bg-white/72 text-slate-600 hover:border-slate-300 hover:bg-white hover:text-slate-950'
-          : 'border-white/10 bg-white/[0.045] text-white/62 hover:border-white/16 hover:bg-white/[0.08] hover:text-white'
+        'group inline-flex h-9 w-9 items-center justify-center rounded-sm transition-colors duration-200 motion-reduce:transition-none',
+        theme === 'light' ? 'text-slate-500' : 'text-white/62',
+        className
       )}
     >
       {icon}
@@ -171,11 +181,13 @@ export function MarketingWebsiteShell({
   children: ReactNode;
   currentPathname: string;
 }) {
+  const latestRelease = useLatestGithubRelease();
   const { theme, accentColor } = useTheme();
   const isLightTheme = theme === 'light';
   const isHomePage = currentPathname === '/';
   const [isMobileNavOpen, setIsMobileNavOpen] = useState(false);
   const headerRef = useRef<HTMLElement | null>(null);
+  const mobileNavToggleRef = useRef<HTMLButtonElement | null>(null);
   const mobileNavId = useId();
   const [githubStarCount, setGithubStarCount] = useState<string | null>(() => {
     const cached = storage.get<{ count: number; expiresAt: number } | null>(
@@ -287,6 +299,7 @@ export function MarketingWebsiteShell({
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
         setIsMobileNavOpen(false);
+        mobileNavToggleRef.current?.focus();
       }
     };
 
@@ -312,6 +325,7 @@ export function MarketingWebsiteShell({
           : 'bg-[radial-gradient(circle_at_top,rgba(249,115,22,0.18),transparent_24%),radial-gradient(circle_at_82%_12%,rgba(59,130,246,0.12),transparent_20%),linear-gradient(180deg,#080c13_0%,#06080d_100%)] text-white'
       )}
     >
+      <SkipLink targetId="marketing-main-content" label="Skip to main content" />
       <div aria-hidden="true" className="pointer-events-none fixed inset-0">
         <div className="marketing-aurora marketing-aurora--amber" />
         <div className="marketing-aurora marketing-aurora--blue" />
@@ -324,7 +338,7 @@ export function MarketingWebsiteShell({
         <header
           ref={headerRef}
           className={cn(
-            'absolute inset-x-4 top-4 z-20 px-3.5 py-2 shadow-[0_20px_60px_-36px_rgba(0,0,0,0.72)] backdrop-blur-xl transition-[border-radius,background-color,border-color,box-shadow] sm:inset-x-6 sm:px-4 sm:py-2.5 lg:inset-x-8 lg:top-6 lg:px-5',
+            'absolute inset-x-4 top-4 z-20 py-2 pr-[15px] pl-[10px] shadow-[0_20px_60px_-36px_rgba(0,0,0,0.72)] backdrop-blur-xl transition-[border-radius,background-color,border-color,box-shadow] sm:inset-x-6 sm:py-2.5 lg:inset-x-8 lg:top-6',
             isMobileNavOpen ? 'rounded-[26px] sm:rounded-[28px]' : 'rounded-[24px] sm:rounded-full',
             isLightTheme
               ? 'border border-slate-200/90 bg-white/78'
@@ -356,6 +370,7 @@ export function MarketingWebsiteShell({
             </nav>
 
             <button
+              ref={mobileNavToggleRef}
               type="button"
               onClick={() => setIsMobileNavOpen((open) => !open)}
               aria-label={isMobileNavOpen ? 'Close navigation menu' : 'Open navigation menu'}
@@ -422,6 +437,8 @@ export function MarketingWebsiteShell({
         </header>
 
         <main
+          id="marketing-main-content"
+          tabIndex={-1}
           className={cn(
             'pb-12 md:pb-16',
             isHomePage
@@ -438,7 +455,7 @@ export function MarketingWebsiteShell({
             isLightTheme ? 'border-slate-200' : 'border-white/10'
           )}
         >
-          <div className="flex flex-wrap items-start justify-between gap-5">
+          <div className="flex flex-wrap items-center justify-between gap-5">
             <nav aria-label="Footer" className="flex flex-wrap gap-5">
               <WebsiteNavLink href={MARKETING_URLS.demo} className="min-h-0 px-0">
                 Demo
@@ -452,11 +469,8 @@ export function MarketingWebsiteShell({
               <WebsiteNavLink href={MARKETING_URLS.changelog} className="min-h-0 px-0">
                 Changelog
               </WebsiteNavLink>
-              <WebsiteNavLink
-                href={`${MARKETING_URLS.github}/releases/tag/v${APP_VERSION}`}
-                className="min-h-0 px-0"
-              >
-                Latest: v{APP_VERSION}
+              <WebsiteNavLink href={latestRelease.url} className="min-h-0 px-0">
+                {latestRelease.status === 'fresh' ? 'Latest' : 'Release'}: v{latestRelease.version}
               </WebsiteNavLink>
               <WebsiteNavLink href={MARKETING_URLS.resources} className="min-h-0 px-0">
                 Resources
@@ -475,12 +489,36 @@ export function MarketingWebsiteShell({
               <SocialIconLink
                 href={MARKETING_URLS.discord}
                 label="Discord"
-                icon={<DiscordMark className="h-4 w-4" />}
+                className="hover:text-[#5865f2] focus-visible:text-[#5865f2]"
+                icon={<DiscordMark className="h-5 w-5" />}
               />
               <SocialIconLink
                 href={MARKETING_URLS.reddit}
                 label="Reddit"
-                icon={<RedditMark className="h-4 w-4" />}
+                className="hover:text-[#ff4500] focus-visible:text-[#ff4500]"
+                icon={
+                  <span className="relative h-5 w-5">
+                    <span
+                      className="absolute inset-[1px] rounded-full bg-transparent transition-colors duration-200 group-hover:bg-white group-focus-visible:bg-white motion-reduce:transition-none"
+                      aria-hidden="true"
+                    />
+                    <RedditMark className="relative h-5 w-5" />
+                  </span>
+                }
+              />
+              <SocialIconLink
+                href={MARKETING_URLS.youtube}
+                label="YouTube"
+                className="hover:text-[#ff0000] focus-visible:text-[#ff0000]"
+                icon={
+                  <span className="relative h-5 w-5">
+                    <span
+                      className="absolute inset-[2px] rounded-sm bg-transparent transition-colors duration-200 group-hover:bg-white group-focus-visible:bg-white motion-reduce:transition-none"
+                      aria-hidden="true"
+                    />
+                    <YouTubeMark className="relative h-5 w-5" />
+                  </span>
+                }
               />
             </nav>
           </div>

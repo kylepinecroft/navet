@@ -55,6 +55,7 @@ export async function getIntegrationEntityHistory(
   }
 
   const nativeEntityId = readNativeEntityId(request.entityId);
+  if (service.supportsEntityHistory?.(nativeEntityId) === false) return null;
   const result = await service.getEntityHistory({ ...request, entityId: nativeEntityId });
   return { ...result, entityId: request.entityId };
 }
@@ -63,7 +64,9 @@ async function getProviderEntityHistories({
   providerId,
   canonicalEntityIds,
   request,
+  requireComplete,
 }: {
+  requireComplete: boolean;
   providerId: IntegrationProviderId;
   canonicalEntityIds: string[];
   request: Omit<PlatformEntityHistoriesRequest, 'entityIds'>;
@@ -78,7 +81,10 @@ async function getProviderEntityHistories({
   for (const canonicalEntityId of canonicalEntityIds) {
     nativeToCanonical.set(readNativeEntityId(canonicalEntityId), canonicalEntityId);
   }
-  const nativeEntityIds = [...nativeToCanonical.keys()];
+  const nativeEntityIds = [...nativeToCanonical.keys()].filter(
+    (entityId) => service.supportsEntityHistory?.(entityId) !== false
+  );
+  if (nativeEntityIds.length === 0) return [];
 
   if (service.getEntityHistories) {
     const providerSeries = await service.getEntityHistories({
@@ -116,6 +122,7 @@ async function getProviderEntityHistories({
     for (let resultIndex = 0; resultIndex < results.length; resultIndex += 1) {
       const result = results[resultIndex];
       const nativeEntityId = batch[resultIndex];
+      if (requireComplete && result?.status === 'rejected') throw result.reason;
       if (result?.status !== 'fulfilled' || !result.value || !nativeEntityId) {
         continue;
       }
@@ -130,7 +137,8 @@ async function getProviderEntityHistories({
 }
 
 export async function getIntegrationEntityHistories(
-  request: PlatformEntityHistoriesRequest
+  request: PlatformEntityHistoriesRequest,
+  options: { requireComplete?: boolean } = {}
 ): Promise<PlatformEntityHistorySeries[]> {
   if (request.entityIds.length === 0) {
     return [];
@@ -161,10 +169,19 @@ export async function getIntegrationEntityHistories(
   };
   const providerResults = await Promise.allSettled(
     [...canonicalIdsByProvider.entries()].map(([providerId, canonicalEntityIds]) =>
-      getProviderEntityHistories({ providerId, canonicalEntityIds, request: providerRequest })
+      getProviderEntityHistories({
+        providerId,
+        canonicalEntityIds,
+        request: providerRequest,
+        requireComplete: options.requireComplete ?? false,
+      })
     )
   );
   throwIfHistoryRequestAborted(request.signal);
+  if (options.requireComplete) {
+    const failure = providerResults.find((result) => result.status === 'rejected');
+    if (failure?.status === 'rejected') throw failure.reason;
+  }
   const seriesByCanonicalEntityId = new Map(
     providerResults
       .flatMap((result) => (result.status === 'fulfilled' ? result.value : []))

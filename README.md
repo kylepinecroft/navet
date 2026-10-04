@@ -16,6 +16,8 @@
   <p>
     <a href="https://demo.navet.app/"><strong>Explore the demo</strong></a>
     ·
+    <a href="https://www.youtube.com/watch?v=FmdQCJASTZA">Watch the Navet teaser</a>
+    ·
     <a href="https://docs.navet.app/install/">Choose an installation</a>
     ·
     <a href="https://docs.navet.app/">Read the docs</a>
@@ -23,7 +25,7 @@
 
   <p>
     <a href="https://docs.navet.app/security/"><img src="https://img.shields.io/badge/local--first-self--hosted-14b8a6" alt="Local-first and self-hosted"></a>
-    <a href="LICENSE.md"><img src="https://img.shields.io/badge/license-AGPL--3.0-f97316" alt="AGPL-3.0 license"></a>
+    <a href="LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0-f97316" alt="AGPL-3.0 license"></a>
     <a href="https://github.com/awesomestvi/navet/stargazers"><img src="https://img.shields.io/github/stars/awesomestvi/navet?style=flat" alt="GitHub stars"></a>
   </p>
 </div>
@@ -67,8 +69,8 @@ themes, wallpapers, adaptive visual effects, and localization.
 | Provider | Current support | Ways to run Navet |
 |---|---|---|
 | **Home Assistant** | Navet's broadest integration, including advanced climate, media, camera, energy, weather, calendar, notification, task, history, security, and administration services | Custom panel via HACS, Home Assistant add-on, or standalone |
-| **Homey** | Rooms, realtime entities, lights, switches, and sensors | Standalone; optional additional provider when OAuth is configured |
-| **openHAB** | Rooms, realtime entities, lights, switches, and sensors | Standalone; optional additional provider from Settings |
+| **Homey** | Rooms, realtime entities, lights, switches, sensors, locks, covers, climate, speaker controls, Flows, Moods, people, notifications, Insights history, favorites, and app/device browsing | Standalone; optional additional provider when OAuth is configured |
+| **openHAB** | Rooms, realtime entities, lights, switches, fans, climate setpoints, speaker controls, locks, covers, security sensors, batteries, and utility measurements | Standalone; optional additional provider from Settings |
 
 Standalone Navet can retain connections to multiple supported providers and combine selected
 providers in shared dashboard collections. Capabilities are not identical: Home Assistant is the
@@ -90,29 +92,6 @@ Hubitat and SmartThings are planned and are not supported today. Follow the
 
 Not sure which route fits? [Compare every installation option](https://docs.navet.app/install/).
 
-## Local by default
-
-Navet is built for self-hosted smart homes. It does not require a Navet cloud account. Provider
-data, dashboard state, and credentials stay on your device or server rather than Navet servers.
-
-Standalone Home Assistant logins are isolated per browser profile. Navet keeps each OAuth session
-under `/data`, identifies the browser with an opaque `HttpOnly` cookie, and never reuses one wall
-panel's Home Assistant login for another phone or panel. Signing out removes only that browser's
-session; shared dashboard settings remain a separate concern from provider credentials. After the
-Home Assistant authorization page closes, dashboard requests, token renewal, and provider-managed
-HTTP camera resources use Navet's same-origin proxy instead of requiring every browser to reach
-the container's Home Assistant address. If startup cannot restore that browser session, the
-recovery screen can retry the connection or return to login for a fresh sign-in.
-
-The Home Assistant add-on is Ingress-only so its trusted Home Assistant user headers are never
-accepted from a directly exposed add-on port. Use standalone Docker for direct browser access and
-per-browser OAuth sessions.
-
-A public deployment is still a sensitive control surface. Use HTTPS, least-privilege provider
-accounts, and the guidance in the [security policy](https://docs.navet.app/security/).
-
-Please report vulnerabilities privately to `security@navet.app` rather than opening a public issue.
-
 ## Contribute to Navet
 
 Navet is an AGPL-3.0 open-source project. Whether you want to fix a bug, improve a provider, refine
@@ -130,8 +109,8 @@ Prerequisites: Node.js `^20.19.0` or `>=22.12.0`, pnpm 11, and Git.
 <details>
 <summary><strong>Repository architecture</strong></summary>
 
-Navet is moving toward provider-neutral core and UI packages, provider-owned adapters, and an
-official app-composition layer:
+Navet organizes shared contracts, provider adapters, and application composition into workspace
+packages:
 
 ```text
 packages/
@@ -140,8 +119,6 @@ packages/
   provider-homeassistant/     Home Assistant adapter
   provider-homey/             Homey adapter
   provider-openhab/           openHAB adapter
-  provider-hubitat/           planned provider surface
-  provider-smartthings/       planned provider surface
   app/                        dashboard and app composition
 
 apps/
@@ -153,10 +130,9 @@ apps/
   storybook/                  shared UI review surface
 ```
 
-Much of the current shared UI implementation still lives in `packages/app/src/components/*` and
-`packages/app/src/ui-kit/*`; `@navet/ui` is the target shared boundary rather than a claim that the
-extraction is already complete. Read the [repository documentation map](docs/README.md) before
-making architecture changes.
+Shared UI is authored in `packages/app/src/components/*` and exposed through
+`packages/app/src/ui-kit/*`. `@navet/ui` is the target package for provider-neutral shared UI.
+Read the [repository documentation map](docs/README.md) before making architecture changes.
 
 </details>
 
@@ -191,7 +167,7 @@ please report anything that does not work as documented.
 
 ## License
 
-Navet is licensed under the [GNU Affero General Public License v3.0](LICENSE.md). If you run a modified
+Navet is licensed under the [GNU Affero General Public License v3.0](LICENSE). If you run a modified
 version for users over a network, the AGPL requires you to make the corresponding source available
 to those users. See the [terms of use](docs/TERMS_OF_USE.md) and
 [trademark policy](docs/branding/TRADEMARK_POLICY.md) for details.

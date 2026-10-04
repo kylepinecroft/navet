@@ -136,7 +136,6 @@ describe('homeassistant-adapter', () => {
       browseMediaSource: vi.fn(async () => ({ title: 'Media' })),
       resolveMediaSource: vi.fn(async () => ({ url: '/media', mime_type: 'image/jpeg' })),
       getAutomationConfig: vi.fn(async () => ({ config: {} })),
-      saveAutomationConfig: vi.fn(async () => undefined),
       getCameraCapabilities: vi.fn(async () => ({ frontend_stream_types: [] })),
       enableCameraMotionDetection: vi.fn(async () => undefined),
       disableCameraMotionDetection: vi.fn(async () => undefined),
@@ -162,6 +161,9 @@ describe('homeassistant-adapter', () => {
       })),
       getStoreState: vi.fn(() => ({
         connected: true,
+        connecting: false,
+        reconnecting: false,
+        error: null,
         entities: {
           'light.kitchen': lightEntityFactory(),
           'alarm_control_panel.home': alarmEntityFactory(),
@@ -173,6 +175,7 @@ describe('homeassistant-adapter', () => {
         areas: [],
         deviceRegistry: [],
         entityRegistry: [],
+        registriesHydrated: true,
         syncPanelHass: syncPanelHassMock,
         connect: connectMock,
         disconnect: disconnectMock,

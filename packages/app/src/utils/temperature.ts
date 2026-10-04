@@ -1,22 +1,6 @@
-export type TemperatureUnit = 'celsius' | 'fahrenheit';
+import type { TemperatureUnit } from '@navet/core/temperature';
 
-export function normalizeTemperatureUnit(value: unknown): TemperatureUnit | undefined {
-  if (typeof value !== 'string') {
-    return undefined;
-  }
-
-  const normalized = value.trim().toLowerCase();
-
-  if (normalized === '°f' || normalized === 'f' || normalized === 'fahrenheit') {
-    return 'fahrenheit';
-  }
-
-  if (normalized === '°c' || normalized === 'c' || normalized === 'celsius') {
-    return 'celsius';
-  }
-
-  return undefined;
-}
+export { normalizeTemperatureUnit, type TemperatureUnit } from '@navet/core/temperature';
 
 export function getTemperatureUnitSymbol(unit: TemperatureUnit): '°C' | '°F' {
   return unit === 'fahrenheit' ? '°F' : '°C';
@@ -67,15 +51,13 @@ export function formatDisplayTemperature(value: number): string {
 }
 
 export function formatTemperature(value: number, unit: TemperatureUnit): string {
-  const displayValue = formatDisplayTemperature(
-    Math.round(convertCelsiusToTemperatureUnit(value, unit))
-  );
+  const displayValue = formatDisplayTemperature(convertCelsiusToTemperatureUnit(value, unit));
 
   return `${displayValue}${getTemperatureUnitSymbol(unit)}`;
 }
 
 export function formatTemperatureValue(value: number, unit: TemperatureUnit): string {
-  return formatDisplayTemperature(Math.round(convertCelsiusToTemperatureUnit(value, unit)));
+  return formatDisplayTemperature(convertCelsiusToTemperatureUnit(value, unit));
 }
 
 export function formatTemperatureFromSourceUnit(
@@ -84,7 +66,7 @@ export function formatTemperatureFromSourceUnit(
   displayUnit: TemperatureUnit
 ): string {
   const displayValue = formatDisplayTemperature(
-    Math.round(convertTemperatureUnitValue(value, sourceUnit, displayUnit))
+    convertTemperatureUnitValue(value, sourceUnit, displayUnit)
   );
 
   return `${displayValue}${getTemperatureUnitSymbol(displayUnit)}`;
@@ -95,7 +77,5 @@ export function formatTemperatureValueFromSourceUnit(
   sourceUnit: TemperatureUnit | undefined,
   displayUnit: TemperatureUnit
 ): string {
-  return formatDisplayTemperature(
-    Math.round(convertTemperatureUnitValue(value, sourceUnit, displayUnit))
-  );
+  return formatDisplayTemperature(convertTemperatureUnitValue(value, sourceUnit, displayUnit));
 }

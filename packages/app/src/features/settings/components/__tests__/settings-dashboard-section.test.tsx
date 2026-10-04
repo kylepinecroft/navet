@@ -171,17 +171,36 @@ describe('SettingsDashboardSection', () => {
 
     renderWithProviders(<TestSection />);
 
-    fireEvent.pointerDown(
-      screen.getByRole('button', { name: 'Dashboard actions for Upstairs lights' })
+    const homeDashboard = screen.getByTestId('dashboard-manager-home');
+    const upstairsDashboard = screen.getByTestId('dashboard-manager-upstairs');
+    expect(within(homeDashboard).getByText('Default')).toHaveClass(
+      'rounded-full',
+      'border',
+      'px-2',
+      'py-0.5',
+      'text-[10px]'
     );
-    fireEvent.click(await screen.findByRole('menuitem', { name: 'Assign devices' }));
+    expect(homeDashboard).toHaveTextContent('Used by 2 displays');
+    expect(within(homeDashboard).queryByText('Sonoff upstairs')).not.toBeInTheDocument();
+    expect(within(homeDashboard).queryByText('This display')).not.toBeInTheDocument();
+    expect(upstairsDashboard).toHaveTextContent('Not assigned');
+
+    const dashboardActions = screen.getByRole('button', {
+      name: 'Dashboard actions for Upstairs lights',
+    });
+    expect(dashboardActions).toHaveClass('h-9', 'w-9', 'rounded-full');
+    fireEvent.pointerDown(dashboardActions);
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Assign displays' }));
 
     const dialog = await screen.findByRole('dialog', { name: 'Assign Upstairs lights' });
+    expect(within(dialog).getByRole('button', { name: 'Sonoff upstairs' })).toBeInTheDocument();
     fireEvent.click(within(dialog).getByRole('button', { name: 'Sonoff upstairs' }));
 
     const assignments = useDashboardCollectionStore.getState().collection.dashboardIdByClientId;
     expect(assignments['sonoff-upstairs']).toBe('upstairs');
     expect(assignments[currentClientId]).toBeUndefined();
+    expect(homeDashboard).toHaveTextContent('Used by 1 display');
+    expect(upstairsDashboard).toHaveTextContent('Used by 1 display');
   });
 
   it('lets a dashboard use a local summary bar', () => {

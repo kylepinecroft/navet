@@ -23,11 +23,13 @@ packages/
 - `@navet/app`
   Product shell, runtime selection, provider registration, settings, persistence, and boot wiring.
 
-Home Assistant is the first implemented provider, not the application architecture.
+Home Assistant is the reference adapter for Navet’s provider contracts.
 
 The app runtime is multi-provider: it can retain multiple implemented provider sessions, maintain
 provider-scoped state for each, and merge selected provider collections for shared dashboard use.
-An active provider is still used for operations that require one provider-specific feature service.
+Product features use selected entities and their owning providers, with availability drawn from
+connected providers. Do not introduce a global primary-provider setting. A current session remains
+an internal compatibility detail in legacy code; new feature routing must use explicit sources.
 
 ## Current Reality
 
@@ -78,18 +80,31 @@ architecture regression.
 - Home Assistant: implemented
 - Homey: implemented
 - openHAB: implemented
-- Hubitat: planned (contract + registration entry only)
-- SmartThings: planned (contract + registration entry only)
+- Hubitat: planned metadata only
+- SmartThings: planned metadata only
 
 Implemented does not mean feature-identical. Home Assistant registers Navet's climate, media,
 camera, energy, calendar, weather, notification, task, history, security, and administration
-services. Homey and openHAB currently register rooms, realtime entities, lighting, switches, and
-sensors. Keep that distinction visible in product and contributor documentation.
+services. Homey maps lock/unlock commands to its writable `locked` capability, registers
+cover controls for native position and movement capabilities, registers thermostat controls,
+and maps speaker playback, volume, mute, and track
+commands to writable device capabilities. It also exposes flows and moods as scenes, people,
+notifications, Insights history,
+and a normalized hub-resource service for browsing apps and managing favorites and device
+capabilities. openHAB maps rooms, realtime entities, lights, switches, fans, security sensors,
+batteries, and utility measurements. It registers climate setpoint, speaker playback and volume,
+lock, and cover controls. openHAB has no history, energy-statistics, alarm-panel, or media-browser
+services.
+Keep those capability differences visible in product and contributor documentation.
 
-## Read Next
+## Read Deeper Only When Needed
 
-- [../architecture/package-boundaries.md](../architecture/package-boundaries.md)
-- [../architecture/provider-contract.md](../architecture/provider-contract.md)
-- [../architecture/provider-neutral-ui.md](../architecture/provider-neutral-ui.md)
-- [../architecture/dashboard-profile-ownership.md](../architecture/dashboard-profile-ownership.md)
-- [../testing/provider-testing-strategy.md](../testing/provider-testing-strategy.md)
+This overview is sufficient for ordinary architecture work. Open one deeper document only when
+the change touches its interface:
+
+- package imports or ownership: [package boundaries](../architecture/package-boundaries.md)
+- adapter or command shape: [provider contract](../architecture/provider-contract.md)
+- shared rendering inputs: [provider-neutral UI](../architecture/provider-neutral-ui.md)
+- dashboard persistence and sync: [dashboard profile ownership](../architecture/dashboard-profile-ownership.md)
+- compatibility reads: [persisted-data migrations](../architecture/persisted-data-migrations.md)
+- provider test layers: [provider testing strategy](../testing/provider-testing-strategy.md)

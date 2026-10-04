@@ -7,10 +7,10 @@ import {
 } from '@navet/app/auth/types';
 import { getRegisteredProviderContract } from '@navet/app/provider-contract-registry';
 import type { IntegrationProviderId } from '@navet/app/types/provider';
+import { isImplementedIntegrationProviderId } from '@navet/core/integration-providers';
 import type { NavetProviderSession } from '@navet/core/provider-contract';
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
 import { PwaUpdatePrompt } from './components/shared/pwa-update-prompt';
-import { useLocalHabitsFeature } from './features/habits/local-habits-feature';
 import {
   useAccentColor,
   useCurrentIntegrationConnectionState,
@@ -53,8 +53,8 @@ const Toaster = lazy(async () => {
 
 function AuthenticatedLoadingScreen({ message }: { message: string }) {
   return (
-    <div
-      role="status"
+    <main
+      aria-busy="true"
       className="fixed inset-0 z-50 flex flex-col items-center justify-center gap-4 bg-background text-foreground"
     >
       <span
@@ -62,8 +62,10 @@ function AuthenticatedLoadingScreen({ message }: { message: string }) {
         className="h-8 w-8 animate-spin rounded-full border-2 border-current border-r-transparent"
         style={{ color: 'var(--navet-accent)' }}
       />
-      <p className="text-sm text-muted-foreground">{message}</p>
-    </div>
+      <p role="status" className="text-sm text-muted-foreground">
+        {message}
+      </p>
+    </main>
   );
 }
 
@@ -94,6 +96,7 @@ function AppContent() {
   const clearAppError = useErrorStore(appErrorSelectors.clearError);
   const { connected, connecting, reconnecting } = useCurrentIntegrationConnectionState();
   const providerHealth = useProviderHealth(provider.id);
+  const homeAssistantHealth = useProviderHealth('home_assistant');
   const setCurrentProviderId = useCurrentIntegrationStore(
     integrationSelectors.setCurrentProviderId
   );
@@ -103,13 +106,12 @@ function AppContent() {
   );
   const setProviderSessions = useCurrentIntegrationStore(integrationSelectors.setProviderSessions);
   const accentColor = useAccentColor();
-  const [localHabitsFeatureEnabled] = useLocalHabitsFeature();
   const keepDeviceAwake = useSettingsStore(settingsSelectors.keepDeviceAwake);
   const [isOnline, setIsOnline] = useState(() =>
     typeof navigator === 'undefined' ? true : navigator.onLine
   );
   const failedConnectionAttemptKeys = useRef<Partial<Record<IntegrationProviderId, string>>>({});
-  const previousSessionProviderIds = useRef<IntegrationProviderId[]>([]);
+  const previousSessionProviderIds = useRef<AuthSession['providerId'][]>([]);
   const ingressInvalidAuthRecoveryInFlight = useRef(false);
   const standaloneInvalidAuthRecoveryInFlight = useRef(false);
   const isInvalidHomeAssistantAuth = appError?.message === INVALID_HOME_ASSISTANT_AUTH_MESSAGE;
@@ -220,14 +222,15 @@ function AppContent() {
 
   useEffect(() => {
     const nextSessions = Object.fromEntries(
-      (Object.keys(sessions) as IntegrationProviderId[])
+      Object.keys(sessions)
+        .filter(isImplementedIntegrationProviderId)
         .map((providerId) => [
           providerId,
           getRegisteredProviderContract(providerId).bootstrapSession?.(
             toAuthCompatibleSessionMap(sessions)
           ) ?? null,
         ])
-        .filter((entry): entry is [IntegrationProviderId, NavetProviderSession] =>
+        .filter((entry): entry is [AuthSession['providerId'], NavetProviderSession] =>
           Boolean(entry[1])
         )
     ) as Record<IntegrationProviderId, NavetProviderSession>;
@@ -236,12 +239,14 @@ function AppContent() {
   }, [sessions, setProviderSessions]);
 
   useEffect(() => {
-    const currentProviderIds = Object.keys(sessions) as IntegrationProviderId[];
+    const currentProviderIds = Object.keys(sessions).filter(isImplementedIntegrationProviderId);
     const removedProviderIds = previousSessionProviderIds.current.filter(
       (previousProviderId) => !currentProviderIds.includes(previousProviderId)
     );
     const nextSelectedProviderIds = [
-      ...selectedProviderIds.filter((providerId) => currentProviderIds.includes(providerId)),
+      ...selectedProviderIds.filter((providerId) =>
+        currentProviderIds.some((id) => id === providerId)
+      ),
       ...currentProviderIds.filter(
         (providerId) =>
           !selectedProviderIds.includes(providerId) &&
@@ -422,7 +427,7 @@ function AppContent() {
       return;
     }
 
-    if (connected || connecting) {
+    if (homeAssistantHealth.connected || homeAssistantHealth.connecting) {
       return;
     }
 
@@ -434,7 +439,13 @@ function AppContent() {
     void bootstrapIntegrationSession(homeAssistantSession).catch(() => {
       failedConnectionAttemptKeys.current.home_assistant = attemptKey;
     });
-  }, [sessions.home_assistant, connected, connecting, appError, runtime]);
+  }, [
+    sessions.home_assistant,
+    homeAssistantHealth.connected,
+    homeAssistantHealth.connecting,
+    appError,
+    runtime,
+  ]);
 
   useEffect(() => {
     document.documentElement.dataset.navetRuntime = runtime;
@@ -468,29 +479,6 @@ function AppContent() {
   }, []);
 
   useEffect(() => {
-    if (!isAuthenticated || !localHabitsFeatureEnabled) {
-      return;
-    }
-
-    let cancelled = false;
-    let stopHabitEngine: (() => void) | null = null;
-
-    void import('./features/habits/habit-engine').then((module) => {
-      if (cancelled) {
-        return;
-      }
-
-      module.initializeHabitEngine();
-      stopHabitEngine = module.stopHabitEngine;
-    });
-
-    return () => {
-      cancelled = true;
-      stopHabitEngine?.();
-    };
-  }, [isAuthenticated, localHabitsFeatureEnabled]);
-
-  useEffect(() => {
     const handleOnline = () => setIsOnline(true);
     const handleOffline = () => setIsOnline(false);
 
@@ -513,31 +501,33 @@ function AppContent() {
           }
         />
       </Suspense>
-      <PwaUpdatePrompt />
-      {isAuthenticated && !appError && !needsHomeySelection ? (
-        <Suspense fallback={null}>
-          <NetworkStatusBanner
-            connected={connected}
-            connecting={connecting}
-            reconnecting={reconnecting}
-            isOnline={isOnline}
-            providerLabel={provider.label}
-            lastError={providerHealth.lastError}
-          />
-        </Suspense>
-      ) : null}
       <Suspense fallback={null}>
         <Toaster />
       </Suspense>
-      {needsHomeySelection ? (
-        <Suspense fallback={<AuthenticatedLoadingScreen message={t('common.loading')} />}>
-          <HomeySelectionPage />
-        </Suspense>
-      ) : (
-        <Suspense fallback={<AuthenticatedLoadingScreen message={t('common.loading')} />}>
-          <DashboardPage />
-        </Suspense>
-      )}
+      <div className="contents" aria-hidden={Boolean(appError)} inert={Boolean(appError)}>
+        <PwaUpdatePrompt />
+        {isAuthenticated && !appError && !needsHomeySelection ? (
+          <Suspense fallback={null}>
+            <NetworkStatusBanner
+              connected={connected}
+              connecting={connecting}
+              reconnecting={reconnecting}
+              isOnline={isOnline}
+              providerLabel={provider.label}
+              lastError={providerHealth.lastError}
+            />
+          </Suspense>
+        ) : null}
+        {needsHomeySelection ? (
+          <Suspense fallback={<AuthenticatedLoadingScreen message={t('common.loading')} />}>
+            <HomeySelectionPage />
+          </Suspense>
+        ) : (
+          <Suspense fallback={<AuthenticatedLoadingScreen message={t('common.loading')} />}>
+            <DashboardPage />
+          </Suspense>
+        )}
+      </div>
     </>
   );
 }

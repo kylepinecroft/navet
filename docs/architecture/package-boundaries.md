@@ -11,8 +11,6 @@ packages/
   provider-homeassistant/
   provider-homey/
   provider-openhab/
-  provider-hubitat/
-  provider-smartthings/
   app/
 ```
 
@@ -33,7 +31,6 @@ thin and consume package entry surfaces rather than owning shared feature logic.
 | Homey runtime and mapping | `@navet/provider-homey` |
 | openHAB runtime and mapping | `@navet/provider-openhab` |
 | runtime selection, provider registration, settings, persistence | `@navet/app` |
-| Hubitat and SmartThings package entry surfaces | `@navet/provider-hubitat`, `@navet/provider-smartthings` |
 
 Compatibility types like `NavetDevice`, `NavetRoom`, and `NavetProviderSnapshot` still exist, but
 they are app-internal support code. Do not treat them as the preferred shared surface.
@@ -52,6 +49,46 @@ they are app-internal support code. Do not treat them as the preferred shared su
 - provider packages importing app-internal compatibility code as their main input model
 - new shared code importing deep provider internals when a package entry already exists
 
+`pnpm check:provider-boundaries` enforces production package direction for literal imports,
+type imports, re-exports, dynamic imports, and `require`, including relative paths across
+packages. Core cannot import React, and core/UI cannot import the Home Assistant SDK.
+The check discovers package source directories so newly added provider packages are covered.
+Tests and stories remain free to assemble cross-package fixtures. Computed module names,
+arbitrary new path aliases, and cycles within a package are not covered by this check.
+
+## Shared Runtime Policy
+
+Pure chore occurrence/calendar, resource-host, and credential rules live in `packages/core/src`.
+`node scripts/build-runtime-policies.mjs` emits their deployment artifacts under `docker/njs`
+and `docker/shared`; `pnpm check:runtime-policies` rejects stale artifacts in scoped validation
+and provider CI. Edit the TypeScript source rather than generated JavaScript.
+
+The native nginx JavaScript engine has a smaller language surface than browsers or Node.
+Generated modules use default exports and avoid runtime imports and destructuring. A successful
+Node test alone does not establish native runtime compatibility.
+Run `node scripts/check-native-runtime-policies.mjs --njs=/path/to/njs` with a PCRE-enabled
+native CLI to exercise shared vectors and policy operations. This does not replace
+`pnpm check:docker` for nginx HTTP, filesystem, and persisted-restart validation.
+
+`docker/shared/dashboard-profile-policy.js` owns profile sanitization, settings ownership,
+legacy layout normalization, equality, and patch policy for both Vite and nginx. Its declaration
+file supplies the TypeScript interface. Filesystem access, identity, locking, revision handling,
+and HTTP responses stay in the existing runtime stores. Python remains the Home Assistant chore
+authority, with shared conformance vectors checking agreement rather than a second JavaScript
+runtime embedded in Home Assistant. Persisted schemas and migration reads remain compatible.
+
+Host Vite configurations compose plugins from `scripts/vite-*-plugin*.ts`; host aliases and
+build metadata use `scripts/vite-host-conventions.ts`. Build-time modules use resolvable relative
+paths when importing core policy because app aliases do not exist while Vite loads its config.
+
+RSS requires an authenticated provider session. The Ingress handler trusts forwarded identity
+only behind the Supervisor-only nginx listener. The development requester and production Go
+transport validate all DNS answers and pin connections while retaining hostname verification.
+Production nginx uses an internal subrequest to a private Unix socket owned by nginx. Credentials
+and forwarded identity are stripped at that boundary. Both transports apply public-host filtering,
+verified HTTPS, bounded responses, and redirect rejection. The container supervises nginx and the
+transport together. See [RSS transport ownership](rss-transport.md).
+
 ## Runtime Flow
 
 1. `@navet/app` selects the runtime mode and active provider.
@@ -63,20 +100,26 @@ they are app-internal support code. Do not treat them as the preferred shared su
    service when the interaction needs a richer contract.
 6. The matching provider package translates that work into provider-native requests.
 
+Dashboard composition, provider query, synchronization, room-editor, and media-catalog ownership
+inside the app assembly layer are documented in
+[Dashboard Runtime Boundaries](dashboard-runtime.md).
+
 ## Provider Status
 
 | Provider | Status | Notes |
 |---|---|---|
-| Home Assistant | implemented | first stable provider |
+| Home Assistant | implemented | reference adapter |
 | Homey | implemented | standalone OAuth flow |
 | openHAB | implemented | standalone base-URL and username/password flow |
-| Hubitat | planned | provider contract + registration entry only |
-| SmartThings | planned | provider contract + registration entry only |
+| Hubitat | planned | catalog metadata only; no adapter package |
+| SmartThings | planned | catalog metadata only; no adapter package |
 
 Feature-service support is narrower than implementation status. Home Assistant registers the
 advanced climate, media, camera, energy, calendar, weather, notification, task, conversation,
-history, security, and administration services. Homey and openHAB currently register rooms, realtime entities,
-lighting, switches, and sensors.
+history, security, and administration services. Homey additionally registers climate, speaker,
+security, scene, presence, notification, history, and hub-resource capabilities. openHAB
+additionally registers fan, climate-setpoint, speaker, lock, cover, security-sensor, battery, and
+utility-measurement behavior.
 
 ## Working Rule
 

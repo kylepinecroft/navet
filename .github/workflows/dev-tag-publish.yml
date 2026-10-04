@@ -2,23 +2,21 @@ name: Prepare Navet Dev Publish
 
 on:
   workflow_dispatch:
+  pull_request_target:
+    branches:
+      - main
+    types:
+      - closed
 
 permissions:
+  actions: write
   contents: write
 
-concurrency:
-  group: dev-publish-main
-  cancel-in-progress: true
-
 jobs:
-  tier-1-release-critical:
-    name: Release Safety Checks
-    uses: ./.github/workflows/provider-platform-validation.yml
-
   prepare-dev-release:
-    name: Create Navet Dev Metadata Commit And Tag
+    name: Tag Merged Main Commit For Navet Dev
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.merged == true
     runs-on: ubuntu-latest
-    needs: tier-1-release-critical
 
     steps:
       - name: Ensure workflow runs from main
@@ -29,25 +27,73 @@ jobs:
           fi
 
       - name: Checkout main
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
-          ref: main
+          ref: ${{ github.event.pull_request.merge_commit_sha || 'main' }}
           fetch-depth: 0
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: 22
+          package-manager-cache: false
 
       - name: Configure git author
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-      - name: Create and push Navet Dev metadata commit and tag
-        run: node scripts/create-dev-release.mjs --push
+      - name: Classify merged changes
+        id: impact
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.merge_commit_sha || github.sha }}
+        run: |
+          if [[ "${GITHUB_EVENT_NAME}" == workflow_dispatch ]]; then
+            echo 'runtime=true' >> "$GITHUB_OUTPUT"
+          else
+            export BASE_SHA="$(git rev-parse HEAD^)"
+            node scripts/pipeline-impact.mjs
+          fi
+
+      - name: Create and push Navet Dev tag
+        if: steps.impact.outputs.runtime == 'true'
+        id: publish
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number || 0 }}
+        run: |
+          max_attempts=10
+          for attempt in $(seq 1 "$max_attempts"); do
+            git fetch --force origin main --tags
+            git switch -C main "$(git rev-parse HEAD)"
+
+            if node scripts/create-dev-release.mjs --tag-only --push; then
+              tag_name="$(git tag --points-at HEAD --list 'navet-dev-*' --sort=-creatordate | head -n 1)"
+              if [[ -z "${tag_name}" ]]; then
+                echo "Unable to resolve the published Navet Dev tag."
+                exit 1
+              fi
+              echo "tag_name=${tag_name}" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+
+            if [[ "$attempt" -eq "$max_attempts" ]]; then
+              echo "Navet Dev publish failed after ${attempt} attempts."
+              exit 1
+            fi
+
+            sleep $((attempt * 2 + PR_NUMBER % 5))
+          done
+
+      - name: Dispatch Navet Dev artifact publication
+        if: steps.impact.outputs.runtime == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG_NAME: ${{ steps.publish.outputs.tag_name }}
+        run: gh workflow run dev-tag-release.yml --ref "${TAG_NAME}"
 
       - name: Summarize next step
+        if: steps.impact.outputs.runtime == 'true'
         run: |
-          echo "Created and pushed the Navet Dev metadata commit and matching navet-dev tag."
+          echo "Created and pushed the matching navet-dev tag without advancing protected main."
           echo "The tag-triggered publish workflow will build and publish the dev artifacts."

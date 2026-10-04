@@ -3,6 +3,7 @@ import {
   type DragEndEvent,
   type DragMoveEvent,
   type DragOverEvent,
+  type KeyboardCoordinateGetter,
   KeyboardSensor,
   MouseSensor,
   TouchSensor,
@@ -164,6 +165,22 @@ function resolveSnapPlacement(
   };
 }
 
+/** Shared mouse/touch activation protects card controls and supports keyboard dragging. */
+export function useDashboardDragSensors(
+  coordinateGetter: KeyboardCoordinateGetter = sortableKeyboardCoordinates
+) {
+  return useSensors(
+    useSensor(DashboardMouseSensor, { activationConstraint: { distance: 8 } }),
+    useSensor(DashboardTouchSensor, {
+      activationConstraint: {
+        delay: 180,
+        tolerance: 10,
+      },
+    }),
+    useSensor(KeyboardSensor, { coordinateGetter })
+  );
+}
+
 interface UseDashboardDragStateParams {
   allCards: Map<string, DeviceWithType | CustomCard>;
   cardSizes: Record<string, CardSize>;
@@ -208,16 +225,7 @@ export function useDashboardDragState({
     setSnapDropPreview((previous) => (areSnapDropPreviewsEqual(previous, next) ? previous : next));
   };
 
-  const sensors = useSensors(
-    useSensor(DashboardMouseSensor, { activationConstraint: { distance: 8 } }),
-    useSensor(DashboardTouchSensor, {
-      activationConstraint: {
-        delay: 180,
-        tolerance: 10,
-      },
-    }),
-    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
-  );
+  const sensors = useDashboardDragSensors();
 
   const activeDragSize = useMemo<CardSize | null>(() => {
     if (!activeDragCard) return null;

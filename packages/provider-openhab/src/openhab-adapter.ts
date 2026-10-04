@@ -6,8 +6,8 @@ import {
 } from '@navet/core';
 import { UnsupportedProviderCommandError } from '@navet/core/errors';
 import { createSnapshotBackedProviderAdapter } from '@navet/core/snapshot-backed-adapter';
-import type { NavetCommand, NavetEntity, NavetProviderState } from '@navet/core/types';
-import { buildOpenHABProviderRooms, mapOpenHABSnapshotToNavetEntities } from './openhab-mappers';
+import type { NavetCommand, NavetEntity } from '@navet/core/types';
+import { buildOpenHABProviderState } from './openhab-provider-state';
 import { createOpenHABSnapshotClient, openhabService } from './openhab-service';
 
 interface OpenHABProviderSessionInput extends NavetProviderSessionInput {
@@ -63,8 +63,56 @@ function getOpenHABItemType(entity: NavetEntity): string | undefined {
       : undefined;
 }
 
-async function executeOpenHABCommand(entity: NavetEntity, command: NavetCommand) {
+export async function executeOpenHABCommand(entity: NavetEntity, command: NavetCommand) {
   const itemType = getOpenHABItemType(entity);
+  const item = openhabService.getSnapshot().items[entity.externalId];
+  if (command.type !== 'set_volume' && item?.stateDescription?.readOnly)
+    throw new Error('This openHAB item is read-only');
+  if ((command.type === 'lock' || command.type === 'unlock') && entity.type !== 'lock')
+    throw new UnsupportedProviderCommandError(command.type);
+  if (
+    command.type === 'set_temperature' &&
+    (!Number.isFinite(command.temperature) || entity.type !== 'climate')
+  )
+    throw new UnsupportedProviderCommandError(command.type);
+  if (command.type === 'set_brightness' && !Number.isFinite(command.brightness))
+    throw new Error('Invalid brightness');
+  if (
+    command.type === 'set_fan_speed' &&
+    (!Number.isFinite(command.percentage) || entity.type !== 'fan')
+  )
+    throw new Error('Invalid fan speed');
+  if (command.type === 'set_volume') {
+    const volumeId = entity.attributes.volumeItemId;
+    if (
+      entity.type !== 'media_player' ||
+      typeof volumeId !== 'string' ||
+      !Number.isFinite(command.volume) ||
+      command.volume < 0 ||
+      command.volume > 100
+    )
+      throw new UnsupportedProviderCommandError(command.type);
+    const volume = openhabService.getSnapshot().items[volumeId];
+    if (!volume || volume.stateDescription?.readOnly)
+      throw new Error('Volume control is unavailable');
+    await openhabService.sendItemCommand(volumeId, String(command.volume));
+    return;
+  }
+  if (entity.type === 'media_player' && ['play_pause', 'start', 'pause'].includes(command.type)) {
+    const play =
+      command.type === 'start' ||
+      (command.type === 'play_pause' && entity.primaryState !== 'playing');
+    await openhabService.sendItemCommand(entity.externalId, play ? 'PLAYING' : 'PAUSED');
+    return;
+  }
+  if ((command.type === 'lock' || command.type === 'unlock') && itemType === 'Switch') {
+    await openhabService.sendItemCommand(entity.externalId, command.type === 'lock' ? 'ON' : 'OFF');
+    return;
+  }
+  if (command.type === 'stop' && itemType === 'Rollershutter') {
+    await openhabService.sendItemCommand(entity.externalId, 'STOP');
+    return;
+  }
 
   switch (command.type) {
     case 'turn_on':
@@ -143,15 +191,4 @@ export function createOpenHABContractAdapter(
     executeCommand: executeOpenHABCommand,
     getSession: options.getSession,
   });
-}
-
-function buildOpenHABProviderState(
-  snapshot: Parameters<typeof mapOpenHABSnapshotToNavetEntities>[0]
-): NavetProviderState {
-  return {
-    providerId: 'openhab',
-    connected: snapshot.connected,
-    entities: mapOpenHABSnapshotToNavetEntities(snapshot),
-    rooms: buildOpenHABProviderRooms(snapshot),
-  };
 }

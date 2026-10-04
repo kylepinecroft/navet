@@ -33,6 +33,9 @@ function makeRoom(overrides: Partial<NavetProviderRoom> = {}): NavetProviderRoom
     name: 'Kitchen',
     normalizedName: 'kitchen',
     memberIds: ['home_assistant:light.kitchen'],
+    sourceType: 'provider_managed',
+    supportsOrdering: true,
+    supportsDeletion: true,
     ...overrides,
   };
 }
@@ -41,6 +44,11 @@ function makeProviderState(overrides: Partial<NavetProviderState> = {}): NavetPr
   return {
     providerId: 'home_assistant',
     connected: true,
+    connecting: false,
+    reconnecting: false,
+    entitiesHydrated: true,
+    registriesHydrated: true,
+    error: null,
     entities: [makeLight()],
     rooms: [makeRoom()],
     ...overrides,
@@ -132,6 +140,55 @@ describe('provider-state pipeline', () => {
       first.deviceCollection.lights[changedIndex]
     );
     expect(second.deviceCollection.lights[changedIndex]?.state).toBe(false);
+  });
+
+  it('rebuilds sensor membership when a device reading enters or leaves Climate', () => {
+    const fan: NavetEntity = {
+      ...makeLight({
+        id: 'fan.office_air_purifier',
+        canonicalId: 'home_assistant:fan.office_air_purifier',
+        externalId: 'fan.office_air_purifier',
+        name: 'Office air purifier',
+        attributes: { value: 'on', deviceId: 'device-air-purifier' },
+      }),
+      type: 'fan',
+    };
+    const sensor: NavetEntity = {
+      ...makeLight({
+        id: 'sensor.office_reading',
+        canonicalId: 'home_assistant:sensor.office_reading',
+        externalId: 'sensor.office_reading',
+        name: 'Office reading',
+        attributes: { value: '21', deviceId: 'device-air-purifier', deviceClass: 'power' },
+      }),
+      type: 'sensor',
+      primaryState: '21',
+    };
+    const providerState = (deviceClass: string) =>
+      makeProviderState({
+        rooms: [],
+        entities: [fan, { ...sensor, attributes: { ...sensor.attributes, deviceClass } }],
+      });
+    const first = buildProviderScopedState({
+      providerId: 'home_assistant',
+      providerState: providerState('power'),
+    });
+    const second = buildProviderScopedState({
+      providerId: 'home_assistant',
+      providerState: providerState('temperature'),
+      previousState: first,
+    });
+
+    expect(first.deviceCollection.sensors).toHaveLength(0);
+    expect(second.deviceCollection.sensors).toMatchObject([{ deviceClass: 'temperature' }]);
+
+    const third = buildProviderScopedState({
+      providerId: 'home_assistant',
+      providerState: providerState('power'),
+      previousState: second,
+    });
+
+    expect(third.deviceCollection.sensors).toHaveLength(0);
   });
 
   it('returns the previous scoped state when the provider snapshot is unchanged', () => {
@@ -300,16 +357,24 @@ describe('provider-state pipeline', () => {
 
   it('merges provider-managed and derived room descriptors', () => {
     const descriptors = buildRoomDescriptors({
-      homeAssistantAreas: [{ area_id: 'kitchen', name: 'Kitchen' }],
-      homeyZones: {
-        kitchen: { id: 'homey-kitchen', name: 'Kitchen' },
-      },
       normalizedRoomsByCanonicalId: {
+        'home_assistant:kitchen': makeRoom(),
+        'homey:homey-kitchen': makeRoom({
+          id: 'homey:homey-kitchen',
+          canonicalId: 'homey:homey-kitchen',
+          providerId: 'homey',
+          externalId: 'homey-kitchen',
+          memberIds: [],
+          supportsDeletion: false,
+        }),
         'openhab:kitchen': makeRoom({
           id: 'openhab:kitchen',
           canonicalId: 'openhab:kitchen',
           providerId: 'openhab',
           externalId: 'kitchen',
+          sourceType: 'derived',
+          supportsOrdering: false,
+          supportsDeletion: false,
         }),
       },
     });

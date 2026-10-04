@@ -1,4 +1,4 @@
-import artworksOriginal from '@assets/reference/media/artworks-original.jpg';
+import artworksOriginal from '@assets/reference/media/artworks-original.avif';
 import { MediaCard } from '@navet/app/features/media';
 import { getStoryDocsDescription } from '@navet/app/storybook/story-docs';
 import { EntityCardStoryFrame, noopCardSizeChange } from '@navet/app/storybook/story-frames';
@@ -103,6 +103,27 @@ export const SpeakerDialog: Story = {
   },
 };
 
+export const SpeakerBrightArtworkDialog: Story = {
+  ...SpeakerDialog,
+  args: {
+    ...SpeakerDialog.args,
+    id: 'media_player.bright_artwork',
+    title: 'Bright artwork contrast preview',
+    artist: 'Example artist',
+    entityPicture: `data:image/svg+xml,${encodeURIComponent(
+      '<svg xmlns="http://www.w3.org/2000/svg" width="320" height="320"><rect width="320" height="320" fill="#c6cee5"/><text x="160" y="235" text-anchor="middle" font-size="240" fill="white">♪</text></svg>'
+    )}`,
+  },
+  play: async ({ canvas, userEvent }) => {
+    await userEvent.click(canvas.getByRole('button', { name: /open media details/i }));
+    const dialog = await within(document.body).findByRole('dialog', {}, { timeout: 5000 });
+    await expect(within(dialog).getByRole('img')).toBeInTheDocument();
+    await expect(
+      within(dialog).getByRole('button', { name: /pause playback/i })
+    ).toBeInTheDocument();
+  },
+};
+
 export const SpeakerCompact: Story = {
   args: {
     size: 'small',
@@ -157,6 +178,25 @@ export const TV: Story = {
           'Medium horizontal TV card. The D-pad uses the same 104×104 footprint as every other TV size and sits in the top-right overlay so the bottom action row and volume/channel strip stay clear.',
       },
     },
+  },
+};
+
+export const TVLongName: Story = {
+  args: {
+    ...tvCardStoryArgs,
+    name: 'Samsung The Frame 65 QE65LS03AAUXXC',
+    size: 'medium',
+  },
+  globals: { viewport: { value: 'mobile1', isRotated: false } },
+  play: async ({ canvas }) => {
+    const title = canvas.getByText('Samsung The Frame 65 QE65LS03AAUXXC');
+    const selectButton = canvas.getByRole('button', { name: /^select$/i });
+    const dpad = selectButton.closest<HTMLElement>('.relative.shrink-0');
+
+    await expect(dpad).not.toBeNull();
+    await expect(title.getBoundingClientRect().right).toBeLessThanOrEqual(
+      dpad?.getBoundingClientRect().left ?? 0
+    );
   },
 };
 

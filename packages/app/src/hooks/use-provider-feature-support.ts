@@ -7,6 +7,8 @@ import type {
 import { integrationStore } from '@navet/app/stores/integration-store';
 import type { IntegrationProviderId } from '@navet/app/types/provider';
 import { parseProviderScopedId } from '@navet/app/utils/provider-ids';
+import { useMemo } from 'react';
+import { useIntegrationStore } from './use-integration-store';
 
 function resolveCurrentProviderId(
   providerId: IntegrationProviderId | undefined,
@@ -14,6 +16,8 @@ function resolveCurrentProviderId(
 ): IntegrationProviderId {
   return providerId ?? authProviderId ?? integrationStore.getState().currentProviderId;
 }
+
+const EMPTY_SELECTED_PROVIDER_IDS: IntegrationProviderId[] = [];
 
 export function resolveProviderIdForFeatureSupport(
   entityId: string | undefined,
@@ -34,7 +38,21 @@ export function useProviderFeatureMatrix(
 ): IntegrationProviderFeatureMatrix {
   const authSession = useOptionalAuthSession();
   const resolvedProviderId = resolveCurrentProviderId(providerId, authSession?.providerId);
-  return getProviderFeatureMatrix(resolvedProviderId);
+  const selectedProviderIds = useIntegrationStore((state) =>
+    providerId ? EMPTY_SELECTED_PROVIDER_IDS : state.selectedProviderIds
+  );
+  return useMemo(() => {
+    if (providerId || selectedProviderIds.length === 0)
+      return getProviderFeatureMatrix(resolvedProviderId);
+    const matrix = { ...getProviderFeatureMatrix(selectedProviderIds[0]) };
+    for (const selectedId of selectedProviderIds.slice(1)) {
+      const features = getProviderFeatureMatrix(selectedId);
+      for (const key of Object.keys(matrix) as IntegrationProviderFeature[]) {
+        matrix[key] ||= features[key];
+      }
+    }
+    return matrix;
+  }, [providerId, resolvedProviderId, selectedProviderIds]);
 }
 
 export function useEntityProviderFeatureMatrix(

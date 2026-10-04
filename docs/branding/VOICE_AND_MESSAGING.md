@@ -303,7 +303,7 @@ See the [product card grammar](https://docs.navet.app/brand/cards/) for the full
 | local-first | Smart-home data and credentials stay on the person's device or server rather than Navet-operated servers | **Offline-only**, **no network**, or **no tracking** without a precise scope |
 | self-hosted | Operated on infrastructure controlled by the person or household | **Private by default** without deployment caveats |
 | capability | A feature a provider can supply to the shared dashboard | **Full support** without naming the relevant scope |
-| supported | Implemented and documented for the named mode and capability | **Available** based only on a planned package or roadmap entry |
+| supported | Implemented and documented for the named mode and capability | **Available** based only on planned catalog metadata or a roadmap entry |
 | planned | Publicly documented intent that is not available today | **Coming soon** without a committed delivery plan |
 | multi-provider | A supported runtime retaining multiple provider sessions and combining selected providers in shared collections | **Universal**, **all-in-one**, or automatic parity |
 | dashboard | The daily Navet control surface | **Admin console**, unless referring to an actual administration surface |
@@ -342,11 +342,6 @@ See the [product card grammar](https://docs.navet.app/brand/cards/) for the full
 - privacy-first without a concrete boundary
 - beautiful as a substitute for a product outcome
 - premium as a visual instruction
-
-Do not use **the hub for your smart home**, **everything in one place**, **beautiful, private, and
-open source**, or **your home, your way** as rotating taglines. Those older phrases can describe
-parts of the established idea, but the default public descriptor is **A smart home dashboard for
-every screen.** The Swedish hub meaning belongs in the origin story, not every campaign.
 
 ## Claims Discipline
 

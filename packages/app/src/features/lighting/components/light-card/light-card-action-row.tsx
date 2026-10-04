@@ -1,6 +1,7 @@
 import { CardActionRow } from '@navet/app/components/patterns/card-action-row';
 import { CardSettingsActionButton } from '@navet/app/components/shared/card-settings-action-button';
 import { BrightnessPresetsInline } from '@navet/app/components/shared/device-editor';
+import { getCardReadableTextTokens } from '@navet/app/components/shared/theme/card-readable-text-tokens';
 import { useTheme } from '@navet/app/hooks';
 import { memo } from 'react';
 import { CustomColorTrigger } from './custom-color-trigger';
@@ -30,6 +31,13 @@ interface LightCardActionRowProps {
   brightness: number;
   currentEffect: string | null;
   onKelvinToggle: () => void;
+  temperature?: {
+    value: number;
+    min: number;
+    max: number;
+    onChange: (value: number) => void;
+    onCommit: (value: number) => void;
+  };
   onColorActivate: () => void;
   onColorChange: (color: string) => void;
   onEffectSelect: (effect: string) => void;
@@ -58,6 +66,7 @@ export const LightCardActionRow = memo(function LightCardActionRow({
   brightness,
   currentEffect,
   onKelvinToggle,
+  temperature,
   onColorActivate,
   onColorChange,
   onEffectSelect,
@@ -67,7 +76,16 @@ export const LightCardActionRow = memo(function LightCardActionRow({
   presetMaxVisible,
   presetOverflow,
 }: LightCardActionRowProps) {
-  const { theme } = useTheme();
+  const { theme, accentColor } = useTheme();
+  const foregroundColor =
+    theme === 'light' && isOn
+      ? getCardReadableTextTokens({
+          theme,
+          tone: 'primary',
+          baseColor: activeColor ?? accentColor,
+          backgroundColor: activeColor ?? accentColor,
+        }).titleColor
+      : undefined;
   const effectiveTheme = theme === 'light' && isOn ? 'dark' : theme;
   const gapClass = size === 'small' ? 'gap-1.5' : 'gap-2.5';
   const hasLeftControls =
@@ -88,8 +106,10 @@ export const LightCardActionRow = memo(function LightCardActionRow({
           size={size}
           isOn={isOn}
           currentTempColor={currentTempColor}
+          foregroundColor={foregroundColor}
           isActive={isKelvinMode}
           onClick={onKelvinToggle}
+          temperature={temperature}
         />
       )}
 
@@ -98,6 +118,7 @@ export const LightCardActionRow = memo(function LightCardActionRow({
           size={size}
           isOn={isOn}
           currentColor={colorSwatchColor || currentColor}
+          foregroundColor={foregroundColor}
           isActive={isColorMode}
           onActivate={onColorActivate}
           onColorChange={onColorChange}
@@ -107,6 +128,7 @@ export const LightCardActionRow = memo(function LightCardActionRow({
       {supportsEffects && effectOptions.length > 0 && (
         <LightEffectPicker
           currentEffect={currentEffect}
+          foregroundColor={foregroundColor}
           isOn={isOn}
           activeColor={activeColor}
           onSelect={onEffectSelect}
@@ -144,6 +166,7 @@ export const LightCardActionRow = memo(function LightCardActionRow({
           <CardSettingsActionButton
             {...settingsButtonProps}
             theme={effectiveTheme}
+            iconStyle={foregroundColor ? { color: foregroundColor } : undefined}
             size={size}
             tone={isOn ? 'default' : 'muted'}
             variant="soft"

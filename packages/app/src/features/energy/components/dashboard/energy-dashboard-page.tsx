@@ -55,11 +55,10 @@ import { useSettingsStore } from '@navet/app/stores/settings-store';
 import * as Popover from '@radix-ui/react-popover';
 import {
   AlertTriangle,
-  ArrowDown,
-  ArrowUp,
   ExternalLink,
   EyeOff,
   Flame,
+  Info,
   Leaf,
   PlugZap,
   Sun,
@@ -77,6 +76,7 @@ import {
   useState,
 } from 'react';
 import { EnergyNowCardView } from '../widgets/energy-now-card-view';
+import { type EnergyArrangementCard, EnergyCardArrangement } from './energy-card-arrangement';
 import { EnergyDetailedHistoryWorkspace } from './energy-detailed-history-workspace';
 import {
   type EnergyOverviewModuleId,
@@ -90,9 +90,7 @@ interface EnergyDashboardPageProps {
   energyCustomCards?: CustomCard[];
   energyOrderedCardIds?: string[];
   isEditMode?: boolean;
-  isKpiCustomizationOpen?: boolean;
   onDeleteCard?: (cardId: string) => void;
-  onKpiCustomizationOpenChange?: (open: boolean) => void;
   onUpdateCard?: (cardId: string, updates: Partial<Omit<CustomCard, 'id' | 'createdAt'>>) => void;
   onRangeChange?: (range: EnergyRange) => void;
   currentLoadStatisticId?: string;
@@ -115,13 +113,13 @@ const ENERGY_CONSUMER_COLORS = [
 ] as const;
 const UNTRACKED_CONSUMPTION_COLOR = '#94a3b8';
 const ENERGY_INSIGHTS_RANGES: EnergyHistoryRange[] = ['today', 'week', 'month', 'year', 'custom'];
-const ENERGY_INSIGHTS_RANGE_LABELS: Record<EnergyHistoryRange, string> = {
-  today: 'Day',
-  week: 'Week',
-  month: 'Month',
-  year: 'Year',
-  custom: 'Custom',
-};
+const ENERGY_INSIGHTS_RANGE_LABELS = {
+  today: 'energy.range.day',
+  week: 'energy.range.week',
+  month: 'energy.range.month',
+  year: 'energy.range.year',
+  custom: 'common.custom',
+} as const;
 const EMPTY_ENERGY_SUMMARY_ITEMS: HomeStatusSummaryItem[] = [];
 interface EnergyCustomRange {
   start: string;
@@ -191,9 +189,7 @@ export const EnergyDashboardPage = memo(function EnergyDashboardPage({
   energyCustomCards = [],
   energyOrderedCardIds = [],
   isEditMode: controlledEditMode,
-  isKpiCustomizationOpen = false,
   onDeleteCard,
-  onKpiCustomizationOpenChange,
   onUpdateCard,
   onRangeChange,
   currentLoadStatisticId,
@@ -303,26 +299,6 @@ export const EnergyDashboardPage = memo(function EnergyDashboardPage({
     isPortraitTablet || overviewRenderedGridCols <= 4
       ? overviewRenderedGridCols
       : overviewRenderedGridCols - overviewLiveSpan;
-  const moveOverviewModule = (moduleId: EnergyOverviewModuleId, direction: -1 | 1) => {
-    if (moduleId === 'live') return;
-    setOverviewLayout((current) => {
-      const normalized = normalizeEnergyOverviewLayout(current);
-      const index = normalized.order.indexOf(moduleId);
-      const nextIndex = Math.max(0, Math.min(normalized.order.length - 1, index + direction));
-      if (index < 0 || index === nextIndex) return normalized;
-      const order = [...normalized.order];
-      const [moved] = order.splice(index, 1);
-      if (moved) order.splice(nextIndex, 0, moved);
-      return { ...normalized, order };
-    });
-  };
-  const hideOverviewModule = (moduleId: EnergyOverviewModuleId) => {
-    if (moduleId === 'live') return;
-    setOverviewLayout((current) => {
-      const normalized = normalizeEnergyOverviewLayout(current);
-      return { ...normalized, hidden: [...new Set([...normalized.hidden, moduleId])] };
-    });
-  };
   const showOverviewModule = (moduleId: EnergyOverviewModuleId) => {
     setOverviewLayout((current) => {
       const normalized = normalizeEnergyOverviewLayout(current);
@@ -360,21 +336,15 @@ export const EnergyDashboardPage = memo(function EnergyDashboardPage({
         wholeHomeCurrentW={dashboard.totals.currentLoadW}
         wholeHomePoints={dashboard.ranges.now.liveConsumption}
         wholeHomeTodayKWh={dashboard.ranges.today.totalUsageKWh}
-        embedded={!isEditMode}
+        embedded
       />
     );
   };
   const renderOverviewModuleFrame = (moduleId: EnergyOverviewModuleId) => {
-    const index = visibleOverviewModules.indexOf(moduleId);
     return (
       <EnergyOverviewModuleFrame
         key={moduleId}
         moduleId={moduleId}
-        index={index}
-        count={visibleOverviewModules.length}
-        isEditMode={isEditMode}
-        onMove={moveOverviewModule}
-        onHide={hideOverviewModule}
         className={undefined}
         style={
           moduleId === 'live'
@@ -382,12 +352,18 @@ export const EnergyDashboardPage = memo(function EnergyDashboardPage({
                 gridColumn: `span ${overviewLiveSpan} / span ${overviewLiveSpan}`,
                 gridRow: isPortraitTablet ? 'span 5 / span 5' : 'span 8 / span 8',
               }
-            : moduleId === 'devices' && !isEditMode
+            : moduleId === 'devices'
               ? undefined
               : { gridColumn: `span ${overviewRenderedGridCols}` }
         }
       >
-        {renderOverviewModule(moduleId)}
+        {isEditMode && moduleId === 'live' ? (
+          <div inert className="h-full pointer-events-none">
+            {renderOverviewModule(moduleId)}
+          </div>
+        ) : (
+          renderOverviewModule(moduleId)
+        )}
       </EnergyOverviewModuleFrame>
     );
   };
@@ -447,8 +423,7 @@ export const EnergyDashboardPage = memo(function EnergyDashboardPage({
               statisticsLoader={historyStatisticsLoader}
               sources={historySources}
               useBentoLayout
-              isKpiCustomizationOpen={isKpiCustomizationOpen}
-              onKpiCustomizationOpenChange={onKpiCustomizationOpenChange}
+              isEditMode={isEditMode}
             />
             {visibleOverviewModules
               .filter((moduleId) => moduleId !== 'live')
@@ -461,7 +436,9 @@ export const EnergyDashboardPage = memo(function EnergyDashboardPage({
                 )}
                 style={{ gridColumn: '1 / -1' }}
               >
-                <span className={`text-xs ${surface.textSecondary}`}>Hidden Energy modules</span>
+                <span className={`text-xs ${surface.textSecondary}`}>
+                  {t('energy.edit.hiddenModules')}
+                </span>
                 {normalizedOverviewLayout.hidden
                   .filter((moduleId) => availableOverviewModules.has(moduleId))
                   .map((moduleId) => (
@@ -470,7 +447,7 @@ export const EnergyDashboardPage = memo(function EnergyDashboardPage({
                       size="compact"
                       onClick={() => showOverviewModule(moduleId)}
                     >
-                      Add {energyOverviewModuleLabel(moduleId)}
+                      {t('energy.edit.addModule', { name: energyOverviewModuleLabel(moduleId, t) })}
                     </InteractivePill>
                   ))}
               </div>
@@ -495,6 +472,7 @@ function EnergyInsightsRangeControl({
   onRangeChange: (range: EnergyHistoryRange) => void;
   range: EnergyHistoryRange;
 }) {
+  const { t, locale } = useI18n();
   const { theme, accentColor } = useTheme();
   const surface = getThemeSurfaceTokens(theme);
   const isPhone = useMediaQuery('(max-width: 639px)');
@@ -533,7 +511,7 @@ function EnergyInsightsRangeControl({
       className="flex min-w-0 shrink-0 items-center"
       data-testid="energy-insights-period-control"
     >
-      <fieldset className="flex min-w-0 gap-1.5" aria-label="Insights period">
+      <fieldset className="flex min-w-0 gap-1.5" aria-label={t('energy.range.insightsPeriod')}>
         {ENERGY_INSIGHTS_RANGES.filter((rangeId) => rangeId !== 'custom').map((rangeId) => (
           <InteractivePill
             key={rangeId}
@@ -542,7 +520,7 @@ function EnergyInsightsRangeControl({
             size="small"
             onClick={() => onRangeChange(rangeId)}
           >
-            {ENERGY_INSIGHTS_RANGE_LABELS[rangeId]}
+            {t(ENERGY_INSIGHTS_RANGE_LABELS[rangeId])}
           </InteractivePill>
         ))}
         {isPhone ? (
@@ -553,7 +531,7 @@ function EnergyInsightsRangeControl({
             size="small"
             onClick={openCustomRange}
           >
-            Custom
+            {t('common.custom')}
           </InteractivePill>
         ) : (
           <Popover.Root
@@ -570,7 +548,7 @@ function EnergyInsightsRangeControl({
                 aria-haspopup="dialog"
                 size="small"
               >
-                Custom
+                {t('common.custom')}
               </InteractivePill>
             </Popover.Trigger>
             <Popover.Portal>
@@ -594,11 +572,13 @@ function EnergyInsightsRangeControl({
         {range === 'custom' ? (
           <InteractivePill
             active
-            aria-label={`Clear custom range ${formatCustomRangeLabel(customRange)}`}
+            aria-label={t('energy.range.clearCustom', {
+              range: formatCustomRangeLabel(customRange, t, locale),
+            })}
             size="small"
             onClick={onClearCustomRange}
           >
-            <span>{formatCustomRangeLabel(customRange)}</span>
+            <span>{formatCustomRangeLabel(customRange, t, locale)}</span>
             <X className="h-4 w-4" aria-hidden="true" />
           </InteractivePill>
         ) : null}
@@ -607,18 +587,18 @@ function EnergyInsightsRangeControl({
         <SheetSurface
           isOpen={isCustomRangeOpen}
           onOpenChange={setIsCustomRangeOpen}
-          title="Custom range"
-          description="Choose the dates used across Energy insights."
-          closeLabel="Close custom range"
+          title={t('energy.range.customTitle')}
+          description={t('energy.range.customDescription')}
+          closeLabel={t('energy.range.closeCustom')}
           accentColor={accentColor}
           overlayClassName={`animate-in fade-in bg-black/45 backdrop-blur-[2px] sm:hidden ${surface.dialogBackdrop}`}
           contentClassName={`${surface.panel} ${surface.border}`}
           bodyClassName="pb-[max(1rem,env(safe-area-inset-bottom))]"
         >
           <SheetSurfaceHeader
-            title="Custom range"
-            description="Choose the dates used across Energy insights."
-            closeLabel="Close custom range"
+            title={t('energy.range.customTitle')}
+            description={t('energy.range.customDescription')}
+            closeLabel={t('energy.range.closeCustom')}
             onClose={closeCustomRange}
             className={cn('border-b', surface.border)}
           />
@@ -646,6 +626,7 @@ function EnergyCustomRangeForm({
   onCancel: () => void;
   onChange: (range: EnergyCustomRange) => void;
 }) {
+  const { t } = useI18n();
   const { theme } = useTheme();
   const surface = getThemeSurfaceTokens(theme);
 
@@ -653,15 +634,17 @@ function EnergyCustomRangeForm({
     <div className="space-y-4">
       {showHeading ? (
         <div>
-          <div className={`text-sm font-semibold ${surface.textPrimary}`}>Custom range</div>
+          <div className={`text-sm font-semibold ${surface.textPrimary}`}>
+            {t('energy.range.customTitle')}
+          </div>
           <div className={`mt-0.5 text-xs ${surface.textSecondary}`}>
-            Choose the dates used across Energy insights.
+            {t('energy.range.customDescription')}
           </div>
         </div>
       ) : null}
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <label className={`space-y-1.5 text-xs font-medium ${surface.textSecondary}`}>
-          <span>From</span>
+          <span>{t('energy.range.from')}</span>
           <input
             type="date"
             value={draftRange.start}
@@ -677,7 +660,7 @@ function EnergyCustomRangeForm({
           />
         </label>
         <label className={`space-y-1.5 text-xs font-medium ${surface.textSecondary}`}>
-          <span>To</span>
+          <span>{t('energy.range.to')}</span>
           <input
             type="date"
             value={draftRange.end}
@@ -696,10 +679,10 @@ function EnergyCustomRangeForm({
       </div>
       <div className="flex justify-end gap-2">
         <InteractivePill size="small" onClick={onCancel}>
-          Cancel
+          {t('common.cancel')}
         </InteractivePill>
         <InteractivePill active size="small" disabled={!isValid} onClick={onApply}>
-          Apply
+          {t('energy.range.apply')}
         </InteractivePill>
       </div>
     </div>
@@ -720,18 +703,22 @@ function toDateInputValue(date: Date) {
   return `${year}-${month}-${day}`;
 }
 
-function formatCustomRangeLabel(range: EnergyCustomRange) {
+function formatCustomRangeLabel(
+  range: EnergyCustomRange,
+  t: ReturnType<typeof useI18n>['t'],
+  locale: string
+) {
   const start = parseDateInputValue(range.start);
   const end = parseDateInputValue(range.end);
-  if (!start || !end) return 'Custom range';
+  if (!start || !end) return t('energy.range.customTitle');
 
   const sameYear = start.getFullYear() === end.getFullYear();
   const sameMonth = sameYear && start.getMonth() === end.getMonth();
   const currentYear = new Date().getFullYear();
-  const monthDay = new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric' });
+  const monthDay = new Intl.DateTimeFormat(locale, { month: 'short', day: 'numeric' });
 
   if (sameMonth) {
-    const month = new Intl.DateTimeFormat(undefined, { month: 'short' }).format(start);
+    const month = new Intl.DateTimeFormat(locale, { month: 'short' }).format(start);
     const year = sameYear && start.getFullYear() !== currentYear ? `, ${start.getFullYear()}` : '';
     return `${month} ${start.getDate()}–${end.getDate()}${year}`;
   }
@@ -750,84 +737,33 @@ function parseDateInputValue(value: string) {
 
 function EnergyOverviewModuleFrame({
   moduleId,
-  index,
-  count,
-  isEditMode,
-  onMove,
-  onHide,
   className,
   style,
   children,
 }: {
   moduleId: EnergyOverviewModuleId;
-  index: number;
-  count: number;
-  isEditMode: boolean;
-  onMove: (moduleId: EnergyOverviewModuleId, direction: -1 | 1) => void;
-  onHide: (moduleId: EnergyOverviewModuleId) => void;
   className?: string;
   style?: CSSProperties;
   children: ReactNode;
 }) {
-  const { theme } = useTheme();
-  const surface = getThemeSurfaceTokens(theme);
   return (
     <section
       data-overview-module={moduleId}
       style={style}
-      className={cn(moduleId === 'devices' && !isEditMode ? 'contents' : 'min-w-0', className)}
+      className={cn(moduleId === 'devices' ? 'contents' : 'min-w-0', className)}
     >
-      {isEditMode && moduleId !== 'live' ? (
-        <div
-          data-overview-edit-banner={moduleId}
-          className={cn(
-            'mb-2 flex items-center justify-between rounded-2xl border border-dashed px-3 py-2',
-            surface.border,
-            surface.subtleBg
-          )}
-        >
-          <span className={`text-xs font-semibold ${surface.textSecondary}`}>
-            {energyOverviewModuleLabel(moduleId)}
-          </span>
-          <div className="flex items-center gap-1">
-            <button
-              type="button"
-              disabled={index <= 1}
-              onClick={() => onMove(moduleId, -1)}
-              className={cn('rounded-full p-2 disabled:opacity-30', surface.hoverBg)}
-              aria-label={`Move ${energyOverviewModuleLabel(moduleId)} earlier`}
-            >
-              <ArrowUp className="h-3.5 w-3.5" />
-            </button>
-            <button
-              type="button"
-              disabled={index === count - 1}
-              onClick={() => onMove(moduleId, 1)}
-              className={cn('rounded-full p-2 disabled:opacity-30', surface.hoverBg)}
-              aria-label={`Move ${energyOverviewModuleLabel(moduleId)} later`}
-            >
-              <ArrowDown className="h-3.5 w-3.5" />
-            </button>
-            <button
-              type="button"
-              onClick={() => onHide(moduleId)}
-              className={cn('rounded-full p-2', surface.hoverBg)}
-              aria-label={`Hide ${energyOverviewModuleLabel(moduleId)}`}
-            >
-              <EyeOff className="h-3.5 w-3.5" />
-            </button>
-          </div>
-        </div>
-      ) : null}
       {children}
     </section>
   );
 }
 
-function energyOverviewModuleLabel(moduleId: EnergyOverviewModuleId) {
+function energyOverviewModuleLabel(
+  moduleId: EnergyOverviewModuleId,
+  t: ReturnType<typeof useI18n>['t']
+) {
   return {
-    live: 'Live Energy',
-    devices: 'Device cards',
+    live: t('energy.dashboard.liveEnergy'),
+    devices: t('energy.edit.deviceCards'),
   }[moduleId];
 }
 
@@ -863,6 +799,7 @@ function CompactLoadSparklines({
   embedded?: boolean;
 }) {
   const { t } = useI18n();
+  const [cardOrder, setCardOrder] = usePersistedState<string[]>(STORAGE_KEYS.energyCardOrder, []);
   const breakpointCols = useBreakpointCols();
   const effectsQuality = useSettingsStore(settingsSelectors.effectsQuality);
   const lowPowerMode = useSettingsStore(settingsSelectors.lowPowerMode);
@@ -928,6 +865,81 @@ function CompactLoadSparklines({
     wholeHomePoints,
   });
 
+  const arrangementCards: EnergyArrangementCard[] = [
+    ...(shouldRenderCards && untrackedTodayKWh > 0
+      ? [
+          {
+            id: ENERGY_WHOLE_HOME_SPARKLINE_CARD_ID,
+            name: t('energy.dashboard.untracked'),
+            size: wholeHomeCardSize,
+            content: (
+              <SparklineCardFrame
+                accentColor={accentColor}
+                cardSize={wholeHomeCardSize}
+                isEditMode={isEditMode}
+                onSizeChange={(size) => onSizeChange(ENERGY_WHOLE_HOME_SPARKLINE_CARD_ID, size)}
+                theme={theme}
+              >
+                <EnergyNowCardView
+                  accentColor={accentColor}
+                  currentLoadW={untrackedCurrentW}
+                  size={wholeHomeCardSize}
+                  title={t('energy.dashboard.untracked')}
+                  todayUsageKWh={untrackedTodayKWh}
+                  trend={untrackedTrend}
+                />
+              </SparklineCardFrame>
+            ),
+          },
+        ]
+      : []),
+    ...cardConsumers.slice(0, visibleConsumerCount).map((consumer) => ({
+      id: getEnergyConsumerSparklineCardId(consumer.id),
+      name: consumer.name,
+      size: resolveSparklineCardSize(cardSizes[getEnergyConsumerSparklineCardId(consumer.id)]),
+      content: (
+        <DeviceSparklineRow
+          key={consumer.id}
+          accentColor={accentColor}
+          cardSize={resolveSparklineCardSize(
+            cardSizes[getEnergyConsumerSparklineCardId(consumer.id)]
+          )}
+          consumer={consumer}
+          enabled={isVisible}
+          isEditMode={isEditMode}
+          onHideConsumer={onHideConsumer}
+          onSizeChange={onSizeChange}
+          onTrendChange={handleConsumerTrendChange}
+          theme={theme}
+        />
+      ),
+    })),
+    ...(shouldRenderCards
+      ? customCards.slice(0, visibleCustomCardCount).map((card) => ({
+          id: card.id,
+          name:
+            typeof card.data?.title === 'string'
+              ? card.data.title
+              : typeof card.data?.label === 'string'
+                ? card.data.label
+                : card.type,
+          size: card.size,
+          content: (
+            <DashboardCardItem
+              key={card.id}
+              id={card.id}
+              size={card.size}
+              isEditMode={isEditMode}
+              card={card}
+              handleSizeChange={(cardId, size) => onUpdateCard?.(cardId, { size })}
+              onDeleteCard={onDeleteCard}
+              onUpdateCard={onUpdateCard}
+            />
+          ),
+        }))
+      : []),
+  ];
+
   return (
     <div
       ref={embedded ? undefined : viewportRef}
@@ -957,59 +969,17 @@ function CompactLoadSparklines({
           style={embedded ? undefined : innerContainerStyle}
         >
           <div
-            className={embedded ? 'contents' : 'grid w-full grid-flow-row-dense gap-3 lg:gap-4'}
+            className={embedded ? 'contents' : 'grid w-full grid-flow-row gap-3 lg:gap-4'}
             style={embedded ? undefined : (gridStyle as CSSProperties)}
           >
-            {shouldRenderCards && untrackedTodayKWh > 0 ? (
-              <SparklineCardFrame
-                accentColor={accentColor}
-                cardSize={wholeHomeCardSize}
-                isEditMode={isEditMode}
-                onSizeChange={(size) => onSizeChange(ENERGY_WHOLE_HOME_SPARKLINE_CARD_ID, size)}
-                theme={theme}
-              >
-                <EnergyNowCardView
-                  accentColor={accentColor}
-                  currentLoadW={untrackedCurrentW}
-                  size={wholeHomeCardSize}
-                  title={t('energy.dashboard.untracked')}
-                  todayUsageKWh={untrackedTodayKWh}
-                  trend={untrackedTrend}
-                />
-              </SparklineCardFrame>
-            ) : null}
-            {cardConsumers.slice(0, visibleConsumerCount).map((consumer) => (
-              <DeviceSparklineRow
-                key={consumer.id}
-                accentColor={accentColor}
-                cardSize={resolveSparklineCardSize(
-                  cardSizes[getEnergyConsumerSparklineCardId(consumer.id)]
-                )}
-                consumer={consumer}
-                enabled={isVisible}
-                isEditMode={isEditMode}
-                onHideConsumer={onHideConsumer}
-                onSizeChange={onSizeChange}
-                onTrendChange={handleConsumerTrendChange}
-                theme={theme}
-              />
-            ))}
-            {shouldRenderCards
-              ? customCards
-                  .slice(0, visibleCustomCardCount)
-                  .map((card) => (
-                    <DashboardCardItem
-                      key={card.id}
-                      id={card.id}
-                      size={card.size}
-                      isEditMode={isEditMode}
-                      card={card}
-                      handleSizeChange={(cardId, size) => onUpdateCard?.(cardId, { size })}
-                      onDeleteCard={onDeleteCard}
-                      onUpdateCard={onUpdateCard}
-                    />
-                  ))
-              : null}
+            <EnergyCardArrangement
+              cards={arrangementCards}
+              order={cardOrder}
+              isEditMode={isEditMode}
+              onOrderChange={(ids) =>
+                setCardOrder((current) => [...ids, ...current.filter((id) => !ids.includes(id))])
+              }
+            />
           </div>
         </div>
       </div>
@@ -1498,8 +1468,10 @@ function DeviceTable({
   return (
     <BaseCard
       size="medium"
-      fullBleed
-      className={cn('h-full min-w-0 w-full', usePortraitLayout ? 'min-h-[26rem]' : 'min-h-[32rem]')}
+      className={cn(
+        'h-full min-w-0 w-full p-4',
+        usePortraitLayout ? 'min-h-[26rem]' : 'min-h-[32rem]'
+      )}
       surfaceVariant="muted"
       title={t('energy.dashboard.liveEnergy')}
       subtitle={t('energy.dashboard.wattsNow')}
@@ -1507,14 +1479,13 @@ function DeviceTable({
       headerLeading={
         <EntityCardHeaderIcon IconComponent={Zap} isActive size="medium" baseColor={accentColor} />
       }
-      headerClassName="px-4 pt-4"
       headerMarginBottomClassName="mb-3"
     >
       <div
         data-testid="energy-live-layout"
         data-layout={usePortraitLayout ? 'split' : 'stacked'}
         className={cn(
-          'h-full min-h-0 gap-4 px-4 pb-4',
+          'h-full min-h-0 gap-4',
           usePortraitLayout
             ? 'grid grid-cols-[minmax(15rem,0.85fr)_minmax(0,1.15fr)]'
             : 'flex flex-col'
@@ -1533,7 +1504,22 @@ function DeviceTable({
           </div>
         </div>
 
-        <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+        <div
+          className={cn(
+            `flex w-full min-w-0 items-start gap-2 text-left text-xs leading-relaxed ${surface.textMuted}`,
+            usePortraitLayout && 'col-span-2 row-start-2'
+          )}
+        >
+          <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+          <p className="min-w-0 flex-1">{t('energy.dashboard.orbHelp')}</p>
+        </div>
+
+        <div
+          className={cn(
+            'flex min-h-0 min-w-0 flex-1 flex-col',
+            usePortraitLayout && 'col-start-2 row-start-1'
+          )}
+        >
           <div className="mb-3 flex flex-wrap items-center gap-2">
             <div className="flex flex-wrap items-center gap-2">
               <InteractivePill
@@ -1562,9 +1548,19 @@ function DeviceTable({
               </InteractivePill>
             </div>
           </div>
-          <div
-            className={`min-h-0 flex-1 touch-pan-y overflow-auto overscroll-contain rounded-[22px] border [-webkit-overflow-scrolling:touch] ${surface.border} ${surface.panelMuted}`}
+          {/* biome-ignore-start lint/a11y/noNoninteractiveTabindex: The scrollable usage list needs a keyboard focus target when its rows have no controls. */}
+          <section
+            aria-label={
+              contentView === 'devices'
+                ? t('energy.dashboard.devices')
+                : contentView === 'rooms'
+                  ? t('dashboard.multiple.group.rooms')
+                  : t('energy.dashboard.sources')
+            }
+            tabIndex={0}
+            className={`min-h-0 flex-1 touch-pan-y overflow-auto overscroll-contain rounded-[22px] border focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 [-webkit-overflow-scrolling:touch] ${surface.border} ${surface.panelMuted}`}
           >
+            {/* biome-ignore-end lint/a11y/noNoninteractiveTabindex: End scroll region opening tag. */}
             {contentView === 'devices' ? (
               consumers.length === 0 && untrackedTodayKWh <= 0 ? (
                 <div className={`px-4 py-5 text-sm ${surface.textMuted}`}>
@@ -1752,7 +1748,7 @@ function DeviceTable({
                 ))}
               </div>
             ) : null}
-          </div>
+          </section>
         </div>
       </div>
     </BaseCard>
@@ -1906,12 +1902,12 @@ function SourceDiagnostics({
               href={homeAssistantEnergyUrl}
               target="_blank"
               rel="noopener noreferrer"
-              className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium transition-colors ${
+              className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium transition-colors ${surface.textPrimary} ${
                 theme === 'light' ? 'bg-white/88 hover:bg-white' : 'bg-black/18 hover:bg-black/24'
               }`}
               style={{
                 borderColor: `${accentColor}${theme === 'light' ? '33' : '29'}`,
-                color: accentColor,
+                color: theme === 'light' ? undefined : accentColor,
               }}
             >
               <ExternalLink className="h-3.5 w-3.5" />
@@ -1955,7 +1951,7 @@ function SourceDiagnostics({
                   : surface.textSecondary
               }`}
             >
-              {formatDiagnosticStatus(source)}
+              {formatDiagnosticStatus(source, t)}
             </div>
           </div>
         ))}
@@ -2030,17 +2026,20 @@ function getSourceDiagnostics(sourceDiagnostics: EnergySourceDiagnostic[]) {
   return sourceDiagnostics.filter((source) => !source.id.startsWith('device:'));
 }
 
-function formatDiagnosticStatus(source: EnergySourceDiagnostic) {
+function formatDiagnosticStatus(
+  source: EnergySourceDiagnostic,
+  t: ReturnType<typeof useI18n>['t']
+) {
   if (source.status === 'configured_unavailable') {
-    return 'Unavailable';
+    return t('common.unavailable');
   }
 
   if (source.status === 'configured_idle') {
-    return 'Idle';
+    return t('energy.dashboard.status.idle');
   }
 
   if (source.status === 'not_configured') {
-    return 'Not configured';
+    return t('energy.dashboard.status.notConfigured');
   }
 
   if (typeof source.currentPowerW === 'number' && source.currentPowerW > 0) {
@@ -2051,7 +2050,7 @@ function formatDiagnosticStatus(source: EnergySourceDiagnostic) {
     return `${source.todayKWh.toFixed(1)} kWh`;
   }
 
-  return 'Available';
+  return t('widgets.generic.available');
 }
 
 function resolveHomeAssistantEnergyUrl(haBaseUrl: string | null): string | null {

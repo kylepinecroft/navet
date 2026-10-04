@@ -22,7 +22,6 @@ import {
   renameRoomWorkspaceRoomV2,
   reorderRoomWorkspaceGroupsV2,
   reorderRoomWorkspaceRoomsV2,
-  resetRoomWorkspaceRoomNameV2,
   setRoomWorkspaceFavoriteRankV2,
   setRoomWorkspaceGroupSymbolV2,
   setRoomWorkspaceRoomImageV2,
@@ -65,7 +64,7 @@ function discoveredRoom(
 }
 
 describe('room workspace V2 identity and migration', () => {
-  it('keeps equal display names as separate source-backed rooms with opaque IDs', () => {
+  it('retains separate source IDs when reading the legacy migration shape', () => {
     const workspace = migrateLegacyRoomWorkspaceV2({
       discoveredRooms: [
         discoveredRoom('Kitchen', 'home_assistant', 'area_kitchen'),
@@ -219,7 +218,50 @@ describe('room workspace V2 identity and migration', () => {
       id: initial.rooms[0]?.id,
       displayName: 'Galley',
     });
-    expect(reconciled.rooms[1]?.id).not.toBe(initial.rooms[0]?.id);
+    expect(reconciled.rooms).toHaveLength(1);
+    expect(reconciled.rooms[0]?.sourceRefs).toEqual([
+      sourceRef('home_assistant', 'area_kitchen'),
+      sourceRef('homey', 'zone_galley'),
+    ]);
+  });
+
+  it('consolidates matching provider rooms while preserving identity, sources and saved metadata', () => {
+    const legacy = migrateLegacyRoomWorkspaceV2({
+      discoveredRooms: [
+        discoveredRoom('Kitchen', 'home_assistant', 'area_kitchen'),
+        discoveredRoom('KITCHEN', 'homey', 'zone_kitchen'),
+      ],
+      idFactory: createDeterministicIdFactory(),
+    });
+    const duplicateId = legacy.rooms[1].id;
+    const hidden = setRoomWorkspaceVisibilityV2(legacy, duplicateId, 'hidden');
+    const customized = setRoomWorkspaceRoomSymbolV2(hidden, duplicateId, '🍳');
+    const reconciled = reconcileRoomWorkspaceV2(customized, [
+      discoveredRoom('kitchen', 'openhab', 'NavetKitchen'),
+    ]);
+
+    expect(reconciled.rooms).toHaveLength(1);
+    expect(reconciled.rooms[0]).toMatchObject({
+      id: legacy.rooms[0].id,
+      displayName: 'Kitchen',
+      metadata: { visibility: 'hidden', symbol: '🍳' },
+    });
+    const index = buildRoomWorkspaceIndexV2(reconciled);
+    for (const canonicalId of [
+      'home_assistant:area_kitchen',
+      'homey:zone_kitchen',
+      'openhab:NavetKitchen',
+    ]) {
+      expect(getRoomWorkspaceRoomIdBySourceCanonicalId(index, canonicalId)).toBe(
+        legacy.rooms[0].id
+      );
+    }
+    expect(
+      reconcileRoomWorkspaceV2(reconciled, [
+        discoveredRoom('KITCHEN', 'homey', 'zone_kitchen'),
+        discoveredRoom('kitchen', 'openhab', 'NavetKitchen'),
+      ])
+    ).toEqual(reconciled);
   });
 
   it('preserves an explicit Navet room name when provider discovery changes', () => {
@@ -240,34 +282,6 @@ describe('room workspace V2 identity and migration', () => {
       id: roomId,
       displayName: 'Cooking',
       metadata: { nameMode: 'custom' },
-    });
-  });
-
-  it('follows provider discovery again after a room name reset', () => {
-    const initial = migrateLegacyRoomWorkspaceV2({
-      discoveredRooms: [discoveredRoom('Kitchen', 'home_assistant', 'area_kitchen')],
-      idFactory: createDeterministicIdFactory(),
-    });
-    const roomId = initial.rooms[0]?.id as RoomWorkspaceRoomId;
-    const renamed = renameRoomWorkspaceRoomV2(initial, roomId, 'Cooking');
-    const reset = resetRoomWorkspaceRoomNameV2(renamed, roomId, 'Kitchen');
-
-    expect(reset.rooms[0]).toMatchObject({
-      id: roomId,
-      displayName: 'Kitchen',
-      metadata: { nameMode: 'provider' },
-    });
-
-    const reconciled = reconcileRoomWorkspaceV2(
-      reset,
-      [discoveredRoom('Galley', 'home_assistant', 'area_kitchen')],
-      { idFactory: createDeterministicIdFactory() }
-    );
-
-    expect(reconciled.rooms[0]).toMatchObject({
-      id: roomId,
-      displayName: 'Galley',
-      metadata: { nameMode: 'provider' },
     });
   });
 

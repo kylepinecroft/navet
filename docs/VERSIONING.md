@@ -7,13 +7,16 @@ Navet currently uses pre-`1.0` semantic versioning.
 
 ## Current Line
 
-- current version: `0.15.8`
+- current version: `0.17.1`
+- published version: the latest stable GitHub Release
 - current phase: public beta
 - shared release line: standalone app, custom panel, and add-on ship from the same tagged version
 - release channels: main-backed `edge` and `dev`, immutable branch-capable dev tags as
   `0.x.y-dev.YYYYMMDDHHMMSS`, `beta` from prerelease tags, `latest` from stable tags
 
 ## Scheme
+
+The current version above is source-line metadata, not the latest published release.
 
 - `0.x.y` for stable beta-line releases
 - `0.x.y-beta.n` for prerelease milestones
@@ -36,22 +39,32 @@ Navet currently uses pre-`1.0` semantic versioning.
 
 ## Source Of Truth
 
-- `package.json` is the canonical app version
-- `packages/app/src/constants/app-version.ts` is the app-facing version surface
-- `CHANGELOG.md` tracks released history
+- the release tag is the canonical published version
+- GitHub Releases are the canonical published changelog
+- `.changes/*.yaml` fragments are the review-time source for generated release notes
+- `package.json` and `packages/app/src/constants/app-version.ts` describe the source line between
+  releases; release packaging injects the selected tag version without a version-bump commit
 - immutable Navet Dev versions can be created from any named clean branch by pushing a matching
   `navet-dev-*` tag with source branch and commit provenance
 - only a Navet Dev publish sourced from `main` moves `edge` and `dev`
-- Home Assistant supervised detects Navet Dev updates from the committed
-  `platform/home-assistant/addons/navet-dev/config.yaml` metadata on `main`; exact branch artifacts
-  remain undiscoverable there until matching metadata lands on `main`
-- HACS updates remain stable-only and are not part of Navet Dev publishes
+- Home Assistant supervised detects Navet Dev updates from committed
+  `platform/home-assistant/addons/navet-dev/config.yaml` metadata; automatic dev tags do not change
+  that protected-branch surface
+- HACS follows beta/RC/stable releases and is not part of Navet Dev publishes
+- each version is packaged with its own embedded version/channel and tested by image digest;
+  stable packages the same source commit as its tested beta/RC but is not a byte-identical retag
+- exact version tags and recorded image digests identify published artifacts
+
+`pnpm release:check` validates source-line metadata and the published add-on version against their
+respective changelogs. The add-on version may advance independently through its release metadata PR.
+Use `pnpm release:check -- --tag vX.Y.Z` to also require matching source, add-on, and tag versions.
 
 ## Release Notes Rule
 
 Keep historical changelog entries intact. When release framing changes, update the top-level current
 version references rather than rewriting older release notes.
 
-Write new entries using the concise, user-focused rules in
+Do not append new release entries manually. Add a fragment to the pull request and let the release
+workflow render the complete range. Write fragments using the concise, user-focused rules in
 [`docs/agents/release-and-publishing.md`](agents/release-and-publishing.md). Prefer short outcomes
 over implementation details or commit summaries.

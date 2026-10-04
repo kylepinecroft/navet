@@ -1,8 +1,6 @@
 import type { EnergySourceConfig } from './energy-types';
-import type { HabitRule } from './habits';
 import type { IntegrationServiceTarget } from './integration-service-target';
 import type {
-  PlatformAutomationCreateResult,
   PlatformAutomationDetails,
   PlatformCalendarEvent,
   PlatformCalendarRequestOptions,
@@ -25,6 +23,7 @@ import type {
   PlatformMediaBrowseResult,
   PlatformMessageClient,
   PlatformNotificationDeliveryRequest,
+  PlatformNotificationDeliveryTarget,
   PlatformNotificationRequestOptions,
   PlatformNotificationSnapshot,
   PlatformPersistentNotificationEvent,
@@ -190,6 +189,8 @@ export interface ProviderAdminFeatureService extends ProviderRoomAdminFeatureSer
 
 export interface ProviderHistoryFeatureService {
   getMessageClient: () => PlatformMessageClient | null;
+  /** False means this entity has no history; transport failures must still reject requests. */
+  supportsEntityHistory?: (entityId: string) => boolean;
   getEntityHistories?: (
     request: PlatformEntityHistoriesRequest
   ) => Promise<PlatformEntityHistorySeries[]>;
@@ -251,6 +252,9 @@ export interface ProviderNotificationFeatureService {
   dismissPersistentNotification: (notificationId: string) => Promise<void>;
   installUpdate: (entityId: string) => Promise<void>;
   restartSystem: () => Promise<void>;
+  getDeliveryTargets?: (
+    options?: PlatformNotificationRequestOptions
+  ) => Promise<PlatformNotificationDeliveryTarget[]>;
   sendNotification?: (request: PlatformNotificationDeliveryRequest) => Promise<void>;
 }
 
@@ -259,10 +263,6 @@ export interface ProviderTaskFeatureService {
   subscribeTaskRuntimeSnapshot: (listener: () => void) => () => void;
   getAutomationDetails: (entityId: string) => Promise<PlatformAutomationDetails>;
   triggerAutomation: (entityId: string) => Promise<void>;
-  createAutomationFromHabitRule?: (
-    rule: HabitRule,
-    options?: { name?: string; description?: string }
-  ) => Promise<PlatformAutomationCreateResult>;
 }
 
 export interface ProviderChoreProjectionFeatureService {

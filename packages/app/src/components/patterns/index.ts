@@ -1,3 +1,4 @@
+export { CardDialogOverflowMenu } from '@navet/app/components/patterns/card-dialog-overflow-menu';
 export {
   AttentionBand,
   type AttentionBandItem,
@@ -57,6 +58,8 @@ export {
   type SectionCardProps,
 } from './section-card';
 export {
+  SelectableCheckboxList,
+  type SelectableCheckboxListProps,
   SelectableCheckboxRow,
   type SelectableCheckboxRowProps,
 } from './selectable-checkbox-row';

@@ -1,9 +1,9 @@
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 // @ts-expect-error Docker njs runtime modules are JavaScript and have no TypeScript declaration.
 import installationAuthorityModule from '@docker/njs/installation-authority.js';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 const { createInstallationAuthority } = installationAuthorityModule;
 const INSTALLATION_KEY = 'a'.repeat(64);
@@ -32,6 +32,7 @@ function createFixture(options?: { config?: { hassUrl?: string; openhabUrl?: str
     authSessionsDirectory: join(directory, 'auth-sessions'),
     homeySessionsDirectory: join(directory, 'homey-sessions'),
     openHABSessionsDirectory: join(directory, 'openhab-sessions'),
+    setupCodePath: join(directory, 'setup-code.json'),
     statePath: join(directory, 'authority.json'),
   };
   return {
@@ -45,61 +46,92 @@ function createFixture(options?: { config?: { hassUrl?: string; openhabUrl?: str
   };
 }
 
-function request(key?: string) {
+function request(key?: string, serverPort?: string) {
   return {
     headersIn: key ? { [PAIRING_HEADER]: key } : {},
+    variables: serverPort ? { server_port: serverPort } : {},
   };
 }
 
-function writeSession(directory: string, index: number, auth: Record<string, unknown>) {
-  mkdirSync(directory, { recursive: true });
-  writeFileSync(
-    join(directory, `${index.toString(16).padStart(64, '0')}.json`),
-    JSON.stringify({
-      auth,
-      updatedAt: Date.now(),
-    }),
-    'utf8'
-  );
-}
-
 describe('production njs installation authority', () => {
-  it('requires the exact pairing key for an unknown target and never persists the key', () => {
-    const { authority, paths } = createFixture();
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
 
+  it('uses one setup policy for every implemented provider', () => {
+    const { authority } = createFixture();
+    expect(authority.getProviderSetupStatus(request(), 'home_assistant').state).toBe('ready');
+    expect(authority.getProviderSetupStatus(request(), 'homey').state).toBe('ready');
+    expect(authority.getProviderSetupStatus(request(), 'openhab').state).toBe('ready');
+
+    for (const providerId of ['home_assistant', 'homey', 'openhab']) {
+      expect(authority.getProviderSetupStatus(request(INSTALLATION_KEY), providerId)).toEqual({
+        state: 'ready',
+        authorization: 'none',
+      });
+    }
+  });
+
+  it('exchanges a temporary setup code once for an HttpOnly setup grant', () => {
+    const { authority, paths } = createFixture();
+    const code = '1234-5678-9abc-def0';
+    writeFileSync(
+      paths.setupCodePath,
+      JSON.stringify({ version: 1, code, expiresAt: Date.now() + 60_000 }),
+      'utf8'
+    );
+
+    const exchange = authority.exchangeSetupCode(request(), code);
+    expect(exchange.approved).toBe(true);
+    expect(exchange.setCookie).toContain('HttpOnly');
+    expect(authority.exchangeSetupCode(request(), code).approved).toBe(false);
+    const cookie = exchange.setCookie.split(';')[0];
     expect(
-      authority.authorizeHomeAssistant(request(), 'https://ha.example.com', normalizeTarget)
-    ).toEqual({ allowed: false, pairingVerified: false });
+      authority.getProviderSetupStatus({ headersIn: { Cookie: cookie } }, 'home_assistant')
+    ).toEqual({ state: 'ready', authorization: 'none' });
+  });
+
+  it('trusts add-on identity only on the dedicated Ingress listener', () => {
+    vi.stubEnv('NAVET_TRUST_HOME_ASSISTANT_INGRESS', 'true');
+    vi.stubEnv('NAVET_HOME_ASSISTANT_INGRESS_PORT', '8099');
+    const { authority } = createFixture({
+      config: { hassUrl: 'https://ha.example.com' },
+    });
+
     expect(
       authority.authorizeHomeAssistant(
-        request('b'.repeat(64)),
-        'https://ha.example.com',
+        request(undefined, '8099'),
+        'https://different-ha.example.com',
         normalizeTarget
       )
-    ).toEqual({ allowed: false, pairingVerified: false });
-
-    const authorized = authority.authorizeHomeAssistant(
-      request(INSTALLATION_KEY),
-      'https://ha.example.com',
-      normalizeTarget
-    );
-    expect(authorized).toEqual({ allowed: true, pairingVerified: true });
+    ).toEqual({ allowed: true, pairingVerified: false });
     expect(
-      authority.commitHomeAssistant(
-        'https://ha.example.com',
-        normalizeTarget,
-        authorized.pairingVerified
+      authority.authorizeHomeAssistant(
+        request(undefined, '8080'),
+        'https://different-ha.example.com',
+        normalizeTarget
       )
-    ).toBe(true);
-
-    const state = readFileSync(paths.statePath, 'utf8');
-    expect(JSON.parse(state)).toMatchObject({
-      homeAssistantTarget: 'https://ha.example.com',
+    ).toEqual({
+      allowed: true,
+      pairingVerified: false,
+      upstreamTarget: 'https://ha.example.com',
     });
-    expect(state).not.toContain(INSTALLATION_KEY);
+  });
+
+  it('allows fresh Home Assistant enrollment without a setup code', () => {
+    const { authority, paths } = createFixture();
     expect(
       authority.authorizeHomeAssistant(request(), 'https://ha.example.com', normalizeTarget)
     ).toEqual({ allowed: true, pairingVerified: false });
+    expect(
+      authority.commitHomeAssistant(request(), 'https://ha.example.com', normalizeTarget, false)
+    ).toBe(true);
+    expect(JSON.parse(readFileSync(paths.statePath, 'utf8')).homeAssistantTarget).toBe(
+      'https://ha.example.com'
+    );
+    expect(authority.authorizeHomeAssistant(request(), 'invalid', normalizeTarget).allowed).toBe(
+      false
+    );
   });
 
   it('lets an exact operator pin replace stale authority only after verification', () => {
@@ -130,15 +162,15 @@ describe('production njs installation authority', () => {
       normalizeTarget
     );
     expect(pinned).toEqual({ allowed: true, pairingVerified: false });
-    expect(authority.commitHomeAssistant('https://ha-b.example.com', normalizeTarget, false)).toBe(
-      true
-    );
+    expect(
+      authority.commitHomeAssistant(request(), 'https://ha-b.example.com', normalizeTarget, false)
+    ).toBe(true);
     expect(JSON.parse(readFileSync(paths.statePath, 'utf8'))).toMatchObject({
       homeAssistantTarget: 'https://ha-b.example.com',
     });
   });
 
-  it('uses enrolled authority as the upstream for an alternate browser route', () => {
+  it('uses the entered Home Assistant route instead of a remembered target', () => {
     const { authority, paths } = createFixture();
     const authorized = authority.authorizeHomeAssistant(
       request(INSTALLATION_KEY),
@@ -147,6 +179,7 @@ describe('production njs installation authority', () => {
     );
     expect(
       authority.commitHomeAssistant(
+        request(),
         'https://ha-a.example.com',
         normalizeTarget,
         authorized.pairingVerified
@@ -159,11 +192,28 @@ describe('production njs installation authority', () => {
     ).toEqual({
       allowed: true,
       pairingVerified: false,
-      upstreamTarget: 'https://ha-a.example.com',
     });
   });
 
-  it('still requires pairing to replace enrolled authority', () => {
+  it('allows target changes while retaining explicit operator pins', () => {
+    const unpinned = createFixture().authority;
+    expect(
+      unpinned.authorizeHomeAssistantChange(
+        request(),
+        'https://demo-ha.example.com',
+        normalizeTarget
+      )
+    ).toEqual({ allowed: true, pairingVerified: false });
+
+    const pinned = createFixture({
+      config: { hassUrl: 'https://ha.example.com' },
+    }).authority;
+    expect(
+      pinned.authorizeHomeAssistantChange(request(), 'https://demo-ha.example.com', normalizeTarget)
+    ).toEqual({ allowed: false, pairingVerified: false });
+  });
+
+  it('records replacement Home Assistant targets after provider verification', () => {
     const { authority, paths } = createFixture();
     const first = authority.authorizeHomeAssistant(
       request(INSTALLATION_KEY),
@@ -172,6 +222,7 @@ describe('production njs installation authority', () => {
     );
     expect(
       authority.commitHomeAssistant(
+        request(),
         'https://ha-a.example.com',
         normalizeTarget,
         first.pairingVerified
@@ -183,9 +234,10 @@ describe('production njs installation authority', () => {
       'https://ha-b.example.com',
       normalizeTarget
     );
-    expect(replacement).toEqual({ allowed: true, pairingVerified: true });
+    expect(replacement).toEqual({ allowed: true, pairingVerified: false });
     expect(
       authority.commitHomeAssistant(
+        request(),
         'https://ha-b.example.com',
         normalizeTarget,
         replacement.pairingVerified
@@ -206,47 +258,11 @@ describe('production njs installation authority', () => {
     ).toEqual({ allowed: false, pairingVerified: false });
   });
 
-  it('rejects disjoint legacy Homey evidence and prevents overlap chains from expanding trust', () => {
-    const disjoint = createFixture();
-    writeSession(disjoint.paths.homeySessionsDirectory, 1, {
-      homeys: [{ id: 'homey-a' }],
-    });
-    writeSession(disjoint.paths.homeySessionsDirectory, 2, {
-      homeys: [{ id: 'homey-b' }],
-    });
-    expect(disjoint.authority.authorizeHomeyStart(request())).toEqual({
-      allowed: false,
-      pairingVerified: false,
-    });
-
-    const chain = createFixture();
-    writeSession(chain.paths.homeySessionsDirectory, 1, {
-      homeys: [{ id: 'homey-a' }, { id: 'homey-b' }],
-    });
-    expect(chain.authority.authorizeHomeyStart(request()).allowed).toBe(true);
-    expect(chain.authority.commitHomey(['homey-b', 'homey-c'], false)).toBe(false);
-    expect(chain.authority.commitHomey(['homey-c', 'homey-d'], false)).toBe(false);
-    expect(chain.authority.commitHomey(['homey-a', 'homey-b'], false)).toBe(true);
-    expect(chain.authority.commitHomey(['homey-b', 'homey-c'], false)).toBe(false);
-    expect(JSON.parse(readFileSync(chain.paths.statePath, 'utf8'))).toMatchObject({
-      homeyIds: ['homey-a', 'homey-b'],
-    });
-  });
-
-  it('uses only the common IDs from multiple consistent legacy Homey records', () => {
-    const { authority, paths } = createFixture();
-    writeSession(paths.homeySessionsDirectory, 1, {
-      homeys: [{ id: 'homey-a' }, { id: 'homey-b' }],
-    });
-    writeSession(paths.homeySessionsDirectory, 2, {
-      homeys: [{ id: 'homey-b' }, { id: 'homey-c' }],
-    });
-
+  it('accepts Homeys verified by OAuth without separate setup approval', () => {
+    const { authority } = createFixture();
     expect(authority.authorizeHomeyStart(request()).allowed).toBe(true);
-    expect(authority.commitHomey(['homey-b'], false)).toBe(true);
-    expect(authority.commitHomey(['homey-b', 'homey-c'], false)).toBe(false);
-    expect(JSON.parse(readFileSync(paths.statePath, 'utf8'))).toMatchObject({
-      homeyIds: ['homey-b'],
-    });
+    expect(authority.commitHomey(request(), ['homey-a'], false)).toBe(true);
+    expect(authority.commitHomey(request(), ['homey-b'], false)).toBe(true);
+    expect(authority.commitHomey(request(), [], false)).toBe(false);
   });
 });

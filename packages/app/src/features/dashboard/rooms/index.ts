@@ -60,7 +60,6 @@ export {
   renameRoomWorkspaceRoomV2,
   reorderRoomWorkspaceGroupsV2,
   reorderRoomWorkspaceRoomsV2,
-  resetRoomWorkspaceRoomNameV2,
   sanitizeLegacyRoomOrganization,
   setRoomWorkspaceFavoriteRankV2,
   setRoomWorkspaceGroupSymbolV2,

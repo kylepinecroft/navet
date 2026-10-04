@@ -16,6 +16,7 @@ export interface HomeyProviderDependencies {
     resetSnapshot: HomeyBridge['resetSnapshot'];
     subscribe: (listener: () => void) => () => void;
     callService: HomeyBridge['callService'];
+    executeCommand: HomeyBridge['executeCommand'];
   };
   entityRuntimeService: HomeyBridge['entityRuntimeService'];
 }
@@ -30,6 +31,7 @@ function createHomeyBridgeFromDependencies(dependencies: HomeyProviderDependenci
     subscribe: (listener) => dependencies.homeyService.subscribe(() => listener()),
     callService: (domain, service, serviceData, target) =>
       dependencies.homeyService.callService(domain, service, serviceData, target),
+    executeCommand: (entity, command) => dependencies.homeyService.executeCommand(entity, command),
     entityRuntimeService: dependencies.entityRuntimeService,
   };
 }
@@ -66,6 +68,19 @@ export function createHomeyProviderPackageRegistration(
 
   return {
     ...contractRegistration,
-    runtimeRegistration: createHomeyRuntimeRegistration(contractRegistration),
+    runtimeRegistration: createHomeyRuntimeRegistration(contractRegistration, () => {
+      const session = options.getSession?.();
+      const user = session?.user as { name?: string; email?: string } | undefined;
+      const homeys = session?.availableHomeys as { id: string; name: string }[] | undefined;
+      return {
+        profile: user?.name ? { name: user.name, email: user.email } : undefined,
+        installations: (homeys ?? []).map((homey) => ({
+          id: `homey:${homey.id}`,
+          name: homey.name,
+          current: homey.id === session?.selectedHomeyId,
+          available: true,
+        })),
+      };
+    }),
   };
 }

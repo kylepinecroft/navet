@@ -9,11 +9,25 @@ unless a separate dialog explicitly describes a provider change.
 
 ![Home in edit mode with card controls, layout choices, undo, redo, Add Card, and Done visible.](/docs/how-to/dashboards/customize-home-layout-edit-mode.webp)
 
+## Watch the dashboard tutorial
+
+Build on the included **Home** dashboard: add cards, choose sizes, arrange sections with mouse
+drag and drop, and check the result on a phone. The recording uses Home Assistant as its example
+provider; the dashboard workflow itself is provider-neutral.
+
+<iframe class="navet-video" src="https://www.youtube-nocookie.com/embed/8xis2yjmul8" title="Navet Dashboard Guide: Add Cards and Arrange Home" loading="lazy" referrerpolicy="strict-origin-when-cross-origin" allow="fullscreen" allowfullscreen></iframe>
+
+[Watch the dashboard tutorial on YouTube](https://youtu.be/8xis2yjmul8). New to Navet? Start with
+[the setup guide](/getting-started/#watch-the-setup-guide).
+
 ## Enter edit mode
 
 1. Open the Home dashboard you want to change.
 2. Choose **Customize** or **Edit dashboard**.
 3. Confirm that the editing command bar appears.
+
+On screens 1100px wide or narrower, choose **More actions** for room management, presets, layout
+choices, and section controls. **Add Card**, **Undo**, **Redo**, and **Done** remain on the bar.
 
 ## Arrange cards
 
@@ -22,18 +36,16 @@ While editing, you can:
 - Drag a card to another position.
 - Change its supported size.
 - Move it into another section or column.
-- Lock it to prevent accidental layout changes.
+- Optionally lock a card to disable its input outside edit mode, which can be useful for
+  information cards. This does not lock its layout position.
 - Hide an automatically added entity.
 - Delete a Navet widget or manually added card.
 
-Card sizes are intentional per card type. A size that is unavailable would not provide a useful
-version of that card. Saved or imported layouts that contain a compatible extra-wide card fall
-back to Extra-Large or Large on narrower screens so the dashboard remains usable on tablets and
-phones.
+Available sizes depend on the card type and screen width.
 
 ![The current phone card-size sheet with footprint choices and the selected size identified.](/docs/how-to/dashboards/card-size-selector.webp)
 
-![Home edit mode showing the full layout, row, column, undo, redo, Add card, and Done command bar.](/docs/how-to/dashboards/customize-home-edit-mode.webp)
+![Home in edit mode with Undo, Redo, Add Card, and Done in the command bar.](/docs/how-to/dashboards/customize-home-edit-mode.webp)
 
 ## Use undo and redo
 
@@ -42,7 +54,8 @@ most useful before you leave edit mode.
 
 ## Finish
 
-Choose **Done**. Navet saves the active Home layout to the dashboard profile.
+Choose **Done**. Navet saves the active Home layout to the dashboard profile. Enter content such
+as a Quick Note after leaving edit mode.
 
 If another registered device is editing the shared profile at the same time, Navet may ask which
 version to keep. See [Resolve a synchronization conflict](/guide/dashboards/sync-conflicts/).

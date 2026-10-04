@@ -1,5 +1,11 @@
+import { createHash } from 'node:crypto';
+import choreCalendarPolicy from '@docker/njs/chore-calendar-policy.js';
+import durableStorage from '@docker/njs/chore-durable-storage.js';
+import choreOccurrencePolicy from '@docker/njs/chore-occurrence-policy.js';
 import choreStore from '@docker/njs/chore-store.js';
 import conformanceVectors from '@navet/core/chore-conformance-vectors.json';
+import { createChoreExperienceState } from '@navet/core/chore-experience';
+import type { ApplyChoreCommandInput } from '@navet/core/chores';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 const WORKSPACE_PATH = '/data/navet-dashboard-workspace.json';
@@ -9,6 +15,7 @@ const JOURNAL_PATH = '/data/navet-chore-command-journal.json';
 const EVENT_HISTORY_PATH = '/data/navet-chore-events.json';
 const OCCURRENCE_ID = 'dishes:2026-08-10T10:00:00.000Z:maya';
 const TENANT_ID = `hat_${'a'.repeat(64)}`;
+const REBOUND_TENANT_ID = `hat_${'b'.repeat(64)}`;
 const PRINCIPAL = {
   providerId: 'home_assistant',
   tenantId: TENANT_ID,
@@ -201,6 +208,317 @@ afterEach(() => {
 });
 
 describe('NJS chore workspace store', () => {
+  it('keeps large accounting and unfinished work durable across commands, restarts and backup recovery', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-08-10T08:00:00.000Z'));
+    const mockFs = createMockFs();
+    choreStore.setChoreStoreFsForTests(mockFs);
+    choreStore.setChoreStorePrincipalResolverForTests(() => PRINCIPAL);
+    seedOccurrenceWorkspace();
+    const document = JSON.parse(mockFs.getFile(CHORE_PATH) ?? '{}');
+    document.data.experience = createChoreExperienceState();
+    document.data.experience.earnedPointsByParticipant = { maya: 12000 };
+    document.data.experience.pointTransactions = Array.from({ length: 12000 }, (_, index) => ({
+      id: `transaction:${index}:${'x'.repeat(150)}`,
+      participantId: 'maya',
+      pointsDelta: 1,
+      kind: 'adjustment',
+      timestamp: document.updatedAt,
+    }));
+    document.data.experience.pointTransactions[0].id += 'é'.repeat(140000);
+    document.data.experience.progressAwards = [
+      {
+        id: 'earned',
+        targetId: 'target',
+        participantId: 'maya',
+        cycleKey: 'lifetime',
+        awardedAt: document.updatedAt,
+      },
+    ];
+    const occurrence = document.data.occurrencesById[OCCURRENCE_ID];
+    for (let index = 0; index < 6000; index++) {
+      const id = `unfinished:${index}`;
+      document.data.occurrencesById[id] = { ...occurrence, id };
+    }
+    expect(JSON.stringify(document).length).toBeGreaterThan(2 * 1024 * 1024);
+    const hash = (value: string) => createHash('sha256').update(value).digest('hex');
+    const stored = durableStorage.encode(document, 2 * 1024 * 1024, hash, (key, chunk) =>
+      mockFs.writeFileSync(`${CHORE_PATH}.chunk-${key}`, JSON.stringify(chunk))
+    );
+    mockFs.writeFileSync(CHORE_PATH, JSON.stringify(stored));
+    const adjust = createActionRequest('large-ledger-adjust', document.revision, {
+      type: 'experience_points_adjust',
+      actorParticipantId: 'maya',
+      participantId: 'maya',
+      pointsDelta: 10,
+    });
+    choreStore.handle(adjust);
+    expect(adjust.return).toHaveBeenCalledWith(200, expect.any(String));
+    const updated = parseResponse(adjust);
+    expect(updated.data.experience.pointTransactions).toHaveLength(12001);
+    expect(updated.data.experience.earnedPointsByParticipant.maya).toBe(12010);
+    expect(updated.data.experience.progressAwards).toEqual(document.data.experience.progressAwards);
+    expect(Object.keys(updated.data.occurrencesById)).toHaveLength(6001);
+    expect(mockFs.getFile(CHORE_PATH)?.length).toBeLessThan(2 * 1024 * 1024);
+    choreStore.resetChoreStoreForTests();
+    choreStore.setChoreStoreFsForTests(mockFs);
+    choreStore.setChoreStorePrincipalResolverForTests(() => PRINCIPAL);
+    const reload = createRequest();
+    choreStore.handle(reload);
+    expect(parseResponse(reload).data.experience).toEqual(updated.data.experience);
+    const backup = createRequest({ uri: '/__navet_chores__/backup' });
+    choreStore.handle(backup);
+    expect(parseResponse(backup).workspace.experience.pointTransactions).toHaveLength(12001);
+    const failWrite = mockFs.renameSync.getMockImplementation();
+    mockFs.renameSync.mockImplementation((source, destination) => {
+      if (destination.includes('.chunk-')) throw new Error('Interrupted chunk write');
+      failWrite?.(source, destination);
+    });
+    const failed = createActionRequest('interrupted-adjust', updated.revision, {
+      type: 'experience_points_adjust',
+      actorParticipantId: 'maya',
+      participantId: 'maya',
+      pointsDelta: 10,
+    });
+    choreStore.handle(failed);
+    expect(failed.return.mock.calls.at(-1)?.[0]).toBeGreaterThanOrEqual(400);
+    if (!failWrite) throw new Error('Expected file rename implementation');
+    mockFs.renameSync.mockImplementation(failWrite);
+    const afterFailure = createRequest();
+    choreStore.handle(afterFailure);
+    expect(parseResponse(afterFailure).data.experience).toEqual(updated.data.experience);
+    const materialize = createActionRequest('large-workspace-materialize', updated.revision, {
+      type: 'materialize_occurrences',
+      rangeStart: '2026-08-10T00:00:00.000Z',
+      rangeEnd: '2026-08-11T00:00:00.000Z',
+    });
+    choreStore.handle(materialize);
+    expect(materialize.return).toHaveBeenCalledWith(200, expect.any(String));
+    expect(Object.keys(parseResponse(materialize).data.occurrencesById)).toHaveLength(6001);
+    const primary = JSON.parse(mockFs.getFile(CHORE_PATH) ?? '{}');
+    mockFs.writeFileSync(`${CHORE_PATH}.chunk-${primary.durableCollections.activity.at(-1)}`, '{');
+    const recovered = createRequest();
+    choreStore.handle(recovered);
+    expect(parseResponse(recovered).data.experience.pointTransactions).toHaveLength(12001);
+  });
+
+  it('matches standby and fair rotation assignment in the packaged policy', () => {
+    const timestamp = '2026-08-01T00:00:00.000Z';
+    const alice = {
+      id: 'alice',
+      displayName: 'Alice',
+      capabilities: ['complete' as const],
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    };
+    const participants = {
+      alice: { ...alice, pausedAt: timestamp },
+      bob: {
+        id: 'bob',
+        displayName: 'Bob',
+        capabilities: ['complete' as const],
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      },
+    };
+    expect(
+      choreCalendarPolicy.resolveAssignmentSlots(
+        { mode: 'person', participantIds: ['alice'], standbyParticipantIds: ['bob'] },
+        participants,
+        0
+      )
+    ).toEqual([{ assignmentSlot: 'standby', assigneeIds: ['bob'] }]);
+    expect(
+      choreCalendarPolicy.resolveAssignmentSlots(
+        { mode: 'rotation', participantIds: ['alice', 'bob'], rotationStrategy: 'fair' },
+        { ...participants, alice },
+        0,
+        { alice: 2, bob: 1 }
+      )
+    ).toEqual([{ assignmentSlot: 'bob', assigneeIds: ['bob'] }]);
+  });
+
+  it('rejects malformed progress and ledger values at the Docker storage boundary', () => {
+    const mutations = [
+      (experience: ReturnType<typeof createChoreExperienceState>) => {
+        experience.badgesById.bad = { id: 'bad', title: 'Bad', metric: 'count', target: 0 };
+      },
+      (experience: ReturnType<typeof createChoreExperienceState>) => {
+        experience.achievementsById.bad = {
+          id: 'bad',
+          title: 'Bad',
+          metric: 'count',
+          target: 1,
+          awardPoints: '50' as unknown as number,
+        };
+      },
+      (experience: ReturnType<typeof createChoreExperienceState>) => {
+        experience.progressAwards.push({ id: 'bad' } as never);
+      },
+      (experience: ReturnType<typeof createChoreExperienceState>) => {
+        experience.pointTransactions.push({
+          id: 'bad',
+          participantId: 'maya',
+          pointsDelta: 1,
+          timestamp: '2026-08-10T08:00:00.000Z',
+          kind: 'invalid' as never,
+        });
+      },
+      (experience: ReturnType<typeof createChoreExperienceState>) => {
+        const item = {
+          id: 'same',
+          participantId: 'maya',
+          pointsDelta: 1,
+          timestamp: '2026-08-10T08:00:00.000Z',
+          kind: 'completion' as const,
+        };
+        experience.pointTransactions.push(item, item);
+      },
+    ];
+    for (const mutate of mutations) {
+      const data = { ...seededData('validation'), experience: createChoreExperienceState() };
+      expect(choreStore.isValidChoreWorkspaceData(data)).toBe(true);
+      mutate(data.experience);
+      expect(choreStore.isValidChoreWorkspaceData(data)).toBe(false);
+    }
+  });
+
+  it('keeps fair rotation stable with personal date and time overrides in Docker', () => {
+    const vector = conformanceVectors.materialization.find((item) =>
+      item.name.startsWith('fair rotation')
+    );
+    if (!vector) throw new Error('Expected fair rotation vector');
+    const definition = {
+      ...vector.definition,
+      assignment: {
+        ...vector.definition.assignment,
+        participantScheduleOverrides: {
+          alice: { dueDateOffsetDays: 1, times: ['19:00'] },
+          bob: { times: ['20:00'] },
+        },
+      },
+    };
+    const participants = Object.fromEntries(vector.participants.map((item) => [item.id, item]));
+    const first = choreStore.materializeDefinitionForTests(
+      definition,
+      participants,
+      vector.rangeStart,
+      vector.rangeEnd,
+      {},
+      undefined
+    );
+    const existing = Object.fromEntries(first.map((item: { id: string }) => [item.id, item]));
+    expect(
+      choreStore.materializeDefinitionForTests(
+        definition,
+        participants,
+        vector.rangeStart,
+        vector.rangeEnd,
+        existing,
+        undefined
+      )
+    ).toEqual(first);
+  });
+
+  it('keeps paused future work available for reviewed vacation rescheduling in Docker', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-08-01T08:00:00.000Z'));
+    const mockFs = createMockFs();
+    choreStore.setChoreStoreFsForTests(mockFs);
+    choreStore.setChoreStorePrincipalResolverForTests(() => PRINCIPAL);
+    choreStore.handle(
+      createActionRequest('manager', 0, {
+        type: 'participant_create',
+        participant: managerParticipant(),
+      })
+    );
+    choreStore.handle(
+      createActionRequest('sofia', 1, {
+        type: 'participant_create',
+        actorParticipantId: 'maya',
+        participant: managerParticipant('sofia'),
+      })
+    );
+    const definition = {
+      ...seededData('vacation').definitionsById.dishes,
+      assignment: { mode: 'person', participantIds: ['sofia'] },
+    };
+    choreStore.handle(
+      createActionRequest('definition', 2, {
+        type: 'definition_create',
+        actorParticipantId: 'maya',
+        definition,
+      })
+    );
+    choreStore.handle(
+      createActionRequest('materialize', 3, {
+        type: 'materialize_occurrences',
+        rangeStart: '2026-08-01T00:00:00.000Z',
+        rangeEnd: '2026-08-12T00:00:00.000Z',
+      })
+    );
+    const pause = createActionRequest('pause', 4, {
+      type: 'participant_update',
+      actorParticipantId: 'maya',
+      participant: {
+        ...managerParticipant('sofia'),
+        pausedAt: '2026-08-02T00:00:00.000Z',
+        resumeAt: '2026-08-12T00:00:00.000Z',
+      },
+    });
+    choreStore.handle(pause);
+    expect(pause.return).toHaveBeenCalledWith(200, expect.any(String));
+    const id = Object.keys(parseResponse(pause).data.occurrencesById)[0];
+    expect(id).toBeDefined();
+    vi.setSystemTime(new Date('2026-08-12T08:00:00.000Z'));
+    const move = createActionRequest('vacation-review', 5, {
+      type: 'vacation_reschedule',
+      actorParticipantId: 'maya',
+      participantId: 'sofia',
+      occurrenceIds: [id],
+      startDate: '2026-08-13',
+    });
+    choreStore.handle(move);
+    expect(move.return).toHaveBeenCalledWith(200, expect.any(String));
+    expect(
+      Object.values(parseResponse(move).data.occurrencesById).some(
+        (item) => (item as { carriedForwardFrom?: string }).carriedForwardFrom === id
+      )
+    ).toBe(true);
+  });
+
+  it('materializes hourly chores across DST in the Docker policy', () => {
+    const definition = {
+      id: 'dishes',
+      title: 'Dishes',
+      enabled: true,
+      assignment: { mode: 'person', participantIds: ['maya'] },
+      schedule: {
+        frequency: 'hourly',
+        startDate: '2026-10-25',
+        time: '01:00',
+        timeZone: 'Europe/Stockholm',
+        intervalHours: 2,
+      },
+      dueWindowMinutes: 60,
+    };
+    const occurrences = choreStore.materializeDefinitionForTests(
+      definition,
+      { maya: { capabilities: ['complete'] } },
+      '2026-10-24T22:00:00.000Z',
+      '2026-10-25T06:00:00.000Z',
+      {},
+      undefined
+    );
+    expect(
+      occurrences.map((occurrence: { scheduledAt: string }) => occurrence.scheduledAt)
+    ).toEqual([
+      '2026-10-24T23:00:00.000Z',
+      '2026-10-25T01:00:00.000Z',
+      '2026-10-25T03:00:00.000Z',
+      '2026-10-25T05:00:00.000Z',
+    ]);
+  });
   for (const vector of conformanceVectors.materialization) {
     it(`matches shared conformance: ${vector.name}`, () => {
       const participantsById = Object.fromEntries(
@@ -222,6 +540,157 @@ describe('NJS chore workspace store', () => {
       ).toEqual(vector.expected);
     });
   }
+
+  it.each([{ rotationCadence: 'weekly' }, { rotationDayOfWeek: 0 }])(
+    'reconciles unstarted occurrences after a rotation edit: %j',
+    (change) => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date('2026-09-28T08:00:00.000Z'));
+      const mockFs = createMockFs();
+      choreStore.setChoreStoreFsForTests(mockFs);
+      choreStore.setChoreStorePrincipalResolverForTests(() => PRINCIPAL);
+      let revision = 0;
+      const send = (action: Record<string, unknown>) => {
+        let request = createActionRequest(`command-${revision}`, revision, action);
+        choreStore.handle(request);
+        if (request.return.mock.calls.at(-1)?.[0] === 412) {
+          revision = parseResponse(request).revision;
+          request = createActionRequest(`command-${revision}`, revision, action);
+          choreStore.handle(request);
+        }
+        expect(request.return).toHaveBeenCalledWith(200, expect.any(String));
+        const result = parseResponse(request);
+        revision = result.revision;
+        return result.data;
+      };
+      send({ type: 'participant_create', participant: managerParticipant() });
+      send({
+        type: 'participant_create',
+        actorParticipantId: 'maya',
+        participant: managerParticipant('sofia'),
+      });
+      const definition = {
+        ...seededData('fixture').definitionsById.dishes,
+        assignment: {
+          mode: 'rotation',
+          participantIds: ['maya', 'sofia'],
+          ...('rotationDayOfWeek' in change ? { rotationCadence: 'weekly' } : {}),
+        },
+        schedule: { frequency: 'daily', startDate: '2026-09-28', time: '18:00', timeZone: 'UTC' },
+      };
+      send({ type: 'definition_create', actorParticipantId: 'maya', definition });
+      send({
+        type: 'materialize_occurrences',
+        rangeStart: '2026-09-28T00:00:00.000Z',
+        rangeEnd: '2026-10-07T00:00:00.000Z',
+      });
+      const stored = JSON.parse(mockFs.getFile(CHORE_PATH) ?? '{}');
+      const occurrences = Object.values(stored.data.occurrencesById) as Array<
+        Record<string, unknown>
+      >;
+      const preserved: Record<string, unknown> = {};
+      ['done', 'claimed', 'awaiting_approval', 'skipped', 'missed'].forEach((status, index) => {
+        occurrences[index].status = status;
+        preserved[String(occurrences[index].id)] = { ...occurrences[index] };
+      });
+      occurrences[5].carriedForwardFrom = 'earlier';
+      preserved[String(occurrences[5].id)] = { ...occurrences[5] };
+      preserved[String(occurrences[6].id)] = { ...occurrences[6] };
+      vi.setSystemTime(new Date('2026-10-05T08:00:00.000Z'));
+      const staleId = occurrences.at(-1)?.id;
+      stored.data.outbox = ['pending', 'delivered'].map((status) => ({
+        id: `reminder-${status}`,
+        activityId: 'reminder',
+        eventType: 'reminder_due',
+        occurrenceId: staleId,
+        status,
+        attempts: 0,
+        createdAt: '2026-09-28T08:00:00.000Z',
+        nextAttemptAt: '2026-09-28T08:00:00.000Z',
+      }));
+      mockFs.writeFileSync(CHORE_PATH, JSON.stringify(stored));
+      const updated = send({
+        type: 'definition_update',
+        actorParticipantId: 'maya',
+        definition: {
+          ...definition,
+          assignment: { ...definition.assignment, ...change },
+        },
+      });
+      expect(updated.occurrencesById).toEqual(preserved);
+      expect(
+        updated.outbox.filter((item: { occurrenceId?: string }) => item.occurrenceId === staleId)
+      ).toEqual([expect.objectContaining({ status: 'delivered' })]);
+      const result = send({
+        type: 'materialize_occurrences',
+        rangeStart: '2026-10-04T00:00:00.000Z',
+        rangeEnd: '2026-10-07T00:00:00.000Z',
+      });
+      expect(result.occurrencesById).toMatchObject(preserved);
+      const future = Object.entries(result.occurrencesById).filter(([id]) => !preserved[id]);
+      expect(future).toHaveLength(2);
+      expect(
+        new Set(future.map(([, occurrence]) => (occurrence as { scheduledAt: string }).scheduledAt))
+          .size
+      ).toBe(2);
+    }
+  );
+
+  it('adds an everyone participant for a past time without duplicating existing work', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-08-10T08:00:00.000Z'));
+    choreStore.setChoreStoreFsForTests(createMockFs());
+    choreStore.setChoreStorePrincipalResolverForTests(() => PRINCIPAL);
+    let revision = 0;
+    const send = (action: Record<string, unknown>) => {
+      let request = createActionRequest(`command-${revision}`, revision, action);
+      choreStore.handle(request);
+      if (request.return.mock.calls.at(-1)?.[0] === 412) {
+        revision = parseResponse(request).revision;
+        request = createActionRequest(`command-${revision}`, revision, action);
+        choreStore.handle(request);
+      }
+      expect(request.return).toHaveBeenCalledWith(200, expect.any(String));
+      const result = parseResponse(request);
+      revision = result.revision;
+      return result.data;
+    };
+    send({ type: 'participant_create', participant: managerParticipant() });
+    send({
+      type: 'participant_create',
+      actorParticipantId: 'maya',
+      participant: managerParticipant('sofia'),
+    });
+    const definition = {
+      ...seededData('fixture').definitionsById.dishes,
+      assignment: { mode: 'everyone', participantIds: ['maya'] },
+    };
+    send({ type: 'definition_create', actorParticipantId: 'maya', definition });
+    const materialize = {
+      type: 'materialize_occurrences',
+      rangeStart: '2026-08-10T00:00:00.000Z',
+      rangeEnd: '2026-08-11T00:00:00.000Z',
+    };
+    const first = send(materialize);
+    const existing = Object.values(first.occurrencesById)[0] as { id: string };
+    vi.setSystemTime(new Date('2026-08-11T08:00:00.000Z'));
+    send({
+      type: 'definition_update',
+      actorParticipantId: 'maya',
+      definition: {
+        ...definition,
+        assignment: { mode: 'everyone', participantIds: ['maya', 'sofia'] },
+      },
+    });
+    const updated = send(materialize);
+    expect(updated.occurrencesById[existing.id]).toEqual(first.occurrencesById[existing.id]);
+    expect(
+      Object.values(updated.occurrencesById)
+        .map((item) => (item as { assignmentSlot: string }).assignmentSlot)
+        .sort()
+    ).toEqual(['maya', 'sofia']);
+    expect(send(materialize).occurrencesById).toEqual(updated.occurrencesById);
+  });
 
   it('reports runtime capabilities without enabling browser background work in standalone mode', () => {
     choreStore.setChoreStoreFsForTests(createMockFs());
@@ -496,7 +965,7 @@ describe('NJS chore workspace store', () => {
       type: 'experience_update',
       actorParticipantId: 'maya',
       experience: {
-        version: 1,
+        ...createChoreExperienceState(),
         gamificationMode: 'light',
         presentationByDefinitionId: { dishes: { points: 15 } },
         missionsById: {},
@@ -1029,7 +1498,7 @@ describe('NJS chore workspace store', () => {
       type: 'experience_update',
       actorParticipantId: 'maya',
       experience: {
-        version: 1,
+        ...createChoreExperienceState(),
         setupStartedAt: '2026-08-15T08:00:00.000Z',
         setupCompletedAt: '2026-08-15T08:10:00.000Z',
         gamificationMode: 'off',
@@ -1049,6 +1518,75 @@ describe('NJS chore workspace store', () => {
       setupCompletedAt: '2026-08-15T08:10:00.000Z',
       presentationByDefinitionId: { dishes: { color: '#2563eb' } },
     });
+  });
+
+  it('keeps reward request, approval, refund, and replay accounting durable', () => {
+    const mockFs = createMockFs();
+    choreStore.setChoreStoreFsForTests(mockFs);
+    choreStore.setChoreStorePrincipalResolverForTests(() => PRINCIPAL);
+    const created = createActionRequest('create-manager', 0, {
+      type: 'participant_create',
+      participant: managerParticipant(),
+    });
+    choreStore.handle(created);
+    const experience = createChoreExperienceState();
+    experience.gamificationMode = 'family';
+    experience.rewardGoalsById.movie = {
+      id: 'movie',
+      title: 'Movie',
+      type: 'instant',
+      targetPoints: 40,
+      enabled: true,
+      createdAt: '2026-08-10T08:00:00.000Z',
+      updatedAt: '2026-08-10T08:00:00.000Z',
+    };
+    const setup = createActionRequest('setup', 1, {
+      type: 'experience_update',
+      actorParticipantId: 'maya',
+      experience,
+    });
+    choreStore.handle(setup);
+    expect(setup.return).toHaveBeenCalledWith(200, expect.any(String));
+    const points = createActionRequest('points', 2, {
+      type: 'experience_points_adjust',
+      actorParticipantId: 'maya',
+      participantId: 'maya',
+      pointsDelta: 100,
+    });
+    choreStore.handle(points);
+    expect(points.return).toHaveBeenCalledWith(200, expect.any(String));
+    const request = createActionRequest('request', 3, {
+      type: 'reward_request',
+      requestId: 'r1',
+      rewardId: 'movie',
+      participantId: 'maya',
+    });
+    choreStore.handle(request);
+    expect(parseResponse(request).data.experience.earnedPointsByParticipant.maya).toBe(100);
+    const approve = createActionRequest('approve', 4, {
+      type: 'reward_decision',
+      requestId: 'r1',
+      actorParticipantId: 'maya',
+      decision: 'approve',
+    });
+    choreStore.handle(approve);
+    expect(parseResponse(approve).data.experience.earnedPointsByParticipant.maya).toBe(60);
+    const replay = createActionRequest('approve', 5, {
+      type: 'reward_decision',
+      requestId: 'r1',
+      actorParticipantId: 'maya',
+      decision: 'approve',
+    });
+    choreStore.handle(replay);
+    expect(parseResponse(replay).data.experience.pointTransactions).toHaveLength(2);
+    const refund = createActionRequest('refund', 5, {
+      type: 'reward_decision',
+      requestId: 'r1',
+      actorParticipantId: 'maya',
+      decision: 'refund',
+    });
+    choreStore.handle(refund);
+    expect(parseResponse(refund).data.experience.earnedPointsByParticipant.maya).toBe(100);
   });
 
   it('persists signed point adjustments and their immutable audit details', () => {
@@ -1211,6 +1749,74 @@ describe('NJS chore workspace store', () => {
     expect(newPin.return).toHaveBeenCalledWith(200, expect.any(String));
   });
 
+  it.each(['home_assistant', 'homey', 'openhab'])(
+    'preserves legacy chores and PIN after switching to %s',
+    (providerId) => {
+      const mockFs = createMockFs();
+      choreStore.setChoreStoreFsForTests(mockFs);
+      choreStore.setChoreStorePrincipalResolverForTests(() => PRINCIPAL);
+      choreStore.handle(
+        createActionRequest('setup-manager', 0, {
+          type: 'participant_create',
+          participant: managerParticipant(),
+        })
+      );
+      choreStore.handle(
+        createRequest({
+          method: 'POST',
+          uri: '/__navet_chores__/management/pin',
+          requestText: JSON.stringify({ actorParticipantId: 'maya', pin: '2468' }),
+        })
+      );
+
+      const workspace = JSON.parse(mockFs.getFile(WORKSPACE_PATH) ?? '{}');
+      const pinPath = '/data/navet-chore-management.json';
+      const originalPin = JSON.parse(mockFs.getFile(pinPath) ?? '{}');
+      mockFs.writeFileSync(pinPath, JSON.stringify({ ...originalPin, tenantId: TENANT_ID }));
+      mockFs.writeFileSync(
+        WORKSPACE_PATH,
+        JSON.stringify({
+          ...workspace,
+          tenantBinding: {
+            providerId: 'home_assistant',
+            tenantId: TENANT_ID,
+            enrolledAt: '2026-09-09T18:00:00.000Z',
+          },
+        })
+      );
+      choreStore.setChoreStorePrincipalResolverForTests(() => ({
+        ...PRINCIPAL,
+        providerId,
+        tenantId: REBOUND_TENANT_ID,
+      }));
+
+      const load = createRequest();
+      choreStore.handle(load);
+
+      expect(load.return).toHaveBeenCalledWith(200, expect.any(String));
+      expect(parseResponse(load)).toMatchObject({
+        data: { participantsById: { maya: { displayName: 'Maya' } } },
+        management: { pinConfigured: true },
+      });
+      expect(JSON.parse(mockFs.getFile(pinPath) ?? '{}')).toMatchObject({
+        salt: originalPin.salt,
+        pinHash: originalPin.pinHash,
+        tenantId: originalPin.tenantId,
+      });
+      expect(JSON.parse(mockFs.getFile(WORKSPACE_PATH) ?? '{}').tenantBinding.tenantId).toBe(
+        TENANT_ID
+      );
+
+      const verify = createRequest({
+        method: 'POST',
+        uri: '/__navet_chores__/management/verify',
+        requestText: JSON.stringify({ pin: '2468' }),
+      });
+      choreStore.handle(verify);
+      expect(verify.return).toHaveBeenCalledWith(200, expect.any(String));
+    }
+  );
+
   it('removes management PIN protection only for an unlocked active manager', () => {
     const mockFs = createMockFs();
     choreStore.setChoreStoreFsForTests(mockFs);
@@ -1276,7 +1882,10 @@ describe('NJS chore workspace store', () => {
     });
     choreStore.handle(configure);
     const sessionToken = parseResponse(configure).sessionToken;
-    expect(sharedSessions.set).toHaveBeenCalledWith(TENANT_ID, sessionToken, 30 * 60 * 1000);
+    const workspaceKey = JSON.parse(
+      mockFs.getFile('/data/navet-chore-management.json') ?? '{}'
+    ).tenantId;
+    expect(sharedSessions.set).toHaveBeenCalledWith(workspaceKey, sessionToken, 30 * 60 * 1000);
 
     // Production njs creates a fresh JavaScript VM for the next request.
     choreStore.resetChoreStoreForTests();
@@ -1305,4 +1914,32 @@ describe('NJS chore workspace store', () => {
     expect(protectedCommand.return).toHaveBeenCalledWith(200, expect.any(String));
     expect(parseResponse(protectedCommand).data.participantsById.sofia.displayName).toBe('Sofia');
   });
+});
+
+describe('shared occurrence transition conformance', () => {
+  for (const vector of conformanceVectors.occurrenceTransitions) {
+    it(vector.name, () => {
+      const fixture = conformanceVectors.occurrenceFixture;
+      const input = {
+        definition: { ...fixture.definition, ...vector.definition },
+        occurrence: { ...fixture.occurrence, ...vector.occurrence },
+        command: vector.command,
+        timestamp: fixture.timestamp,
+        commandId: 'conformance',
+      } as ApplyChoreCommandInput;
+      if (vector.error) {
+        expect(() => choreOccurrencePolicy.applyChoreOccurrenceCommand(input)).toThrow(
+          vector.error
+        );
+      } else {
+        const result = choreOccurrencePolicy.applyChoreOccurrenceCommand(input);
+        expect(result.activity.type).toBe(vector.event);
+        for (const [key, value] of Object.entries(vector.expected)) {
+          expect((result.occurrence as unknown as Record<string, unknown>)[key] ?? null).toEqual(
+            value
+          );
+        }
+      }
+    });
+  }
 });

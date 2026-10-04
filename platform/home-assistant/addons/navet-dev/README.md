@@ -3,8 +3,7 @@
 > **Development channel:** Navet Dev contains unreleased changes and may be less stable than Navet.
 > Use it to test upcoming features, not as the only dashboard your household depends on.
 
-Navet Dev runs through Home Assistant Ingress and reuses your Home Assistant session. There is no
-separate Home Assistant URL or access token to enter.
+Navet Dev runs through Home Assistant Ingress and reuses your Home Assistant session.
 
 ## Start Testing
 
@@ -17,6 +16,11 @@ Stable Navet and Navet Dev may use different storage. Do not assume changes made
 will appear in the other.
 
 ## When Something Breaks
+
+Direct access is optional and disabled by default. To enable it, assign any available host port to
+the optional direct Navet web interface in the add-on's **Network** settings, save, and restart.
+The direct address uses its own Home Assistant sign-in; **Open Web UI** and the sidebar continue to
+use Home Assistant Ingress.
 
 1. Confirm the add-on status is **Running**.
 2. Open the **Log** tab and capture the first relevant error.

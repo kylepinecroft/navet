@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import process from 'node:process';
-import { resolve } from 'node:path';
+import { relative, resolve } from 'node:path';
 import { homeAssistantPaths, repoRoot } from './repo-paths.mjs';
 
 export const root = repoRoot;
@@ -122,7 +122,10 @@ export function buildDevAddonVersion(packageVersion, date = new Date()) {
 }
 
 export function isValidDevAddonVersion(version, packageVersion) {
-  const pattern = new RegExp(`^${packageVersion.replace(/\./g, '\\.')}-dev\\.\\d{14}$`);
+  const basePattern = packageVersion
+    ? packageVersion.replace(/\./g, '\\.')
+    : '\\d+\\.\\d+\\.\\d+';
+  const pattern = new RegExp(`^${basePattern}-dev\\.\\d{14}$`);
   return pattern.test(version);
 }
 
@@ -167,6 +170,17 @@ export function fail(message) {
   process.exit(1);
 }
 
+function findFilesNamed(directory, filename) {
+  return fs.readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
+    const entryPath = resolve(directory, entry.name);
+    if (entry.isDirectory()) {
+      return findFilesNamed(entryPath, filename);
+    }
+
+    return entry.isFile() && entry.name === filename ? [entryPath] : [];
+  });
+}
+
 export function assertMainRepositoryMetadata() {
   if (!fs.existsSync(repositoryMetadataPath)) {
     throw new Error(`Required root repository.yaml is missing: ${repositoryMetadataPath}.`);
@@ -180,22 +194,20 @@ export function assertMainRepositoryMetadata() {
   }
 }
 
-export function assertHacsExport(exportRoot) {
+export function assertHacsExport(exportRoot, { expectedVersion = getPackageVersion() } = {}) {
   const manifestFile = resolve(exportRoot, 'custom_components/navet/manifest.json');
   if (!fs.existsSync(manifestFile)) {
     throw new Error(`HACS export is missing manifest.json: ${manifestFile}`);
   }
 
   const manifest = readJson(manifestFile);
-  const packageVersion = getPackageVersion();
-
   if (manifest.domain !== 'navet') {
     throw new Error(`HACS export manifest domain must be "navet", received "${manifest.domain}".`);
   }
 
-  if (manifest.version !== packageVersion) {
+  if (manifest.version !== expectedVersion) {
     throw new Error(
-      `HACS export manifest version ${manifest.version} does not match package.json ${packageVersion}.`
+      `HACS export manifest version ${manifest.version} does not match expected version ${expectedVersion}.`
     );
   }
 
@@ -208,17 +220,34 @@ export function assertHacsExport(exportRoot) {
     throw new Error(`HACS export is missing hacs.json: ${hacsFile}`);
   }
 
+  const licenseFile = resolve(exportRoot, 'LICENSE');
+  if (!fs.existsSync(licenseFile)) {
+    throw new Error(`HACS export is missing its license: ${licenseFile}`);
+  }
+
+  const validationWorkflow = resolve(exportRoot, '.github/workflows/validate.yml');
+  if (!fs.existsSync(validationWorkflow)) {
+    throw new Error(`HACS export is missing its validation workflow: ${validationWorkflow}`);
+  }
+
   const requiredPanelFiles = [
-    'custom_components/navet/frontend/.vite/manifest.json',
     'custom_components/navet/frontend/navet-panel.js',
     'custom_components/navet/frontend/navet-ha-shell.js',
     'custom_components/navet/frontend/logo.svg',
-    'custom_components/navet/frontend/wallpapers/generated/manifest.json',
   ];
   for (const entry of requiredPanelFiles) {
     if (!fs.existsSync(resolve(exportRoot, entry))) {
       throw new Error(`HACS export is missing generated panel asset: ${resolve(exportRoot, entry)}`);
     }
+  }
+
+  const manifestFiles = findFilesNamed(exportRoot, 'manifest.json').map((entry) =>
+    relative(exportRoot, entry)
+  );
+  if (manifestFiles.length !== 1 || manifestFiles[0] !== 'custom_components/navet/manifest.json') {
+    throw new Error(
+      `HACS export must contain only the integration manifest.json, received: ${manifestFiles.join(', ')}`
+    );
   }
 
   const forbiddenPaths = ['repository.yaml', 'platform'];

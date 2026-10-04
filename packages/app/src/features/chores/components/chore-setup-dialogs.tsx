@@ -4,10 +4,12 @@ import {
   CardDialogHeader,
   CardDialogSection,
   CardDialogTabList,
+  NavigationWorkspace,
 } from '@navet/app/components/patterns';
 import {
   BaseCardDialog,
   Button,
+  Checkbox,
   ColorInputSwatch,
   coverSheetHeaderClassName,
   IconButton,
@@ -19,27 +21,60 @@ import {
   Switch,
   Textarea,
 } from '@navet/app/components/primitives';
-import { themeColorValues } from '@navet/app/components/shared/theme/theme-colors';
+import {
+  getThemeColorValue,
+  themeColorValues,
+} from '@navet/app/components/shared/theme/theme-colors';
 import { getThemeSurfaceTokens } from '@navet/app/components/shared/theme/theme-surface-tokens';
-import { navetIconSizeTokens, navetTypographyTokens } from '@navet/app/components/system/tokens';
+import { navetIconSizeTokens } from '@navet/app/components/system/tokens';
+import { getUiKitGlassSurfaceFoundationStyle } from '@navet/app/components/system/tokens/ui-kit-surfaces';
 import { cn } from '@navet/app/components/ui/utils';
-import { useI18n, useTheme } from '@navet/app/hooks';
+import { useI18n, useIntegrationStore, useTheme } from '@navet/app/hooks';
+import { integrationSelectors } from '@navet/app/stores/selectors';
+import type { PersonDevice } from '@navet/app/types/device.types';
 import { prepareAvatarImageDataUrl, validateImageFile } from '@navet/app/utils/image-upload';
+import { getDayOfWeek, parseDateKey } from '@navet/core/chore-calendar-policy';
 import type { ChorePresentationMetadata } from '@navet/core/chore-experience';
 import type {
   ChoreAssignmentMode,
   ChoreDefinition,
   ChoreParticipant,
+  ChoreReminderDestinationType,
   ChoreSchedule,
 } from '@navet/core/chores';
-import { ChevronDown, RotateCcw, SlidersHorizontal, UserRound, X } from 'lucide-react';
+import {
+  CalendarDays,
+  ChevronDown,
+  ClipboardList,
+  RotateCcw,
+  SlidersHorizontal,
+  UserRound,
+  UsersRound,
+} from 'lucide-react';
 import { type FormEvent, useEffect, useMemo, useRef, useState } from 'react';
 import { resolveChoreColorPalette } from '../chore-color-palette';
 import {
+  getProviderPersonLinkId,
+  resolveMatchingProviderPersonLinkId,
+  resolveProviderAccountLinkId,
+} from '../chore-provider-person-link';
+import { useProviderNotificationTargets } from '../use-provider-notification-targets';
+import {
   ChoreCreationFormGroups,
   type ChoreCreationRepeat,
+  type ChoreCreationSection,
   ChoreCreationSectionOptions,
 } from './chore-creation-form-groups';
+import {
+  ChoreFieldError,
+  isBoundedInteger,
+  isValidDate,
+  isValidDateList,
+  isValidTime,
+  isValidTimeList,
+  type NumericDraft,
+  numericDraft,
+} from './chore-form-validation';
 import { resolveChoreIconComponent } from './chore-icon';
 import { ChoreProfileAppearanceEditor } from './chore-profile-appearance-editor';
 
@@ -51,9 +86,24 @@ function localDateKey(date = new Date()) {
 const ALL_WEEK_DAYS = [0, 1, 2, 3, 4, 5, 6];
 const WEEKDAYS = [1, 2, 3, 4, 5];
 const WEEKENDS = [0, 6];
+const EMPTY_PROVIDER_PERSONS: PersonDevice[] = [];
+type ReminderDestination = Exclude<ChoreReminderDestinationType, 'home_assistant'>;
+
+function normalizeReminderDestination(
+  destination?: ChoreReminderDestinationType
+): ReminderDestination {
+  return destination === 'in_app' ? 'in_app' : 'provider';
+}
 
 function hasExactlyDays(days: number[], expected: number[]) {
   return days.length === expected.length && expected.every((day) => days.includes(day));
+}
+
+function parseRotationOffset(value: string, maximum: number) {
+  const normalized = value.trim();
+  if (!/^\d+$/.test(normalized)) return null;
+  const parsed = Number(normalized);
+  return Number.isSafeInteger(parsed) && parsed <= maximum ? parsed : null;
 }
 
 function createEntityId(prefix: string, label: string) {
@@ -87,25 +137,32 @@ export function AddPersonDialog({
   const [name, setName] = useState('');
   const [manager, setManager] = useState(false);
   const [paused, setPaused] = useState(false);
+  const [resumeDate, setResumeDate] = useState('');
   const [color, setColor] = useState(themeColorValues.orange);
   const [avatarUrl, setAvatarUrl] = useState('');
   const [avatarIcon, setAvatarIcon] = useState('');
   const [avatarUploadError, setAvatarUploadError] = useState('');
   const [avatarProcessing, setAvatarProcessing] = useState(false);
-  const [linkedAccountId, setLinkedAccountId] = useState('');
   const [linkedPersonEntityId, setLinkedPersonEntityId] = useState('');
+  const [personLinkChanged, setPersonLinkChanged] = useState(false);
   const [remindersEnabled, setRemindersEnabled] = useState(true);
   const [quietStart, setQuietStart] = useState('21:00');
   const [quietEnd, setQuietEnd] = useState('07:00');
-  const [reminderDestination, setReminderDestination] = useState<'in_app' | 'home_assistant'>(
-    'in_app'
-  );
+  const [reminderDestination, setReminderDestination] = useState<ReminderDestination>('in_app');
   const [reminderTarget, setReminderTarget] = useState('');
   const [saving, setSaving] = useState(false);
   const [currentStep, setCurrentStep] = useState(0);
   const [draftParticipantId, setDraftParticipantId] = useState('');
   const avatarInputRef = useRef<HTMLInputElement | null>(null);
   const formRef = useRef<HTMLFormElement | null>(null);
+  const currentProviderId = useIntegrationStore(integrationSelectors.currentProviderId);
+  const currentUser = useIntegrationStore(integrationSelectors.currentUser);
+  const providerPersons = useIntegrationStore(
+    (state) =>
+      integrationSelectors.providerDeviceCollectionById(currentProviderId)(state)?.persons ??
+      EMPTY_PROVIDER_PERSONS,
+    Object.is
+  );
   const personSteps = useMemo(
     () => [
       {
@@ -122,24 +179,48 @@ export function AddPersonDialog({
     ],
     [name, t]
   );
+  const quietHoursValid = !remindersEnabled || (isValidTime(quietStart) && isValidTime(quietEnd));
+  const normalizedReminderTarget = reminderTarget.trim();
+  const providerNotificationTargets = useProviderNotificationTargets(
+    isOpen && remindersEnabled && reminderDestination === 'provider'
+  );
+  const reminderTargetValid =
+    !remindersEnabled ||
+    reminderDestination !== 'provider' ||
+    (normalizedReminderTarget.length > 0 && normalizedReminderTarget.length <= 128);
+  const personFormValid = Boolean(name.trim()) && quietHoursValid && reminderTargetValid;
+  const resumeDateValid =
+    !paused ||
+    !resumeDate ||
+    (isValidDate(resumeDate) &&
+      Date.parse(new Date(`${resumeDate}T00:00:00`).toISOString()) >
+        Date.parse(participant?.pausedAt ?? new Date().toISOString()));
 
   useEffect(() => {
     if (isOpen) {
       setDraftParticipantId(participant?.id ?? createEntityId('participant', 'person'));
       setName(participant?.displayName ?? '');
       setManager(managerRequired || participant?.capabilities.includes('manage') === true);
-      setPaused(Boolean(participant?.pausedAt));
+      setPaused(
+        Boolean(
+          participant?.pausedAt &&
+            (!participant.resumeAt || Date.parse(participant.resumeAt) > Date.now())
+        )
+      );
+      setResumeDate(participant?.resumeAt ? localDateKey(new Date(participant.resumeAt)) : '');
       setColor(participant?.color ?? themeColorValues.orange);
       setAvatarUrl(participant?.avatarUrl ?? '');
       setAvatarIcon(participant?.avatarIcon ?? '');
       setAvatarUploadError('');
       setAvatarProcessing(false);
-      setLinkedAccountId(participant?.linkedAccountId ?? '');
       setLinkedPersonEntityId(participant?.linkedPersonEntityId ?? '');
+      setPersonLinkChanged(false);
       setRemindersEnabled(participant?.reminderPreferences?.enabled ?? true);
       setQuietStart(participant?.reminderPreferences?.quietHours?.start ?? '21:00');
       setQuietEnd(participant?.reminderPreferences?.quietHours?.end ?? '07:00');
-      setReminderDestination(participant?.reminderPreferences?.destination?.type ?? 'in_app');
+      setReminderDestination(
+        normalizeReminderDestination(participant?.reminderPreferences?.destination?.type)
+      );
       setReminderTarget(participant?.reminderPreferences?.destination?.target ?? '');
       setCurrentStep(0);
     }
@@ -148,13 +229,14 @@ export function AddPersonDialog({
       setName('');
       setManager(managerRequired);
       setPaused(false);
+      setResumeDate('');
       setColor(themeColorValues.orange);
       setAvatarUrl('');
       setAvatarIcon('');
       setAvatarUploadError('');
       setAvatarProcessing(false);
-      setLinkedAccountId('');
       setLinkedPersonEntityId('');
+      setPersonLinkChanged(false);
       setRemindersEnabled(true);
       setQuietStart('21:00');
       setQuietEnd('07:00');
@@ -168,6 +250,13 @@ export function AddPersonDialog({
   useEffect(() => {
     formRef.current?.scrollTo({ top: 0 });
   }, [currentStep]);
+
+  useEffect(() => {
+    if (!isOpen || participant?.linkedPersonEntityId || personLinkChanged) return;
+
+    const matchingPersonId = resolveMatchingProviderPersonLinkId(name, providerPersons);
+    setLinkedPersonEntityId(matchingPersonId ?? '');
+  }, [isOpen, name, participant?.linkedPersonEntityId, personLinkChanged, providerPersons]);
 
   const uploadAvatar = async (file?: File) => {
     if (!file) return;
@@ -192,12 +281,17 @@ export function AddPersonDialog({
   const submit = async (event: FormEvent) => {
     event.preventDefault();
     const displayName = name.trim();
-    if (!displayName) return;
+    if (!displayName || !personFormValid || !resumeDateValid) return;
     if (currentStep < personSteps.length - 1) {
       setCurrentStep((step) => step + 1);
       return;
     }
     const timestamp = new Date().toISOString();
+    const inferredAccountId = resolveProviderAccountLinkId(
+      displayName,
+      currentUser,
+      participant?.linkedAccountId
+    );
     setSaving(true);
     const saved = await onSave({
       id: participant?.id ?? draftParticipantId ?? createEntityId('participant', displayName),
@@ -207,7 +301,8 @@ export function AddPersonDialog({
       avatarIcon: avatarIcon.trim() || undefined,
       capabilities: manager || managerRequired ? ['complete', 'approve', 'manage'] : ['complete'],
       pausedAt: paused ? (participant?.pausedAt ?? timestamp) : undefined,
-      linkedAccountId: linkedAccountId.trim() || undefined,
+      resumeAt: paused && resumeDate ? new Date(`${resumeDate}T00:00:00`).toISOString() : undefined,
+      linkedAccountId: inferredAccountId,
       linkedPersonEntityId: linkedPersonEntityId.trim() || undefined,
       reminderPreferences: {
         enabled: remindersEnabled,
@@ -227,6 +322,7 @@ export function AddPersonDialog({
   return (
     <BaseCardDialog
       variant="modal"
+      titleInContent
       isOpen={isOpen}
       onOpenChange={onOpenChange}
       title={
@@ -287,6 +383,8 @@ export function AddPersonDialog({
                   <Input
                     autoFocus
                     aria-label={t('household.personDialog.name')}
+                    maxLength={100}
+                    required
                     value={name}
                     placeholder={t('household.personDialog.namePlaceholder')}
                     onChange={(event) => setName(event.target.value)}
@@ -335,48 +433,70 @@ export function AddPersonDialog({
                     <Switch
                       aria-label={t('household.personDialog.paused')}
                       checked={paused}
-                      size="compact"
                       onCheckedChange={setPaused}
                     />
                   </div>
                 ) : null}
-                <details
-                  className={`group overflow-hidden rounded-2xl border ${surface.border} ${surface.subtleBg}`}
-                >
-                  <summary
-                    className={`flex min-h-12 cursor-pointer list-none items-center justify-between gap-4 px-4 py-3 text-sm font-medium [&::-webkit-details-marker]:hidden ${surface.textPrimary}`}
+                {participant && paused ? (
+                  <CardDialogSection
+                    className="mb-0"
+                    label={t('household.personDialog.resumeDate')}
                   >
-                    {t('household.personDialog.moreOptions')}
-                    <ChevronDown
-                      aria-hidden="true"
-                      className="h-4 w-4 shrink-0 transition-transform group-open:rotate-180 motion-reduce:transition-none"
+                    <Input
+                      aria-label={t('household.personDialog.resumeDate')}
+                      invalid={!resumeDateValid}
+                      min={localDateKey(new Date(Date.now() + 86_400_000))}
+                      type="date"
+                      value={resumeDate}
+                      onChange={(event) => setResumeDate(event.target.value)}
                     />
-                  </summary>
-                  <div className={`grid gap-4 border-t px-4 py-4 ${surface.border}`}>
-                    <CardDialogSection
-                      className="mb-0"
-                      label={t('household.personDialog.accountLink')}
+                  </CardDialogSection>
+                ) : null}
+                {providerPersons.length > 0 || linkedPersonEntityId ? (
+                  <details
+                    className={`group overflow-hidden rounded-2xl border ${surface.border} ${surface.subtleBg}`}
+                  >
+                    <summary
+                      className={`flex min-h-12 cursor-pointer list-none items-center justify-between gap-4 px-4 py-3 text-sm font-medium [&::-webkit-details-marker]:hidden ${surface.textPrimary}`}
                     >
-                      <Input
-                        aria-label={t('household.personDialog.accountLink')}
-                        value={linkedAccountId}
-                        size="small"
-                        onChange={(event) => setLinkedAccountId(event.target.value)}
+                      {t('household.personDialog.moreOptions')}
+                      <ChevronDown
+                        aria-hidden="true"
+                        className="h-4 w-4 shrink-0 transition-transform group-open:rotate-180 motion-reduce:transition-none"
                       />
-                    </CardDialogSection>
-                    <CardDialogSection
-                      className="mb-0"
-                      label={t('household.personDialog.personLink')}
-                    >
-                      <Input
-                        aria-label={t('household.personDialog.personLink')}
-                        value={linkedPersonEntityId}
-                        size="small"
-                        onChange={(event) => setLinkedPersonEntityId(event.target.value)}
-                      />
-                    </CardDialogSection>
-                  </div>
-                </details>
+                    </summary>
+                    <div className={`grid gap-4 border-t px-4 py-4 ${surface.border}`}>
+                      <CardDialogSection
+                        className="mb-0"
+                        label={t('household.personDialog.accountLink')}
+                      >
+                        <Select
+                          aria-label={t('household.personDialog.accountLink')}
+                          value={linkedPersonEntityId}
+                          onChange={(event) => {
+                            setPersonLinkChanged(true);
+                            setLinkedPersonEntityId(event.target.value);
+                          }}
+                        >
+                          <option value="">{t('household.personDialog.personLink')}</option>
+                          {linkedPersonEntityId &&
+                          !providerPersons.some(
+                            (person) => getProviderPersonLinkId(person) === linkedPersonEntityId
+                          ) ? (
+                            <option value={linkedPersonEntityId}>
+                              {t('household.personDialog.personLinkSaved')}
+                            </option>
+                          ) : null}
+                          {providerPersons.map((person) => (
+                            <option key={person.id} value={getProviderPersonLinkId(person)}>
+                              {person.name}
+                            </option>
+                          ))}
+                        </Select>
+                      </CardDialogSection>
+                    </div>
+                  </details>
+                ) : null}
                 <details
                   className={`group overflow-hidden rounded-2xl border ${surface.border} ${surface.subtleBg}`}
                 >
@@ -397,7 +517,6 @@ export function AddPersonDialog({
                       <Switch
                         aria-label={t('household.personDialog.reminders')}
                         checked={remindersEnabled}
-                        size="compact"
                         onCheckedChange={setRemindersEnabled}
                       />
                     </div>
@@ -409,24 +528,44 @@ export function AddPersonDialog({
                             label={t('household.personDialog.quietStart')}
                           >
                             <Input
+                              aria-describedby={
+                                isValidTime(quietStart) ? undefined : 'person-quiet-start-error'
+                              }
                               aria-label={t('household.personDialog.quietStart')}
+                              invalid={!isValidTime(quietStart)}
+                              required
                               type="time"
                               value={quietStart}
                               size="small"
                               onChange={(event) => setQuietStart(event.target.value)}
                             />
+                            {!isValidTime(quietStart) ? (
+                              <ChoreFieldError id="person-quiet-start-error">
+                                {t('household.validation.validTime')}
+                              </ChoreFieldError>
+                            ) : null}
                           </CardDialogSection>
                           <CardDialogSection
                             className="mb-0"
                             label={t('household.personDialog.quietEnd')}
                           >
                             <Input
+                              aria-describedby={
+                                isValidTime(quietEnd) ? undefined : 'person-quiet-end-error'
+                              }
                               aria-label={t('household.personDialog.quietEnd')}
+                              invalid={!isValidTime(quietEnd)}
+                              required
                               type="time"
                               value={quietEnd}
                               size="small"
                               onChange={(event) => setQuietEnd(event.target.value)}
                             />
+                            {!isValidTime(quietEnd) ? (
+                              <ChoreFieldError id="person-quiet-end-error">
+                                {t('household.validation.validTime')}
+                              </ChoreFieldError>
+                            ) : null}
                           </CardDialogSection>
                         </div>
                         <CardDialogSection
@@ -434,33 +573,104 @@ export function AddPersonDialog({
                           label={t('household.personDialog.destination')}
                         >
                           <Select
+                            aria-describedby={
+                              reminderDestination === 'provider'
+                                ? 'person-reminder-destination-help'
+                                : undefined
+                            }
                             aria-label={t('household.personDialog.destination')}
                             value={reminderDestination}
                             onChange={(event) =>
-                              setReminderDestination(
-                                event.target.value as 'in_app' | 'home_assistant'
-                              )
+                              setReminderDestination(event.target.value as ReminderDestination)
                             }
                           >
                             <option value="in_app">
                               {t('household.personDialog.destinationInApp')}
                             </option>
-                            <option value="home_assistant">
-                              {t('household.personDialog.destinationHomeAssistant')}
+                            <option value="provider">
+                              {t('household.personDialog.destinationProvider')}
                             </option>
                           </Select>
+                          {reminderDestination === 'provider' ? (
+                            <p
+                              id="person-reminder-destination-help"
+                              className="mt-2 text-xs leading-relaxed text-muted-foreground"
+                            >
+                              {t('household.personDialog.destinationProviderHelp')}
+                            </p>
+                          ) : null}
                         </CardDialogSection>
-                        {reminderDestination === 'home_assistant' ? (
+                        {reminderDestination === 'provider' ? (
                           <CardDialogSection
                             className="mb-0"
                             label={t('household.personDialog.destinationTarget')}
                           >
-                            <Input
+                            <Select
+                              aria-describedby={
+                                providerNotificationTargets.status === 'loading'
+                                  ? 'person-reminder-target-loading'
+                                  : providerNotificationTargets.targets.length === 0 &&
+                                      !reminderTarget
+                                    ? 'person-reminder-target-empty'
+                                    : reminderTargetValid
+                                      ? undefined
+                                      : 'person-reminder-target-error'
+                              }
                               aria-label={t('household.personDialog.destinationTarget')}
+                              disabled={
+                                providerNotificationTargets.status === 'loading' ||
+                                (providerNotificationTargets.targets.length === 0 &&
+                                  !reminderTarget)
+                              }
+                              invalid={
+                                !reminderTargetValid &&
+                                providerNotificationTargets.status === 'ready' &&
+                                providerNotificationTargets.targets.length > 0
+                              }
+                              required
                               value={reminderTarget}
                               size="small"
                               onChange={(event) => setReminderTarget(event.target.value)}
-                            />
+                            >
+                              <option value="">
+                                {providerNotificationTargets.status === 'loading'
+                                  ? t('household.personDialog.destinationTargetLoading')
+                                  : t('household.personDialog.destinationTargetPlaceholder')}
+                              </option>
+                              {reminderTarget &&
+                              !providerNotificationTargets.targets.some(
+                                (target) => target.id === reminderTarget
+                              ) ? (
+                                <option value={reminderTarget}>
+                                  {t('household.personDialog.destinationTargetSaved')}
+                                </option>
+                              ) : null}
+                              {providerNotificationTargets.targets.map((target) => (
+                                <option key={target.id} value={target.id}>
+                                  {target.label}
+                                </option>
+                              ))}
+                            </Select>
+                            {providerNotificationTargets.status === 'loading' ? (
+                              <p
+                                id="person-reminder-target-loading"
+                                className="mt-2 text-xs leading-relaxed text-muted-foreground"
+                              >
+                                {t('household.personDialog.destinationTargetLoading')}
+                              </p>
+                            ) : providerNotificationTargets.targets.length === 0 &&
+                              !reminderTarget ? (
+                              <p
+                                id="person-reminder-target-empty"
+                                className="mt-2 text-xs leading-relaxed text-muted-foreground"
+                              >
+                                {t('household.personDialog.destinationTargetEmpty')}
+                              </p>
+                            ) : !reminderTargetValid ? (
+                              <ChoreFieldError id="person-reminder-target-error">
+                                {t('household.validation.notificationTarget')}
+                              </ChoreFieldError>
+                            ) : null}
                           </CardDialogSection>
                         ) : null}
                       </>
@@ -489,7 +699,11 @@ export function AddPersonDialog({
                 {t('dashboard.multiple.create.next')}
               </Button>
             ) : (
-              <Button type="submit" loading={saving} disabled={!name.trim()}>
+              <Button
+                type="submit"
+                loading={saving}
+                disabled={!personFormValid || !resumeDateValid}
+              >
                 {participant
                   ? t('household.personDialog.saveChanges')
                   : t('household.personDialog.save')}
@@ -518,6 +732,7 @@ export function ChoreManagementPinDialog({
   const surface = getThemeSurfaceTokens(theme);
   const [pin, setPin] = useState('');
   const [unlocking, setUnlocking] = useState(false);
+  const pinValid = /^\d{4,8}$/.test(pin);
 
   useEffect(() => {
     if (isOpen) setPin('');
@@ -525,7 +740,7 @@ export function ChoreManagementPinDialog({
 
   const unlock = async (event: FormEvent) => {
     event.preventDefault();
-    if (!/^\d{4,8}$/.test(pin)) return;
+    if (!pinValid) return;
     setUnlocking(true);
     const unlocked = await onUnlock(pin);
     setUnlocking(false);
@@ -535,6 +750,7 @@ export function ChoreManagementPinDialog({
   return (
     <ModalSurface
       isOpen={isOpen}
+      titleInContent
       onOpenChange={onOpenChange}
       title={t('household.management.title')}
       description={t('household.management.description')}
@@ -562,16 +778,25 @@ export function ChoreManagementPinDialog({
           <CardDialogSection className="mb-0" label={t('household.management.pinLabel')}>
             <Input
               autoFocus
+              aria-describedby={pin.length > 0 && !pinValid ? 'management-pin-error' : undefined}
               aria-label={t('household.management.pinLabel')}
               autoComplete="current-password"
               inputMode="numeric"
               maxLength={8}
               pattern="[0-9]{4,8}"
+              invalid={pin.length > 0 && !pinValid}
+              minLength={4}
+              required
               type="password"
               enterKeyHint="done"
               value={pin}
               onChange={(event) => setPin(event.target.value.replace(/\D/g, ''))}
             />
+            {pin.length > 0 && !pinValid ? (
+              <ChoreFieldError id="management-pin-error">
+                {t('household.setup.pinLengthError')}
+              </ChoreFieldError>
+            ) : null}
           </CardDialogSection>
           {error ? (
             <p className="mt-3 text-sm text-red-500" role="alert">
@@ -579,7 +804,7 @@ export function ChoreManagementPinDialog({
             </p>
           ) : null}
           <CardDialogFooter className={`gap-2 border-t pt-4 ${surface.border}`}>
-            <Button type="submit" loading={unlocking} disabled={!/^\d{4,8}$/.test(pin)}>
+            <Button type="submit" loading={unlocking} disabled={!pinValid}>
               {t('household.management.unlock')}
             </Button>
           </CardDialogFooter>
@@ -646,6 +871,7 @@ export function ChoreManagementPinEditorDialog({
   return (
     <ModalSurface
       isOpen={isOpen}
+      titleInContent
       onOpenChange={onOpenChange}
       title={title}
       description={t('household.setup.securityDescription')}
@@ -679,7 +905,9 @@ export function ChoreManagementPinEditorDialog({
                 enterKeyHint="next"
                 inputMode="numeric"
                 maxLength={8}
+                minLength={4}
                 pattern="[0-9]{4,8}"
+                required
                 type="password"
                 value={pin}
                 onChange={(event) => {
@@ -695,7 +923,9 @@ export function ChoreManagementPinEditorDialog({
                 enterKeyHint="done"
                 inputMode="numeric"
                 maxLength={8}
+                minLength={4}
                 pattern="[0-9]{4,8}"
+                required
                 type="password"
                 value={confirmation}
                 onChange={(event) => {
@@ -746,7 +976,7 @@ export function AddChoreDialog({
   ) => Promise<boolean>;
 }) {
   const { t } = useI18n();
-  const { theme } = useTheme();
+  const { theme, primaryColor } = useTheme();
   const surface = getThemeSurfaceTokens(theme);
   const [title, setTitle] = useState('');
   const [choreIcon, setChoreIcon] = useState('ListChecks');
@@ -754,32 +984,51 @@ export function AddChoreDialog({
   const [description, setDescription] = useState('');
   const [assignmentMode, setAssignmentMode] = useState<ChoreAssignmentMode>('person');
   const [participantId, setParticipantId] = useState('');
+  const [selectedParticipantIds, setSelectedParticipantIds] = useState<string[]>([]);
+  const [rotationCadence, setRotationCadence] = useState<'scheduled_day' | 'weekly'>(
+    'scheduled_day'
+  );
+  const [rotationStrategy, setRotationStrategy] = useState<'ordered' | 'fair'>('ordered');
+  const [standbyParticipantId, setStandbyParticipantId] = useState('');
   const [frequency, setFrequency] = useState<ChoreSchedule['frequency']>('daily');
+  const [repeatOverride, setRepeatOverride] = useState<ChoreCreationRepeat | null>(null);
   const [time, setTime] = useState('18:00');
   const [scheduleStartDate, setScheduleStartDate] = useState(localDateKey());
   const [scheduleEndDate, setScheduleEndDate] = useState('');
-  const [scheduleInterval, setScheduleInterval] = useState(1);
+  const [scheduleInterval, setScheduleInterval] = useState<NumericDraft>(1);
   const [weeklyDays, setWeeklyDays] = useState<number[]>(ALL_WEEK_DAYS);
   const [dayOfMonth, setDayOfMonth] = useState(new Date().getDate());
   const [extraTimes, setExtraTimes] = useState('');
   const [excludedDates, setExcludedDates] = useState('');
   const [rotationReset, setRotationReset] = useState<'never' | 'weekly' | 'monthly'>('never');
-  const [rotationOffset, setRotationOffset] = useState(0);
+  const [rotationOffset, setRotationOffset] = useState('0');
+  const [rotationDayOfWeek, setRotationDayOfWeek] = useState(1);
   const [participantTimes, setParticipantTimes] = useState<Record<string, string>>({});
+  const [participantDueOffsets, setParticipantDueOffsets] = useState<Record<string, NumericDraft>>(
+    {}
+  );
   const [approvalRequired, setApprovalRequired] = useState(false);
-  const [dueWindowMinutes, setDueWindowMinutes] = useState(120);
+  const [dueWindowMinutes, setDueWindowMinutes] = useState<NumericDraft>(120);
   const [roomLabel, setRoomLabel] = useState('');
-  const [estimatedMinutes, setEstimatedMinutes] = useState(5);
-  const [points, setPoints] = useState(0);
+  const [estimatedMinutes, setEstimatedMinutes] = useState<NumericDraft>(5);
+  const [points, setPoints] = useState<NumericDraft>(0);
   const [childTitle, setChildTitle] = useState('');
   const [claimRequired, setClaimRequired] = useState(false);
-  const [claimExpiryMinutes, setClaimExpiryMinutes] = useState(60);
-  const [missedGraceMinutes, setMissedGraceMinutes] = useState(60);
+  const [claimExpiryMinutes, setClaimExpiryMinutes] = useState<NumericDraft>(60);
+  const [claimOpensBeforeMinutes, setClaimOpensBeforeMinutes] = useState<NumericDraft>('');
+  const [pendingApproval, setPendingApproval] = useState<'allow' | 'block'>('allow');
+  const [resetClaimOnReject, setResetClaimOnReject] = useState(true);
+  const [missedGraceMinutes, setMissedGraceMinutes] = useState<NumericDraft>(60);
   const [missedAction, setMissedAction] = useState<'none' | 'skip' | 'carry_forward'>('none');
   const [remindersEnabled, setRemindersEnabled] = useState(false);
-  const [remindBeforeMinutes, setRemindBeforeMinutes] = useState(30);
-  const [overdueEveryMinutes, setOverdueEveryMinutes] = useState(60);
+  const [notificationEvents, setNotificationEvents] = useState<
+    Array<'claimed' | 'completed' | 'approved' | 'rejected' | 'skipped'>
+  >([]);
+  const [remindBeforeMinutes, setRemindBeforeMinutes] = useState<NumericDraft>(30);
+  const [overdueEveryMinutes, setOverdueEveryMinutes] = useState<NumericDraft>(60);
   const [saving, setSaving] = useState(false);
+  const [activeSection, setActiveSection] = useState<ChoreCreationSection>('details');
+  const stepScrollRef = useRef<HTMLDivElement | null>(null);
   const initializedSessionRef = useRef<string | null>(null);
   const completers = useMemo(
     () => participants.filter((participant) => participant.capabilities.includes('complete')),
@@ -806,13 +1055,22 @@ export function AddChoreDialog({
     if (isOpen && initializedSessionRef.current === sessionKey) return;
     initializedSessionRef.current = isOpen ? sessionKey : null;
     if (isOpen) {
+      setActiveSection('details');
       setTitle(definition?.title ?? '');
       setChoreIcon(presentation?.icon ?? 'ListChecks');
       setChoreColor(presentation?.color ?? '');
       setDescription(definition?.description ?? '');
       setAssignmentMode(definition?.assignment.mode ?? 'person');
       setParticipantId(definition?.assignment.participantIds[0] ?? completers[0]?.id ?? '');
+      setSelectedParticipantIds(
+        definition?.assignment.participantIds ?? completers.map((person) => person.id)
+      );
+      setRotationCadence(definition?.assignment.rotationCadence ?? 'scheduled_day');
+      setRotationStrategy(definition?.assignment.rotationStrategy ?? 'ordered');
+      setStandbyParticipantId(definition?.assignment.standbyParticipantIds?.[0] ?? '');
+      setRotationDayOfWeek(definition?.assignment.rotationDayOfWeek ?? 1);
       setFrequency(definition?.schedule.frequency ?? 'daily');
+      setRepeatOverride(null);
       setTime(definition?.schedule.time ?? '18:00');
       setScheduleStartDate(
         definition?.schedule.frequency === 'once'
@@ -824,9 +1082,11 @@ export function AddChoreDialog({
         definition?.schedule.frequency === 'daily' ||
           definition?.schedule.frequency === 'after_completion'
           ? (definition.schedule.intervalDays ?? 1)
-          : definition?.schedule.frequency === 'weekly'
-            ? (definition.schedule.intervalWeeks ?? 1)
-            : 1
+          : definition?.schedule.frequency === 'hourly'
+            ? definition.schedule.intervalHours
+            : definition?.schedule.frequency === 'weekly'
+              ? (definition.schedule.intervalWeeks ?? 1)
+              : 1
       );
       setWeeklyDays(
         definition?.schedule.frequency === 'daily'
@@ -837,7 +1097,7 @@ export function AddChoreDialog({
       );
       setDayOfMonth(
         definition?.schedule.frequency === 'monthly'
-          ? (definition.schedule.dayOfMonth ?? new Date().getDate())
+          ? (definition.schedule.dayOfMonth ?? parseDateKey(definition.schedule.startDate).day)
           : new Date().getDate()
       );
       setExtraTimes(
@@ -847,11 +1107,18 @@ export function AddChoreDialog({
       );
       setExcludedDates((definition?.schedule.excludedDates ?? []).join(', '));
       setRotationReset(definition?.assignment.rotationReset ?? 'never');
-      setRotationOffset(definition?.assignment.rotationCursor ?? 0);
+      setRotationOffset(String(definition?.assignment.rotationCursor ?? 0));
       setParticipantTimes(
         Object.fromEntries(
           Object.entries(definition?.assignment.participantScheduleOverrides ?? {}).map(
             ([id, override]) => [id, (override.times ?? []).join(', ')]
+          )
+        )
+      );
+      setParticipantDueOffsets(
+        Object.fromEntries(
+          Object.entries(definition?.assignment.participantScheduleOverrides ?? {}).map(
+            ([id, override]) => [id, override.dueDateOffsetDays ?? 0]
           )
         )
       );
@@ -863,9 +1130,13 @@ export function AddChoreDialog({
       setChildTitle(presentation?.childTitle ?? '');
       setClaimRequired(definition?.claimPolicy?.required ?? false);
       setClaimExpiryMinutes(definition?.claimPolicy?.expiresAfterMinutes ?? 60);
+      setClaimOpensBeforeMinutes(definition?.claimPolicy?.opensBeforeMinutes ?? '');
+      setPendingApproval(definition?.claimPolicy?.pendingApproval ?? 'allow');
+      setResetClaimOnReject(definition?.approval.resetClaimOnReject ?? true);
       setMissedGraceMinutes(definition?.missedPolicy?.graceMinutes ?? 60);
       setMissedAction(definition?.missedPolicy?.action ?? 'none');
       setRemindersEnabled(definition?.reminderPolicy?.enabled ?? false);
+      setNotificationEvents(definition?.reminderPolicy?.notifyOn ?? []);
       setRemindBeforeMinutes(definition?.reminderPolicy?.beforeDueMinutes[0] ?? 30);
       setOverdueEveryMinutes(definition?.reminderPolicy?.overdueEveryMinutes ?? 60);
     }
@@ -877,6 +1148,7 @@ export function AddChoreDialog({
       setAssignmentMode('person');
       setParticipantId('');
       setFrequency('daily');
+      setRepeatOverride(null);
       setTime('18:00');
       setScheduleStartDate(localDateKey());
       setScheduleEndDate('');
@@ -886,7 +1158,7 @@ export function AddChoreDialog({
       setExtraTimes('');
       setExcludedDates('');
       setRotationReset('never');
-      setRotationOffset(0);
+      setRotationOffset('0');
       setParticipantTimes({});
       setApprovalRequired(false);
       setDueWindowMinutes(120);
@@ -905,11 +1177,80 @@ export function AddChoreDialog({
     }
   }, [completers, definition, isOpen, presentation]);
 
-  const submit = async (event: FormEvent) => {
-    event.preventDefault();
+  const selectedCompleters = selectedParticipantIds
+    .map((id) => completers.find((person) => person.id === id))
+    .filter((person): person is ChoreParticipant => Boolean(person));
+  const participantSelectionValid =
+    assignmentMode === 'person'
+      ? completers.some((person) => person.id === participantId)
+      : selectedCompleters.length > 0 &&
+        selectedCompleters.length === selectedParticipantIds.length;
+  const rotationParticipantCount = selectedParticipantIds.length;
+  const maximumRotationOffset = Math.max(0, rotationParticipantCount - 1);
+  const parsedRotationOffset = parseRotationOffset(rotationOffset, maximumRotationOffset);
+  const scheduleIntervalMinimum = frequency === 'daily' ? 2 : 1;
+  const scheduleIntervalValid =
+    (frequency !== 'after_completion' &&
+      frequency !== 'hourly' &&
+      !(frequency === 'daily' && scheduleInterval !== 1)) ||
+    isBoundedInteger(
+      scheduleInterval,
+      scheduleIntervalMinimum,
+      frequency === 'hourly' ? 8760 : 3650
+    );
+  const dueTimeValid = isValidTime(time);
+  const startDateValid = isValidDate(scheduleStartDate);
+  const endDateValid =
+    frequency === 'once' ||
+    scheduleEndDate === '' ||
+    (isValidDate(scheduleEndDate) && startDateValid && scheduleEndDate >= scheduleStartDate);
+  const extraTimesValid = isValidTimeList(extraTimes);
+  const excludedDatesValid = frequency === 'once' || isValidDateList(excludedDates);
+  const participantTimesValid =
+    (assignmentMode !== 'rotation' && assignmentMode !== 'everyone') ||
+    selectedCompleters.every((participant) =>
+      isValidTimeList(participantTimes[participant.id] ?? '')
+    );
+  const participantDueOffsetsValid = selectedCompleters.every((participant) =>
+    isBoundedInteger(participantDueOffsets[participant.id] ?? 0, 0, 365)
+  );
+  const estimatedMinutesValid = isBoundedInteger(estimatedMinutes, 0, 1440);
+  const pointsValid = isBoundedInteger(points, 0, 10_000);
+  const dueWindowValid = isBoundedInteger(dueWindowMinutes, 0, 525_600);
+  const claimExpiryValid = !claimRequired || isBoundedInteger(claimExpiryMinutes, 1, 525_600);
+  const claimOpensValid =
+    claimOpensBeforeMinutes === '' || isBoundedInteger(claimOpensBeforeMinutes, 0, 525_600);
+  const missedGraceValid = isBoundedInteger(missedGraceMinutes, 0, 525_600);
+  const remindBeforeValid = !remindersEnabled || isBoundedInteger(remindBeforeMinutes, 1, 525_600);
+  const overdueEveryValid = !remindersEnabled || isBoundedInteger(overdueEveryMinutes, 1, 525_600);
+  const formValuesValid =
+    scheduleIntervalValid &&
+    dueTimeValid &&
+    startDateValid &&
+    endDateValid &&
+    extraTimesValid &&
+    excludedDatesValid &&
+    participantTimesValid &&
+    participantDueOffsetsValid &&
+    estimatedMinutesValid &&
+    pointsValid &&
+    dueWindowValid &&
+    claimExpiryValid &&
+    claimOpensValid &&
+    missedGraceValid &&
+    remindBeforeValid &&
+    overdueEveryValid;
+
+  const saveChore = async () => {
     const normalizedTitle = title.trim();
-    if (!normalizedTitle || completers.length === 0) return;
-    if (assignmentMode === 'person' && !participantId) return;
+    if (!normalizedTitle || !participantSelectionValid) return;
+    if (
+      assignmentMode === 'person' &&
+      !completers.some((participant) => participant.id === participantId)
+    )
+      return;
+    if (assignmentMode === 'rotation' && parsedRotationOffset === null) return;
+    if (!formValuesValid) return;
     const timestamp = new Date().toISOString();
     const startDate = scheduleStartDate || localDateKey();
     const timeZone =
@@ -930,13 +1271,16 @@ export function AddChoreDialog({
       times:
         extraScheduleTimes.length > 0 ? [...new Set([time, ...extraScheduleTimes])] : undefined,
     };
+    const scheduleIntervalValue = Number(scheduleInterval);
     const selectedRepeat =
-      frequency === 'daily' && scheduleInterval === 1 && hasExactlyDays(weeklyDays, WEEKDAYS)
+      frequency === 'daily' && scheduleIntervalValue === 1 && hasExactlyDays(weeklyDays, WEEKDAYS)
         ? 'weekdays'
-        : frequency === 'daily' && scheduleInterval === 1 && hasExactlyDays(weeklyDays, WEEKENDS)
+        : frequency === 'daily' &&
+            scheduleIntervalValue === 1 &&
+            hasExactlyDays(weeklyDays, WEEKENDS)
           ? 'weekends'
           : frequency === 'daily' &&
-              scheduleInterval > 1 &&
+              scheduleIntervalValue > 1 &&
               hasExactlyDays(weeklyDays, ALL_WEEK_DAYS)
             ? 'custom'
             : frequency;
@@ -950,7 +1294,7 @@ export function AddChoreDialog({
               time,
               timeZone,
               daysOfWeek: weeklyDays.length > 0 ? weeklyDays : [new Date().getDay()],
-              intervalWeeks: Math.max(1, scheduleInterval),
+              intervalWeeks: Math.max(1, scheduleIntervalValue),
               ...scheduleOptions,
             }
           : frequency === 'monthly'
@@ -959,7 +1303,10 @@ export function AddChoreDialog({
                 startDate,
                 time,
                 timeZone,
-                ...(definition?.schedule.frequency === 'monthly' && definition.schedule.nthWeekday
+                ...(definition?.schedule.frequency === 'monthly' &&
+                definition.schedule.nthWeekday &&
+                repeatOverride === null &&
+                startDate === definition.schedule.startDate
                   ? { nthWeekday: definition.schedule.nthWeekday }
                   : { dayOfMonth: Math.min(31, Math.max(1, dayOfMonth)) }),
                 ...scheduleOptions,
@@ -970,34 +1317,39 @@ export function AddChoreDialog({
                   startDate,
                   time,
                   timeZone,
-                  intervalDays: Math.max(1, scheduleInterval),
+                  intervalDays: Math.max(1, scheduleIntervalValue),
                   ...scheduleOptions,
                 }
-              : {
-                  frequency: 'daily',
-                  startDate,
-                  time,
-                  timeZone,
-                  daysOfWeek:
-                    selectedRepeat === 'weekdays'
-                      ? WEEKDAYS
-                      : selectedRepeat === 'weekends'
-                        ? WEEKENDS
-                        : selectedRepeat === 'custom' || weeklyDays.length === 7
-                          ? undefined
-                          : weeklyDays,
-                  intervalDays:
-                    selectedRepeat === 'custom'
-                      ? Math.max(2, scheduleInterval)
-                      : Math.max(1, scheduleInterval),
-                  ...scheduleOptions,
-                };
+              : frequency === 'hourly'
+                ? {
+                    frequency,
+                    startDate,
+                    time,
+                    timeZone,
+                    intervalHours: Math.max(1, scheduleIntervalValue),
+                    ...scheduleOptions,
+                  }
+                : {
+                    frequency: 'daily',
+                    startDate,
+                    time,
+                    timeZone,
+                    daysOfWeek:
+                      selectedRepeat === 'weekdays'
+                        ? WEEKDAYS
+                        : selectedRepeat === 'weekends'
+                          ? WEEKENDS
+                          : selectedRepeat === 'custom' || weeklyDays.length === 7
+                            ? undefined
+                            : weeklyDays,
+                    intervalDays:
+                      selectedRepeat === 'custom'
+                        ? Math.max(2, scheduleIntervalValue)
+                        : Math.max(1, scheduleIntervalValue),
+                    ...scheduleOptions,
+                  };
     const participantIds =
-      assignmentMode === 'person'
-        ? [participantId || completers[0].id]
-        : definition?.assignment.mode === assignmentMode
-          ? definition.assignment.participantIds
-          : completers.map((participant) => participant.id);
+      assignmentMode === 'person' ? [participantId || completers[0].id] : selectedParticipantIds;
     const participantScheduleOverrides = Object.fromEntries(
       participantIds.flatMap((id) => {
         const existing = definition?.assignment.participantScheduleOverrides?.[id];
@@ -1008,8 +1360,11 @@ export function AddChoreDialog({
         const override = {
           ...existing,
           times: times.length > 0 ? times : undefined,
+          dueDateOffsetDays: Number(participantDueOffsets[id] ?? 0) || undefined,
         };
-        return override.daysOfWeek || override.times ? [[id, override] as const] : [];
+        return override.daysOfWeek || override.times || override.dueDateOffsetDays
+          ? [[id, override] as const]
+          : [];
       })
     );
     setSaving(true);
@@ -1030,45 +1385,70 @@ export function AddChoreDialog({
           ...(definition?.assignment.mode === assignmentMode ? definition.assignment : {}),
           mode: assignmentMode,
           participantIds,
+          standbyParticipantIds:
+            assignmentMode === 'person' &&
+            standbyParticipantId &&
+            standbyParticipantId !== participantIds[0]
+              ? [standbyParticipantId]
+              : undefined,
+          rotationStrategy: assignmentMode === 'rotation' ? rotationStrategy : undefined,
+          rotationCadence:
+            assignmentMode === 'rotation'
+              ? rotationCadence === 'weekly' || definition?.assignment.rotationCadence
+                ? rotationCadence
+                : undefined
+              : undefined,
+          rotationDayOfWeek:
+            assignmentMode === 'rotation' && rotationCadence === 'weekly'
+              ? rotationDayOfWeek !== 1 || definition?.assignment.rotationDayOfWeek !== undefined
+                ? rotationDayOfWeek
+                : undefined
+              : undefined,
           rotationReset: assignmentMode === 'rotation' ? rotationReset : undefined,
-          rotationCursor: assignmentMode === 'rotation' ? Math.max(0, rotationOffset) : undefined,
+          rotationCursor:
+            assignmentMode === 'rotation' ? (parsedRotationOffset ?? undefined) : undefined,
           participantScheduleOverrides:
             Object.keys(participantScheduleOverrides).length > 0
               ? participantScheduleOverrides
               : undefined,
         },
         schedule,
-        dueWindowMinutes: Math.max(0, dueWindowMinutes),
+        dueWindowMinutes: Number(dueWindowMinutes),
         approval: {
           required: approvalRequired && approverIds.length > 0,
           approverIds,
+          resetClaimOnReject: approvalRequired && !resetClaimOnReject ? false : undefined,
         },
         claimPolicy: claimRequired
           ? {
               required: true,
               allowSteal: true,
-              expiresAfterMinutes: Math.max(1, claimExpiryMinutes),
+              expiresAfterMinutes: Number(claimExpiryMinutes),
+              opensBeforeMinutes:
+                claimOpensBeforeMinutes === '' ? undefined : Number(claimOpensBeforeMinutes),
+              pendingApproval: pendingApproval === 'block' ? 'block' : undefined,
             }
           : undefined,
         missedPolicy: {
-          graceMinutes: Math.max(0, missedGraceMinutes),
+          graceMinutes: Number(missedGraceMinutes),
           action: missedAction,
           carryForwardDays: missedAction === 'carry_forward' ? 1 : undefined,
         },
         reminderPolicy: {
           enabled: remindersEnabled,
-          beforeDueMinutes: [Math.max(1, remindBeforeMinutes)],
+          beforeDueMinutes: [Number(remindBeforeMinutes)],
           atDue: true,
-          overdueEveryMinutes: Math.max(1, overdueEveryMinutes),
+          overdueEveryMinutes: Number(overdueEveryMinutes),
           maxOverdueReminders: 3,
           approvalAfterMinutes: 30,
+          notifyOn: notificationEvents,
         },
         createdAt: definition?.createdAt ?? timestamp,
         updatedAt: timestamp,
       },
       {
-        estimatedMinutes: estimatedMinutes > 0 ? Math.round(estimatedMinutes) : undefined,
-        points: points > 0 ? Math.round(points) : undefined,
+        estimatedMinutes: Number(estimatedMinutes) > 0 ? Number(estimatedMinutes) : undefined,
+        points: Number(points) > 0 ? Number(points) : undefined,
         childTitle: childTitle.trim() || undefined,
         icon: choreIcon,
         color: choreColor || undefined,
@@ -1078,32 +1458,59 @@ export function AddChoreDialog({
     if (saved) onOpenChange(false);
   };
 
+  const submit = (event: FormEvent) => {
+    event.preventDefault();
+  };
+
   const dialogTitle = definition
     ? t('household.choreDialog.editTitle')
     : t('household.choreDialog.title');
   const dialogDescription = definition
     ? t('household.choreDialog.editDescription')
     : t('household.choreDialog.description');
-  const canSave =
-    title.trim().length > 0 &&
-    completers.length > 0 &&
-    (assignmentMode !== 'person' || participantId.length > 0);
-  const repeatValue: ChoreCreationRepeat =
-    frequency === 'daily' && scheduleInterval === 1 && hasExactlyDays(weeklyDays, WEEKDAYS)
+  const stepValidity: Record<ChoreCreationSection, boolean> = {
+    details: title.trim().length > 0 && estimatedMinutesValid && pointsValid,
+    assignment:
+      participantSelectionValid &&
+      (assignmentMode !== 'rotation' || parsedRotationOffset !== null) &&
+      participantTimesValid &&
+      claimExpiryValid &&
+      participantDueOffsetsValid &&
+      claimOpensValid,
+    schedule:
+      scheduleIntervalValid &&
+      dueTimeValid &&
+      startDateValid &&
+      endDateValid &&
+      extraTimesValid &&
+      excludedDatesValid &&
+      dueWindowValid &&
+      missedGraceValid &&
+      remindBeforeValid &&
+      overdueEveryValid,
+  };
+  const canSave = Object.values(stepValidity).every(Boolean);
+  const scheduleIntervalValue = Number(scheduleInterval);
+  const derivedRepeatValue: ChoreCreationRepeat =
+    frequency === 'daily' && scheduleIntervalValue === 1 && hasExactlyDays(weeklyDays, WEEKDAYS)
       ? 'weekdays'
-      : frequency === 'daily' && scheduleInterval === 1 && hasExactlyDays(weeklyDays, WEEKENDS)
+      : frequency === 'daily' && scheduleIntervalValue === 1 && hasExactlyDays(weeklyDays, WEEKENDS)
         ? 'weekends'
-        : frequency === 'daily' && scheduleInterval > 1 && hasExactlyDays(weeklyDays, ALL_WEEK_DAYS)
+        : frequency === 'daily' &&
+            scheduleIntervalValue > 1 &&
+            hasExactlyDays(weeklyDays, ALL_WEEK_DAYS)
           ? 'custom'
-          : frequency === 'weekly' && scheduleInterval === 2
+          : frequency === 'weekly' && scheduleIntervalValue === 2
             ? 'biweekly'
-            : frequency === 'weekly' && scheduleInterval === 3
+            : frequency === 'weekly' && scheduleIntervalValue === 3
               ? 'triweekly'
-              : frequency === 'weekly' && scheduleInterval === 4
+              : frequency === 'weekly' && scheduleIntervalValue === 4
                 ? 'fourweekly'
                 : frequency;
+  const repeatValue = repeatOverride ?? derivedRepeatValue;
 
   const selectRepeat = (value: ChoreCreationRepeat) => {
+    setRepeatOverride(value);
     if (value === 'weekdays' || value === 'weekends' || value === 'custom') {
       setFrequency('daily');
       setWeeklyDays(
@@ -1114,20 +1521,38 @@ export function AddChoreDialog({
     }
 
     if (value === 'biweekly' || value === 'triweekly' || value === 'fourweekly') {
-      if (frequency !== 'weekly') {
-        setWeeklyDays([new Date(`${scheduleStartDate || localDateKey()}T12:00:00`).getDay()]);
-      }
+      setWeeklyDays([
+        getDayOfWeek(isValidDate(scheduleStartDate) ? scheduleStartDate : localDateKey()),
+      ]);
       setFrequency('weekly');
       setScheduleInterval(value === 'biweekly' ? 2 : value === 'triweekly' ? 3 : 4);
       return;
     }
 
     if (value === 'daily') setWeeklyDays(ALL_WEEK_DAYS);
-    if (value === 'weekly' && frequency !== 'weekly') {
-      setWeeklyDays([new Date(`${scheduleStartDate || localDateKey()}T12:00:00`).getDay()]);
+    if (value === 'weekly') {
+      setWeeklyDays([
+        getDayOfWeek(isValidDate(scheduleStartDate) ? scheduleStartDate : localDateKey()),
+      ]);
+    }
+    if (value === 'monthly' && frequency !== 'monthly') {
+      setDayOfMonth(
+        parseDateKey(isValidDate(scheduleStartDate) ? scheduleStartDate : localDateKey()).day
+      );
     }
     setFrequency(value);
     setScheduleInterval(1);
+  };
+
+  const changeScheduleStartDate = (value: string) => {
+    setScheduleStartDate(value);
+    if (!isValidDate(value)) return;
+    if (frequency === 'weekly') {
+      setWeeklyDays([getDayOfWeek(value)]);
+    }
+    if (frequency === 'monthly') {
+      setDayOfMonth(parseDateKey(value).day);
+    }
   };
   const previewColor =
     choreColor || resolveChoreColorPalette(definition?.id ?? (title.trim() || 'new-chore')).primary;
@@ -1154,381 +1579,726 @@ export function AddChoreDialog({
                       ? t('household.schedule.monthly')
                       : repeatValue === 'custom'
                         ? t('household.schedule.custom')
-                        : t('household.schedule.afterCompletion');
+                        : repeatValue === 'hourly'
+                          ? t('household.schedule.hourly')
+                          : t('household.schedule.afterCompletion');
+  const steps = [
+    {
+      id: 'details',
+      label: t('household.setup.choreGroupDetails'),
+      description: `${t('household.choreDialog.name')} · ${t('household.choreDialog.room')}`,
+      icon: ClipboardList,
+    },
+    {
+      id: 'assignment',
+      label: t('household.setup.choreGroupAssignment'),
+      description: `${t('household.choreDialog.assignment')} · ${t('household.choreDialog.person')}`,
+      icon: UsersRound,
+    },
+    {
+      id: 'schedule',
+      label: t('household.setup.choreGroupSchedule'),
+      description: `${t('household.choreDialog.schedule')} · ${t('household.choreDialog.time')}`,
+      icon: CalendarDays,
+    },
+  ] as const;
+  const stepIndex = steps.findIndex((step) => step.id === activeSection);
+  const canVisitStep = (section: ChoreCreationSection) => {
+    const targetIndex = steps.findIndex((step) => step.id === section);
+    return steps.slice(0, targetIndex).every((step) => stepValidity[step.id]);
+  };
+  const selectStep = (section: ChoreCreationSection) => {
+    if (!canVisitStep(section)) return;
+    setActiveSection(section);
+    stepScrollRef.current?.scrollTo({ top: 0 });
+  };
 
   return (
     <BaseCardDialog
       variant="fullscreen"
+      titleInContent
       isOpen={isOpen}
       onOpenChange={onOpenChange}
       title={dialogTitle}
       description={dialogDescription}
       theme={theme}
       contentClassName={cn(
-        'md:left-1/2 md:right-auto md:w-[calc(100%-4rem)] md:max-w-[900px] md:-translate-x-1/2',
-        'max-sm:!overflow-y-auto max-sm:overscroll-contain max-sm:touch-pan-y',
-        'backdrop-blur-2xl',
+        'md:left-1/2 md:right-auto md:w-[calc(100%-4rem)] md:max-w-[1200px] md:-translate-x-1/2',
         surface.shellPanel,
         surface.border
       )}
+      contentStyle={getUiKitGlassSurfaceFoundationStyle(theme)}
       shellBodyClassName="h-full min-h-0"
     >
-      <form
-        className="flex h-full min-h-0 flex-col max-sm:h-auto max-sm:min-h-full"
-        onSubmit={submit}
-      >
-        <header
-          className={cn(
-            coverSheetHeaderClassName,
-            'flex items-start justify-between gap-3 border-b sm:gap-4 sm:px-6',
-            surface.border
-          )}
+      <form className="flex h-full min-h-0 flex-col" onSubmit={submit}>
+        <NavigationWorkspace.Frame
+          aria-label={dialogTitle}
+          className="h-full max-h-full rounded-none border-0 bg-none bg-transparent shadow-none"
         >
-          <div className="min-w-0">
-            <h1 className={cn(navetTypographyTokens.pageHeading, surface.textPrimary)}>
-              {dialogTitle}
-            </h1>
-            <p className={cn('mt-1 max-w-2xl', navetTypographyTokens.body, surface.textSecondary)}>
-              {dialogDescription}
-            </p>
-          </div>
-          <IconButton
-            data-cover-sheet-inline-dismiss
-            variant="ghost"
-            label={t('common.close')}
-            icon={<X aria-hidden="true" className={navetIconSizeTokens.sm} />}
-            className={cn('min-h-10 min-w-10 shrink-0', surface.subtleBg, surface.hoverBg)}
-            onClick={() => onOpenChange(false)}
-          />
-        </header>
-
-        <div className="scrollbar-hide min-h-0 flex-1 overflow-y-auto overscroll-contain touch-pan-y max-sm:flex-none max-sm:overflow-visible max-sm:overscroll-auto max-sm:touch-auto">
-          <main className="mx-auto w-full max-w-[50rem] px-4 py-6 sm:px-7 sm:py-8">
-            <div
-              className={cn(
-                'mb-7 flex min-w-0 items-center gap-3 rounded-[24px] border p-3.5 sm:p-4',
-                surface.subtleBg,
-                surface.borderStrong
-              )}
-              aria-live="polite"
+          <NavigationWorkspace.Header
+            className={cn(
+              coverSheetHeaderClassName,
+              'z-10 shrink-0 border-b max-sm:pt-2 max-sm:pr-4',
+              theme === 'glass' ? 'bg-transparent' : 'bg-inherit/95 backdrop-blur-xl',
+              surface.border
+            )}
+          >
+            <CardDialogHeader
+              title={dialogTitle}
+              description={dialogDescription}
+              theme={theme}
+              editableTitle={false}
+              showRoomSelector={false}
+              className="mb-0"
+            />
+            <nav
+              aria-label={dialogTitle}
+              className="scrollbar-hide -mb-1 flex w-full gap-2 overflow-x-auto pt-3 md:hidden"
             >
-              <span
-                className="flex h-11 w-11 shrink-0 items-center justify-center rounded-[18px] border"
-                style={{
-                  backgroundColor: `${previewColor}18`,
-                  borderColor: `${previewColor}45`,
-                  color: previewColor,
-                }}
+              {steps.map((step) => (
+                <InteractivePill
+                  key={step.id}
+                  active={activeSection === step.id}
+                  aria-current={activeSection === step.id ? 'step' : undefined}
+                  disabled={!canVisitStep(step.id)}
+                  icon={step.icon}
+                  intent="navigation"
+                  size="compact"
+                  className="shrink-0 whitespace-nowrap"
+                  onClick={() => selectStep(step.id)}
+                >
+                  {step.label}
+                </InteractivePill>
+              ))}
+            </nav>
+          </NavigationWorkspace.Header>
+
+          <NavigationWorkspace.Body className="grid-cols-1 md:grid-cols-[16rem_minmax(0,1fr)]">
+            <NavigationWorkspace.Sidebar className="hidden md:block">
+              <NavigationWorkspace.ScrollArea className="p-4">
+                <nav aria-label={dialogTitle} className="grid gap-1">
+                  {steps.map((step) => (
+                    <NavigationWorkspace.Item
+                      key={step.id}
+                      active={activeSection === step.id}
+                      accentColor={getThemeColorValue(primaryColor)}
+                    >
+                      <NavigationWorkspace.ItemButton
+                        aria-current={activeSection === step.id ? 'step' : undefined}
+                        disabled={!canVisitStep(step.id)}
+                        className="disabled:cursor-not-allowed disabled:opacity-50"
+                        onClick={() => selectStep(step.id)}
+                      >
+                        <NavigationWorkspace.ItemIcon>
+                          <step.icon className="h-4 w-4" />
+                        </NavigationWorkspace.ItemIcon>
+                        <NavigationWorkspace.ItemText
+                          title={step.label}
+                          description={step.description}
+                        />
+                      </NavigationWorkspace.ItemButton>
+                    </NavigationWorkspace.Item>
+                  ))}
+                </nav>
+              </NavigationWorkspace.ScrollArea>
+            </NavigationWorkspace.Sidebar>
+            <NavigationWorkspace.Content className="flex min-h-0 flex-col px-4 py-4 sm:px-5 sm:py-5">
+              <div
+                ref={stepScrollRef}
+                className="scrollbar-hide min-h-0 flex-1 overflow-y-auto overscroll-contain touch-pan-y"
               >
-                <PreviewIcon aria-hidden="true" className={navetIconSizeTokens.md} />
-              </span>
-              <div className="min-w-0 flex-1">
-                <p className={cn('truncate text-sm font-semibold', surface.textPrimary)}>
-                  {title.trim() || t('household.choreDialog.namePlaceholder')}
-                </p>
-                <p className={cn('mt-0.5 truncate text-xs', surface.textSecondary)}>
-                  {selectedRoom?.label ?? t('household.choreDialog.noRoom')}
-                  <span aria-hidden="true"> · </span>
-                  {repeatLabel}
-                  <span aria-hidden="true"> · </span>
-                  {time}
-                </p>
-              </div>
-              <ColorInputSwatch
-                mode="picker"
-                size="medium"
-                value={previewColor}
-                visual={choreColor ? 'color' : 'rainbow'}
-                selected={Boolean(choreColor)}
-                ariaLabel={t('widgets.customCard.colorPicker')}
-                onChange={setChoreColor}
-              />
-              {choreColor ? (
-                <IconButton
-                  variant="ghost"
-                  label={t('common.reset')}
-                  icon={<RotateCcw aria-hidden="true" className={navetIconSizeTokens.sm} />}
-                  className="min-h-10 min-w-10 shrink-0"
-                  onClick={() => setChoreColor('')}
-                />
-              ) : null}
-            </div>
-
-            <ChoreCreationFormGroups
-              title={title}
-              icon={choreIcon}
-              roomId={roomLabel}
-              rooms={roomChoices}
-              assignmentMode={assignmentMode}
-              participantId={participantId}
-              participants={completers}
-              repeat={repeatValue}
-              dueTime={time}
-              startDate={scheduleStartDate}
-              endDate={scheduleEndDate}
-              interval={scheduleInterval}
-              excludedDates={excludedDates}
-              showTemplates={!definition}
-              onTitleChange={setTitle}
-              onIconChange={setChoreIcon}
-              onRoomChange={setRoomLabel}
-              onAssignmentModeChange={setAssignmentMode}
-              onParticipantChange={setParticipantId}
-              onRepeatChange={selectRepeat}
-              onDueTimeChange={setTime}
-              onStartDateChange={setScheduleStartDate}
-              onEndDateChange={setScheduleEndDate}
-              onIntervalChange={setScheduleInterval}
-              onExcludedDatesChange={setExcludedDates}
-            >
-              <ChoreCreationSectionOptions section="details">
-                <CardDialogSection
-                  className="mb-0 sm:col-span-2"
-                  label={t('household.choreDialog.instructions')}
-                >
-                  <Textarea
-                    aria-label={t('household.choreDialog.instructions')}
-                    value={description}
-                    onChange={(event) => setDescription(event.target.value)}
-                  />
-                </CardDialogSection>
-                <CardDialogSection
-                  className="mb-0"
-                  label={t('household.choreDialog.estimatedTime')}
-                >
-                  <Input
-                    aria-label={t('household.choreDialog.estimatedTime')}
-                    min={0}
-                    max={1440}
-                    type="number"
-                    value={estimatedMinutes}
-                    onChange={(event) => setEstimatedMinutes(Number(event.target.value))}
-                  />
-                </CardDialogSection>
-                <CardDialogSection className="mb-0" label={t('household.choreDialog.points')}>
-                  <Input
-                    aria-label={t('household.choreDialog.points')}
-                    min={0}
-                    max={10000}
-                    type="number"
-                    value={points}
-                    onChange={(event) => setPoints(Number(event.target.value))}
-                  />
-                </CardDialogSection>
-                <CardDialogSection className="mb-0" label={t('household.choreDialog.childTitle')}>
-                  <Input
-                    aria-label={t('household.choreDialog.childTitle')}
-                    value={childTitle}
-                    onChange={(event) => setChildTitle(event.target.value)}
-                  />
-                </CardDialogSection>
-              </ChoreCreationSectionOptions>
-              <ChoreCreationSectionOptions section="assignment">
-                <div
-                  className={cn(
-                    'flex min-h-12 items-center justify-between gap-4 rounded-2xl border px-4 sm:col-span-2',
-                    surface.borderStrong,
-                    surface.panelMuted,
-                    surface.textPrimary
-                  )}
-                >
-                  <span className="text-sm font-medium">{t('household.choreDialog.approval')}</span>
-                  <Switch
-                    aria-label={t('household.choreDialog.approval')}
-                    checked={approvalRequired}
-                    size="compact"
-                    disabled={approverIds.length === 0}
-                    onCheckedChange={setApprovalRequired}
-                  />
-                </div>
-                {assignmentMode === 'rotation' ? (
-                  <>
-                    <CardDialogSection
-                      className="mb-0"
-                      label={t('household.choreDialog.rotationReset')}
+                <div className="w-full">
+                  <div
+                    className={cn(
+                      'mb-7 flex min-w-0 items-center gap-3 rounded-[24px] border p-3.5 sm:p-4',
+                      surface.subtleBg,
+                      surface.borderStrong
+                    )}
+                    aria-live="polite"
+                  >
+                    <span
+                      className="flex h-11 w-11 shrink-0 items-center justify-center rounded-[18px] border"
+                      style={{
+                        backgroundColor: `${previewColor}18`,
+                        borderColor: `${previewColor}45`,
+                        color: previewColor,
+                      }}
                     >
-                      <Select
-                        aria-label={t('household.choreDialog.rotationReset')}
-                        value={rotationReset}
-                        onChange={(event) =>
-                          setRotationReset(event.target.value as 'never' | 'weekly' | 'monthly')
-                        }
-                      >
-                        <option value="never">{t('household.choreDialog.rotationNever')}</option>
-                        <option value="weekly">{t('household.schedule.weekly')}</option>
-                        <option value="monthly">{t('household.schedule.monthly')}</option>
-                      </Select>
-                    </CardDialogSection>
-                    <CardDialogSection
-                      className="mb-0"
-                      label={t('household.choreDialog.rotationOffset')}
-                    >
-                      <Input
-                        aria-label={t('household.choreDialog.rotationOffset')}
-                        min={0}
-                        type="number"
-                        value={rotationOffset}
-                        onChange={(event) => setRotationOffset(Number(event.target.value))}
+                      <PreviewIcon aria-hidden="true" className={navetIconSizeTokens.md} />
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <p className={cn('truncate text-sm font-semibold', surface.textPrimary)}>
+                        {title.trim() || t('household.choreDialog.namePlaceholder')}
+                      </p>
+                      <p className={cn('mt-0.5 truncate text-xs', surface.textSecondary)}>
+                        {selectedRoom?.label ?? t('household.choreDialog.noRoom')}
+                        <span aria-hidden="true"> · </span>
+                        {repeatLabel}
+                        <span aria-hidden="true"> · </span>
+                        {time}
+                      </p>
+                    </div>
+                    <ColorInputSwatch
+                      mode="picker"
+                      size="medium"
+                      value={previewColor}
+                      visual={choreColor ? 'color' : 'rainbow'}
+                      selected={Boolean(choreColor)}
+                      ariaLabel={t('widgets.customCard.colorPicker')}
+                      onChange={setChoreColor}
+                    />
+                    {choreColor ? (
+                      <IconButton
+                        variant="ghost"
+                        label={t('common.reset')}
+                        icon={<RotateCcw aria-hidden="true" className={navetIconSizeTokens.sm} />}
+                        className="min-h-10 min-w-10 shrink-0"
+                        onClick={() => setChoreColor('')}
                       />
-                    </CardDialogSection>
-                  </>
-                ) : null}
-                {assignmentMode === 'rotation' || assignmentMode === 'everyone'
-                  ? completers.map((participant) => (
+                    ) : null}
+                  </div>
+
+                  <ChoreCreationFormGroups
+                    title={title}
+                    icon={choreIcon}
+                    roomId={roomLabel}
+                    rooms={roomChoices}
+                    assignmentMode={assignmentMode}
+                    participantId={participantId}
+                    participantIds={selectedParticipantIds}
+                    onParticipantsChange={(ids) => {
+                      const startingId = selectedParticipantIds[Number(rotationOffset)];
+                      setSelectedParticipantIds(ids);
+                      setRotationOffset(String(Math.max(0, ids.indexOf(startingId))));
+                    }}
+                    rotationDayOfWeek={rotationDayOfWeek}
+                    onRotationDayOfWeekChange={setRotationDayOfWeek}
+                    rotationCursor={parsedRotationOffset ?? 0}
+                    onRotationCursorChange={(value) => setRotationOffset(String(value))}
+                    rotationCadence={rotationCadence}
+                    onRotationCadenceChange={setRotationCadence}
+                    rotationStrategy={rotationStrategy}
+                    onRotationStrategyChange={setRotationStrategy}
+                    standbyParticipantId={standbyParticipantId}
+                    onStandbyParticipantChange={setStandbyParticipantId}
+                    participants={completers}
+                    repeat={repeatValue}
+                    dueTime={time}
+                    startDate={scheduleStartDate}
+                    endDate={scheduleEndDate}
+                    interval={scheduleInterval}
+                    excludedDates={excludedDates}
+                    showTemplates={!definition}
+                    activeSection={activeSection}
+                    moreOptionsLayout="section"
+                    onTitleChange={setTitle}
+                    onIconChange={setChoreIcon}
+                    onRoomChange={setRoomLabel}
+                    onAssignmentModeChange={setAssignmentMode}
+                    onParticipantChange={setParticipantId}
+                    onRepeatChange={selectRepeat}
+                    onDueTimeChange={setTime}
+                    onStartDateChange={changeScheduleStartDate}
+                    onEndDateChange={setScheduleEndDate}
+                    onIntervalChange={setScheduleInterval}
+                    onExcludedDatesChange={setExcludedDates}
+                  >
+                    <ChoreCreationSectionOptions section="details">
                       <CardDialogSection
-                        key={participant.id}
-                        className="mb-0"
-                        label={t('household.choreDialog.personTimes', {
-                          name: participant.displayName,
-                        })}
+                        className="mb-0 sm:col-span-2"
+                        label={t('household.choreDialog.instructions')}
                       >
-                        <Input
-                          aria-label={t('household.choreDialog.personTimes', {
-                            name: participant.displayName,
-                          })}
-                          placeholder="08:00, 20:00"
-                          value={participantTimes[participant.id] ?? ''}
-                          onChange={(event) =>
-                            setParticipantTimes((current) => ({
-                              ...current,
-                              [participant.id]: event.target.value,
-                            }))
-                          }
+                        <Textarea
+                          aria-label={t('household.choreDialog.instructions')}
+                          value={description}
+                          onChange={(event) => setDescription(event.target.value)}
                         />
                       </CardDialogSection>
-                    ))
-                  : null}
-                <div
-                  className={cn(
-                    'flex min-h-12 items-center justify-between gap-4 rounded-2xl border px-4 sm:col-span-2',
-                    surface.borderStrong,
-                    surface.panelMuted,
-                    surface.textPrimary
-                  )}
-                >
-                  <span className="text-sm font-medium">
-                    {t('household.choreDialog.claimRequired')}
-                  </span>
-                  <Switch
-                    aria-label={t('household.choreDialog.claimRequired')}
-                    checked={claimRequired}
-                    size="compact"
-                    onCheckedChange={setClaimRequired}
-                  />
+                      <CardDialogSection
+                        className="mb-0"
+                        label={t('household.choreDialog.estimatedTime')}
+                      >
+                        <Input
+                          aria-describedby={
+                            estimatedMinutesValid ? undefined : 'chore-estimated-error'
+                          }
+                          aria-label={t('household.choreDialog.estimatedTime')}
+                          invalid={!estimatedMinutesValid}
+                          min={0}
+                          max={1440}
+                          required
+                          step={1}
+                          type="number"
+                          value={estimatedMinutes}
+                          onChange={(event) =>
+                            setEstimatedMinutes(numericDraft(event.target.value))
+                          }
+                        />
+                        {!estimatedMinutesValid ? (
+                          <ChoreFieldError id="chore-estimated-error">
+                            {t('household.validation.wholeNumberRange', { min: 0, max: 1440 })}
+                          </ChoreFieldError>
+                        ) : null}
+                      </CardDialogSection>
+                      <CardDialogSection className="mb-0" label={t('household.choreDialog.points')}>
+                        <Input
+                          aria-describedby={pointsValid ? undefined : 'chore-points-error'}
+                          aria-label={t('household.choreDialog.points')}
+                          invalid={!pointsValid}
+                          min={0}
+                          max={10000}
+                          required
+                          step={1}
+                          type="number"
+                          value={points}
+                          onChange={(event) => setPoints(numericDraft(event.target.value))}
+                        />
+                        {!pointsValid ? (
+                          <ChoreFieldError id="chore-points-error">
+                            {t('household.validation.wholeNumberRange', { min: 0, max: 10_000 })}
+                          </ChoreFieldError>
+                        ) : null}
+                      </CardDialogSection>
+                      <CardDialogSection
+                        className="mb-0"
+                        label={t('household.choreDialog.childTitle')}
+                      >
+                        <Input
+                          aria-label={t('household.choreDialog.childTitle')}
+                          value={childTitle}
+                          onChange={(event) => setChildTitle(event.target.value)}
+                        />
+                      </CardDialogSection>
+                    </ChoreCreationSectionOptions>
+                    <ChoreCreationSectionOptions section="assignment">
+                      <div
+                        className={cn(
+                          'flex min-h-12 items-center justify-between gap-4 rounded-2xl border px-4 sm:col-span-2',
+                          surface.borderStrong,
+                          surface.panelMuted,
+                          surface.textPrimary
+                        )}
+                      >
+                        <span className="text-sm font-medium">
+                          {t('household.choreDialog.approval')}
+                        </span>
+                        <Switch
+                          aria-label={t('household.choreDialog.approval')}
+                          checked={approvalRequired}
+                          disabled={approverIds.length === 0}
+                          onCheckedChange={setApprovalRequired}
+                        />
+                      </div>
+                      {approvalRequired ? (
+                        <div
+                          className={cn(
+                            'flex min-h-12 items-center justify-between gap-4 rounded-2xl border px-4 sm:col-span-2',
+                            surface.borderStrong,
+                            surface.panelMuted,
+                            surface.textPrimary
+                          )}
+                        >
+                          <span className="text-sm font-medium">
+                            {t('household.choreDialog.resetClaimOnReject')}
+                          </span>
+                          <Switch
+                            aria-label={t('household.choreDialog.resetClaimOnReject')}
+                            checked={resetClaimOnReject}
+                            onCheckedChange={setResetClaimOnReject}
+                          />
+                        </div>
+                      ) : null}
+                      {assignmentMode === 'rotation' && rotationCadence === 'scheduled_day' ? (
+                        <CardDialogSection
+                          className="mb-0"
+                          label={t('household.choreDialog.rotationReset')}
+                        >
+                          <Select
+                            aria-label={t('household.choreDialog.rotationReset')}
+                            value={rotationReset}
+                            onChange={(event) =>
+                              setRotationReset(event.target.value as 'never' | 'weekly' | 'monthly')
+                            }
+                          >
+                            <option value="never">
+                              {t('household.choreDialog.rotationNever')}
+                            </option>
+                            <option value="weekly">{t('household.schedule.weekly')}</option>
+                            <option value="monthly">{t('household.schedule.monthly')}</option>
+                          </Select>
+                        </CardDialogSection>
+                      ) : null}
+                      {assignmentMode === 'rotation' || assignmentMode === 'everyone'
+                        ? selectedCompleters.map((participant) => (
+                            <CardDialogSection
+                              key={participant.id}
+                              className="mb-0"
+                              label={t('household.choreDialog.personTimes', {
+                                name: participant.displayName,
+                              })}
+                            >
+                              <Input
+                                aria-describedby={
+                                  isValidTimeList(participantTimes[participant.id] ?? '')
+                                    ? undefined
+                                    : `chore-person-times-${participant.id}-error`
+                                }
+                                aria-label={t('household.choreDialog.personTimes', {
+                                  name: participant.displayName,
+                                })}
+                                invalid={!isValidTimeList(participantTimes[participant.id] ?? '')}
+                                placeholder="08:00, 20:00"
+                                value={participantTimes[participant.id] ?? ''}
+                                onChange={(event) =>
+                                  setParticipantTimes((current) => ({
+                                    ...current,
+                                    [participant.id]: event.target.value,
+                                  }))
+                                }
+                              />
+                              {!isValidTimeList(participantTimes[participant.id] ?? '') ? (
+                                <ChoreFieldError id={`chore-person-times-${participant.id}-error`}>
+                                  {t('household.validation.timeList')}
+                                </ChoreFieldError>
+                              ) : null}
+                            </CardDialogSection>
+                          ))
+                        : null}
+                      {selectedCompleters.map((participant) => (
+                        <CardDialogSection
+                          key={`due-${participant.id}`}
+                          className="mb-0"
+                          label={t('household.choreDialog.personDueOffset', {
+                            name: participant.displayName,
+                          })}
+                        >
+                          <Input
+                            aria-label={t('household.choreDialog.personDueOffset', {
+                              name: participant.displayName,
+                            })}
+                            invalid={
+                              !isBoundedInteger(participantDueOffsets[participant.id] ?? 0, 0, 365)
+                            }
+                            min={0}
+                            max={365}
+                            step={1}
+                            type="number"
+                            value={participantDueOffsets[participant.id] ?? 0}
+                            onChange={(event) =>
+                              setParticipantDueOffsets((current) => ({
+                                ...current,
+                                [participant.id]: numericDraft(event.target.value),
+                              }))
+                            }
+                          />
+                        </CardDialogSection>
+                      ))}
+                      <div
+                        className={cn(
+                          'flex min-h-12 items-center justify-between gap-4 rounded-2xl border px-4 sm:col-span-2',
+                          surface.borderStrong,
+                          surface.panelMuted,
+                          surface.textPrimary
+                        )}
+                      >
+                        <span className="text-sm font-medium">
+                          {t('household.choreDialog.claimRequired')}
+                        </span>
+                        <Switch
+                          aria-label={t('household.choreDialog.claimRequired')}
+                          checked={claimRequired}
+                          onCheckedChange={setClaimRequired}
+                        />
+                      </div>
+                      {claimRequired ? (
+                        <CardDialogSection
+                          className="mb-0"
+                          label={t('household.choreDialog.claimExpiry')}
+                        >
+                          <Input
+                            aria-describedby={
+                              claimExpiryValid ? undefined : 'chore-claim-expiry-error'
+                            }
+                            aria-label={t('household.choreDialog.claimExpiry')}
+                            invalid={!claimExpiryValid}
+                            min={1}
+                            max={525600}
+                            required
+                            step={1}
+                            type="number"
+                            value={claimExpiryMinutes}
+                            onChange={(event) =>
+                              setClaimExpiryMinutes(numericDraft(event.target.value))
+                            }
+                          />
+                          {!claimExpiryValid ? (
+                            <ChoreFieldError id="chore-claim-expiry-error">
+                              {t('household.validation.wholeNumberRange', { min: 1, max: 525_600 })}
+                            </ChoreFieldError>
+                          ) : null}
+                        </CardDialogSection>
+                      ) : null}
+                      {claimRequired ? (
+                        <>
+                          <CardDialogSection
+                            className="mb-0"
+                            label={t('household.choreDialog.claimOpensBefore')}
+                          >
+                            <Input
+                              aria-label={t('household.choreDialog.claimOpensBefore')}
+                              invalid={!claimOpensValid}
+                              min={0}
+                              max={525600}
+                              step={1}
+                              type="number"
+                              value={claimOpensBeforeMinutes}
+                              onChange={(event) =>
+                                setClaimOpensBeforeMinutes(numericDraft(event.target.value))
+                              }
+                            />
+                          </CardDialogSection>
+                          <CardDialogSection
+                            className="mb-0"
+                            label={t('household.choreDialog.pendingApproval')}
+                          >
+                            <Select
+                              aria-label={t('household.choreDialog.pendingApproval')}
+                              value={pendingApproval}
+                              onChange={(event) =>
+                                setPendingApproval(event.target.value as 'allow' | 'block')
+                              }
+                            >
+                              <option value="allow">
+                                {t('household.choreDialog.pendingAllow')}
+                              </option>
+                              <option value="block">
+                                {t('household.choreDialog.pendingBlock')}
+                              </option>
+                            </Select>
+                          </CardDialogSection>
+                        </>
+                      ) : null}
+                    </ChoreCreationSectionOptions>
+                    <ChoreCreationSectionOptions section="schedule">
+                      <CardDialogSection
+                        className="mb-0"
+                        label={t('household.choreDialog.dueWindow')}
+                      >
+                        <Input
+                          aria-describedby={dueWindowValid ? undefined : 'chore-due-window-error'}
+                          aria-label={t('household.choreDialog.dueWindow')}
+                          invalid={!dueWindowValid}
+                          min={0}
+                          max={525600}
+                          required
+                          step={1}
+                          type="number"
+                          value={dueWindowMinutes}
+                          onChange={(event) =>
+                            setDueWindowMinutes(numericDraft(event.target.value))
+                          }
+                        />
+                        {!dueWindowValid ? (
+                          <ChoreFieldError id="chore-due-window-error">
+                            {t('household.validation.wholeNumberRange', { min: 0, max: 525_600 })}
+                          </ChoreFieldError>
+                        ) : null}
+                      </CardDialogSection>
+                      <CardDialogSection
+                        className="mb-0"
+                        label={t('household.choreDialog.missedGrace')}
+                      >
+                        <Input
+                          aria-describedby={
+                            missedGraceValid ? undefined : 'chore-missed-grace-error'
+                          }
+                          aria-label={t('household.choreDialog.missedGrace')}
+                          invalid={!missedGraceValid}
+                          min={0}
+                          max={525600}
+                          required
+                          step={1}
+                          type="number"
+                          value={missedGraceMinutes}
+                          onChange={(event) =>
+                            setMissedGraceMinutes(numericDraft(event.target.value))
+                          }
+                        />
+                        {!missedGraceValid ? (
+                          <ChoreFieldError id="chore-missed-grace-error">
+                            {t('household.validation.wholeNumberRange', { min: 0, max: 525_600 })}
+                          </ChoreFieldError>
+                        ) : null}
+                      </CardDialogSection>
+                      <CardDialogSection
+                        className="mb-0"
+                        label={t('household.choreDialog.missedAction')}
+                      >
+                        <Select
+                          aria-label={t('household.choreDialog.missedAction')}
+                          value={missedAction}
+                          onChange={(event) =>
+                            setMissedAction(event.target.value as 'none' | 'skip' | 'carry_forward')
+                          }
+                        >
+                          <option value="none">{t('household.choreDialog.missedNone')}</option>
+                          <option value="skip">{t('household.choreDialog.missedSkip')}</option>
+                          <option value="carry_forward">
+                            {t('household.choreDialog.missedCarryForward')}
+                          </option>
+                        </Select>
+                      </CardDialogSection>
+                      <div
+                        className={cn(
+                          'flex min-h-12 items-center justify-between gap-4 rounded-2xl border px-4 sm:col-span-2',
+                          surface.borderStrong,
+                          surface.panelMuted,
+                          surface.textPrimary
+                        )}
+                      >
+                        <span className="text-sm font-medium">
+                          {t('household.choreDialog.reminders')}
+                        </span>
+                        <Switch
+                          aria-label={t('household.choreDialog.reminders')}
+                          checked={remindersEnabled}
+                          onCheckedChange={setRemindersEnabled}
+                        />
+                      </div>
+                      {remindersEnabled ? (
+                        <>
+                          <CardDialogSection
+                            className="mb-0 sm:col-span-2"
+                            label={t('household.choreDialog.notificationEvents')}
+                          >
+                            <div className="grid gap-2 sm:grid-cols-2">
+                              {(
+                                ['claimed', 'completed', 'approved', 'rejected', 'skipped'] as const
+                              ).map((event) => (
+                                <label
+                                  key={event}
+                                  htmlFor={`notify-${event}`}
+                                  className="flex min-h-11 items-center gap-2 text-sm"
+                                >
+                                  <Checkbox
+                                    id={`notify-${event}`}
+                                    checked={notificationEvents.includes(event)}
+                                    onCheckedChange={(checked) =>
+                                      setNotificationEvents((current) =>
+                                        checked
+                                          ? [...current, event]
+                                          : current.filter((item) => item !== event)
+                                      )
+                                    }
+                                  />
+                                  <span>{t(`household.choreDialog.notify.${event}`)}</span>
+                                </label>
+                              ))}
+                            </div>
+                          </CardDialogSection>
+                          <CardDialogSection
+                            className="mb-0"
+                            label={t('household.choreDialog.remindBefore')}
+                          >
+                            <Input
+                              aria-describedby={
+                                remindBeforeValid ? undefined : 'chore-remind-before-error'
+                              }
+                              aria-label={t('household.choreDialog.remindBefore')}
+                              invalid={!remindBeforeValid}
+                              min={1}
+                              max={525600}
+                              required
+                              step={1}
+                              type="number"
+                              value={remindBeforeMinutes}
+                              onChange={(event) =>
+                                setRemindBeforeMinutes(numericDraft(event.target.value))
+                              }
+                            />
+                            {!remindBeforeValid ? (
+                              <ChoreFieldError id="chore-remind-before-error">
+                                {t('household.validation.wholeNumberRange', {
+                                  min: 1,
+                                  max: 525_600,
+                                })}
+                              </ChoreFieldError>
+                            ) : null}
+                          </CardDialogSection>
+                          <CardDialogSection
+                            className="mb-0"
+                            label={t('household.choreDialog.overdueEvery')}
+                          >
+                            <Input
+                              aria-describedby={
+                                overdueEveryValid ? undefined : 'chore-overdue-every-error'
+                              }
+                              aria-label={t('household.choreDialog.overdueEvery')}
+                              invalid={!overdueEveryValid}
+                              min={1}
+                              max={525600}
+                              required
+                              step={1}
+                              type="number"
+                              value={overdueEveryMinutes}
+                              onChange={(event) =>
+                                setOverdueEveryMinutes(numericDraft(event.target.value))
+                              }
+                            />
+                            {!overdueEveryValid ? (
+                              <ChoreFieldError id="chore-overdue-every-error">
+                                {t('household.validation.wholeNumberRange', {
+                                  min: 1,
+                                  max: 525_600,
+                                })}
+                              </ChoreFieldError>
+                            ) : null}
+                          </CardDialogSection>
+                        </>
+                      ) : null}
+                    </ChoreCreationSectionOptions>
+                  </ChoreCreationFormGroups>
                 </div>
-                {claimRequired ? (
-                  <CardDialogSection
-                    className="mb-0"
-                    label={t('household.choreDialog.claimExpiry')}
-                  >
-                    <Input
-                      aria-label={t('household.choreDialog.claimExpiry')}
-                      min={1}
-                      type="number"
-                      value={claimExpiryMinutes}
-                      onChange={(event) => setClaimExpiryMinutes(Number(event.target.value))}
-                    />
-                  </CardDialogSection>
-                ) : null}
-              </ChoreCreationSectionOptions>
-              <ChoreCreationSectionOptions section="schedule">
-                <CardDialogSection className="mb-0" label={t('household.choreDialog.dueWindow')}>
-                  <Input
-                    aria-label={t('household.choreDialog.dueWindow')}
-                    min={0}
-                    step={15}
-                    type="number"
-                    value={dueWindowMinutes}
-                    onChange={(event) => setDueWindowMinutes(Number(event.target.value))}
-                  />
-                </CardDialogSection>
-                <CardDialogSection className="mb-0" label={t('household.choreDialog.missedGrace')}>
-                  <Input
-                    aria-label={t('household.choreDialog.missedGrace')}
-                    min={0}
-                    type="number"
-                    value={missedGraceMinutes}
-                    onChange={(event) => setMissedGraceMinutes(Number(event.target.value))}
-                  />
-                </CardDialogSection>
-                <CardDialogSection className="mb-0" label={t('household.choreDialog.missedAction')}>
-                  <Select
-                    aria-label={t('household.choreDialog.missedAction')}
-                    value={missedAction}
-                    onChange={(event) =>
-                      setMissedAction(event.target.value as 'none' | 'skip' | 'carry_forward')
+              </div>
+
+              <footer className={cn('mt-4 shrink-0 border-t pt-4', surface.border)}>
+                <div className="flex w-full items-center justify-between gap-3">
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    onClick={() =>
+                      stepIndex > 0 ? selectStep(steps[stepIndex - 1].id) : onOpenChange(false)
                     }
                   >
-                    <option value="none">{t('household.choreDialog.missedNone')}</option>
-                    <option value="skip">{t('household.choreDialog.missedSkip')}</option>
-                    <option value="carry_forward">
-                      {t('household.choreDialog.missedCarryForward')}
-                    </option>
-                  </Select>
-                </CardDialogSection>
-                <div
-                  className={cn(
-                    'flex min-h-12 items-center justify-between gap-4 rounded-2xl border px-4 sm:col-span-2',
-                    surface.borderStrong,
-                    surface.panelMuted,
-                    surface.textPrimary
+                    {stepIndex > 0 ? t('dashboard.multiple.create.back') : t('common.cancel')}
+                  </Button>
+                  {stepIndex < steps.length - 1 ? (
+                    <Button
+                      key="next-step"
+                      type="button"
+                      disabled={!stepValidity[activeSection]}
+                      onClick={() => selectStep(steps[stepIndex + 1].id)}
+                    >
+                      {t('dashboard.multiple.create.next')}
+                    </Button>
+                  ) : (
+                    <Button
+                      key="save-chore"
+                      type="button"
+                      loading={saving}
+                      disabled={!canSave}
+                      onClick={() => void saveChore()}
+                    >
+                      {definition
+                        ? t('household.choreDialog.saveChanges')
+                        : t('household.choreDialog.save')}
+                    </Button>
                   )}
-                >
-                  <span className="text-sm font-medium">
-                    {t('household.choreDialog.reminders')}
-                  </span>
-                  <Switch
-                    aria-label={t('household.choreDialog.reminders')}
-                    checked={remindersEnabled}
-                    size="compact"
-                    onCheckedChange={setRemindersEnabled}
-                  />
                 </div>
-                {remindersEnabled ? (
-                  <>
-                    <CardDialogSection
-                      className="mb-0"
-                      label={t('household.choreDialog.remindBefore')}
-                    >
-                      <Input
-                        aria-label={t('household.choreDialog.remindBefore')}
-                        min={1}
-                        type="number"
-                        value={remindBeforeMinutes}
-                        onChange={(event) => setRemindBeforeMinutes(Number(event.target.value))}
-                      />
-                    </CardDialogSection>
-                    <CardDialogSection
-                      className="mb-0"
-                      label={t('household.choreDialog.overdueEvery')}
-                    >
-                      <Input
-                        aria-label={t('household.choreDialog.overdueEvery')}
-                        min={1}
-                        type="number"
-                        value={overdueEveryMinutes}
-                        onChange={(event) => setOverdueEveryMinutes(Number(event.target.value))}
-                      />
-                    </CardDialogSection>
-                  </>
-                ) : null}
-              </ChoreCreationSectionOptions>
-            </ChoreCreationFormGroups>
-          </main>
-        </div>
-
-        <footer className={cn('border-t px-4 py-3 sm:px-6', surface.border, surface.shellPanel)}>
-          <div className="mx-auto flex w-full max-w-[50rem] items-center justify-between gap-3">
-            <Button type="button" variant="secondary" onClick={() => onOpenChange(false)}>
-              {t('common.cancel')}
-            </Button>
-            <Button type="submit" loading={saving} disabled={!canSave}>
-              {definition
-                ? t('household.choreDialog.saveChanges')
-                : t('household.choreDialog.save')}
-            </Button>
-          </div>
-        </footer>
+              </footer>
+            </NavigationWorkspace.Content>
+          </NavigationWorkspace.Body>
+        </NavigationWorkspace.Frame>
       </form>
     </BaseCardDialog>
   );

@@ -38,7 +38,6 @@ vi.mock('@navet/app/services/home-assistant.service', () => {
           ],
         },
       })),
-      saveAutomationConfig: vi.fn(async () => undefined),
       getConfig: vi.fn(() => getState().config),
       getConnection: vi.fn(() => null),
       disconnect: vi.fn(),
@@ -197,8 +196,8 @@ describe('TasksSection', () => {
     expect(
       screen.getAllByText('This automation is unavailable from the provider.').length
     ).toBeGreaterThan(0);
-    expect(screen.getAllByText('Scripts').length).toBeGreaterThan(0);
-    fireEvent.click(screen.getByRole('button', { name: /Scripts/ }));
+    expect(screen.getAllByText('Quick actions').length).toBeGreaterThan(0);
+    fireEvent.click(screen.getByRole('button', { name: /Quick actions/ }));
     expect(screen.getByText('Movie time')).toBeInTheDocument();
     expect(screen.getAllByText('Good night').length).toBeGreaterThan(0);
   });
@@ -238,15 +237,6 @@ describe('TasksSection', () => {
     expect(screen.getAllByText('Disabled').length).toBeGreaterThan(0);
     expect(screen.getAllByText('Recent').length).toBeGreaterThan(0);
     expect(screen.getAllByText('Needs attention').length).toBeGreaterThan(0);
-  });
-
-  it('keeps habit suggestions out of the full-width routines workspace', () => {
-    setRoutineEntities();
-
-    renderWithProviders(<TasksSection />);
-
-    expect(screen.queryByText('Suggested routines')).not.toBeInTheDocument();
-    expect(screen.getAllByText('Automations').length).toBeGreaterThan(0);
   });
 
   it('filters automations with active and disabled pills', () => {
@@ -311,8 +301,8 @@ describe('TasksSection', () => {
         .map((button) => button.getAttribute('aria-label'))
     ).toEqual(['Run Night mode', 'Run Laundry done', 'Run Garden lights', 'Run Brew coffee']);
 
-    fireEvent.click(screen.getByRole('button', { name: /Scripts/ }));
-    const scriptsSortButton = screen.getByRole('button', { name: 'Sort by Scripts' });
+    fireEvent.click(screen.getByRole('button', { name: /Quick actions/ }));
+    const scriptsSortButton = screen.getByRole('button', { name: 'Sort by Quick actions' });
 
     fireEvent.click(scriptsSortButton);
     expect(scriptsSortButton).toHaveAttribute('data-sort-direction', 'asc');
@@ -341,7 +331,7 @@ describe('TasksSection', () => {
     renderWithProviders(<TasksSection />);
 
     expect(screen.getByText('Some routine details are unavailable')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: /Scripts/ }));
+    fireEvent.click(screen.getByRole('button', { name: /Quick actions/ }));
     expect(screen.getByRole('button', { name: 'Run Movie time' })).toBeInTheDocument();
   });
 
@@ -351,7 +341,7 @@ describe('TasksSection', () => {
     renderWithProviders(<TasksSection />);
 
     fireEvent.click(screen.getByRole('button', { name: 'Run Brew coffee' }));
-    fireEvent.click(screen.getByRole('button', { name: /Scripts/ }));
+    fireEvent.click(screen.getByRole('button', { name: /Quick actions/ }));
     fireEvent.click(screen.getByRole('button', { name: 'Run Movie time' }));
     fireEvent.click(screen.getByRole('button', { name: 'Run Good night' }));
     fireEvent.click(screen.getByRole('button', { name: /Automations/ }));

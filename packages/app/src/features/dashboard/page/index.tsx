@@ -1,8 +1,13 @@
 import { LoadingSpinner } from '@navet/app/components/primitives/loading-spinner';
+import { SkipLink } from '@navet/app/components/primitives/skip-link';
 import { RenderProfiler } from '@navet/app/components/shared/render-profiler';
 import { isAllRooms } from '@navet/app/constants/rooms';
 import { useI18n } from '@navet/app/hooks';
-import { dashboardToPath, pathToDashboardId } from '@navet/app/navigation/sections';
+import {
+  dashboardToPath,
+  notifyNavigationPathChanged,
+  pathToDashboardId,
+} from '@navet/app/navigation/sections';
 import { useErrorStore, useNavigationStore } from '@navet/app/stores';
 import { appErrorSelectors } from '@navet/app/stores/selectors';
 import { useEffect } from 'react';
@@ -23,7 +28,7 @@ export function DashboardPage() {
     (state) => state.activeCustomSidebarActionId
   );
   const { profileLoadCompleted } = useDashboardProfileSync();
-  const controller = useDashboardController();
+  const { page, overlays, section } = useDashboardController();
   const pendingAssignedDashboardId = useDashboardCollectionStore(
     (state) => state.pendingAssignedDashboardId
   );
@@ -34,14 +39,14 @@ export function DashboardPage() {
     (state) => state.syncDashboardFromLocation
   );
   const isDashboardReady =
-    controller.devicesLoaded &&
+    page.devicesLoaded &&
     profileLoadCompleted &&
     (activeCustomSidebarActionId !== null ||
-      controller.activeSection !== 'home' ||
-      !isAllRooms(controller.activeRoom) ||
-      controller.homeLayoutHydrated);
+      page.activeSection !== 'home' ||
+      !isAllRooms(page.activeRoom) ||
+      page.homeLayoutHydrated);
   const isWaitingForDashboard =
-    controller.devicesLoaded && profileLoadCompleted && !isDashboardReady && !controller.connecting;
+    page.devicesLoaded && profileLoadCompleted && !isDashboardReady && !page.connecting;
 
   useEffect(() => {
     if (!isWaitingForDashboard || appError) {
@@ -66,7 +71,7 @@ export function DashboardPage() {
       syncDashboardFromLocation();
       const requestedDashboardId = pathToDashboardId(window.location.pathname);
       if (
-        controller.activeSection === 'home' &&
+        page.activeSection === 'home' &&
         requestedDashboardId &&
         !useDashboardCollectionStore.getState().collection.dashboardsById[requestedDashboardId]
       ) {
@@ -76,6 +81,7 @@ export function DashboardPage() {
           '',
           `${dashboardToPath(fallbackDashboardId)}${window.location.search}${window.location.hash}`
         );
+        notifyNavigationPathChanged();
         toast.warning(t('dashboard.multiple.notFound'), {
           id: 'dashboard-not-found',
         });
@@ -87,61 +93,57 @@ export function DashboardPage() {
     }
     window.addEventListener('popstate', handlePopState);
     return () => window.removeEventListener('popstate', handlePopState);
-  }, [controller.activeSection, profileLoadCompleted, syncDashboardFromLocation, t]);
+  }, [page.activeSection, profileLoadCompleted, syncDashboardFromLocation, t]);
 
   useEffect(() => {
     if (
       pendingAssignedDashboardId &&
-      controller.activeSection === 'home' &&
-      !controller.isEditMode &&
-      !controller.showAddCardDialog &&
-      !controller.showAddEntityDialog
+      page.activeSection === 'home' &&
+      !page.isEditMode &&
+      !page.showAddCardDialog &&
+      !page.showAddEntityDialog
     ) {
       applyPendingAssignment();
     }
   }, [
     applyPendingAssignment,
-    controller.activeSection,
-    controller.isEditMode,
-    controller.showAddCardDialog,
-    controller.showAddEntityDialog,
+    page.activeSection,
+    page.isEditMode,
+    page.showAddCardDialog,
+    page.showAddEntityDialog,
     pendingAssignedDashboardId,
   ]);
 
   if (!isDashboardReady) {
-    return controller.connecting ? (
-      <LoadingSpinner message={t('dashboard.page.connectingHomeAssistant')} fullScreen />
+    return page.connecting ? (
+      <>
+        <SkipLink targetId="dashboard-main-content" label={t('common.skipToMainContent')} />
+        <main id="dashboard-main-content" tabIndex={-1} aria-busy="true">
+          <LoadingSpinner message={t('dashboard.page.connectingHomeAssistant')} fullScreen />
+        </main>
+      </>
     ) : null;
   }
 
   return (
     <>
+      <SkipLink targetId="dashboard-main-content" label={t('common.skipToMainContent')} />
       <DashboardArrivalReveal
         open={
-          controller.activeSection === 'home' &&
-          controller.dashboardArrivalVariant !== null &&
-          (controller.showImportedDashboardReveal || controller.isOnboardingClosing)
+          page.activeSection === 'home' &&
+          page.dashboardArrivalVariant !== null &&
+          (page.showImportedDashboardReveal || page.isOnboardingClosing)
         }
-        onComplete={controller.onDismissImportedDashboardReveal}
-        variant={controller.dashboardArrivalVariant ?? 'import'}
+        onComplete={page.onDismissImportedDashboardReveal}
+        variant={page.dashboardArrivalVariant ?? 'import'}
       />
-      <div
-        aria-hidden={controller.showAddEntityDialog}
-        style={
-          controller.showAddEntityDialog
-            ? {
-                visibility: 'hidden',
-                contentVisibility: 'hidden',
-              }
-            : undefined
-        }
-      >
+      <div aria-hidden={page.showAddEntityDialog}>
         <RenderProfiler id="DashboardPage:SectionRouter">
-          <DashboardSectionRouter controller={controller} />
+          <DashboardSectionRouter controller={section} />
         </RenderProfiler>
       </div>
       <RenderProfiler id="DashboardPage:Overlays">
-        <DashboardOverlays controller={controller} />
+        <DashboardOverlays controller={overlays} />
       </RenderProfiler>
     </>
   );
