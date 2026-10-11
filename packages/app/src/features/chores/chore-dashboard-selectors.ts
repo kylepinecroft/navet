@@ -3,6 +3,7 @@ import {
   type ChoreRewardGoal,
   normalizeChoreExperienceState,
 } from '@navet/core/chore-experience';
+import { getSupersedingChoreOccurrence } from '@navet/core/chore-recurrence-policy';
 import {
   type ChoreDefinition,
   type ChoreOccurrence,
@@ -88,6 +89,28 @@ function definitionFor(data: ChoreWorkspaceData, occurrence: ChoreOccurrence) {
   return definition && !definition.archivedAt ? definition : undefined;
 }
 
+function isMissedScheduledHistory(
+  occurrence: ChoreOccurrence,
+  definition: ChoreDefinition,
+  data: ChoreWorkspaceData,
+  now: Date
+) {
+  return (
+    occurrence.status === 'missed' &&
+    Boolean(
+      occurrence.carriedForwardTo ||
+        occurrence.supersededAt ||
+        getSupersedingChoreOccurrence(
+          occurrence,
+          definition,
+          data.occurrencesById,
+          now.toISOString(),
+          Object.keys(data.participantsById)
+        )
+    )
+  );
+}
+
 export function getHouseholdTodayOccurrences(
   data: ChoreWorkspaceData,
   now = new Date()
@@ -95,7 +118,9 @@ export function getHouseholdTodayOccurrences(
   const dayStart = startOfLocalDay(now);
   return Object.values(data.occurrencesById)
     .filter((occurrence) => {
-      if (!definitionFor(data, occurrence) || !isVisibleWork(occurrence)) return false;
+      const definition = definitionFor(data, occurrence);
+      if (!definition || !isVisibleWork(occurrence)) return false;
+      if (isMissedScheduledHistory(occurrence, definition, data, now)) return false;
       if (occursOnLocalDay(occurrence, dayStart)) return true;
       return !isFinal(occurrence) && getChoreTiming(occurrence, now) === 'overdue';
     })
@@ -421,4 +446,16 @@ export function getDefinition(
   occurrence: ChoreOccurrence
 ): ChoreDefinition | undefined {
   return definitionFor(data, occurrence);
+}
+
+export function getMissedScheduledChoreHistory(
+  data: ChoreWorkspaceData,
+  now = new Date()
+): ChoreOccurrence[] {
+  return Object.values(data.occurrencesById)
+    .filter((item) => {
+      const definition = data.definitionsById[item.definitionId];
+      return definition && isMissedScheduledHistory(item, definition, data, now);
+    })
+    .sort((a, b) => Date.parse(b.scheduledAt) - Date.parse(a.scheduledAt));
 }

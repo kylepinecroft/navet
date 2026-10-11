@@ -4,6 +4,7 @@ import boundedFile from '../shared/bounded-file.js';
 import choreCalendarPolicy from './chore-calendar-policy.js';
 import choreOccurrencePolicy from './chore-occurrence-policy.js';
 import choreProgressPolicy from './chore-progress-policy.js';
+import choreRecurrencePolicy from './chore-recurrence-policy.js';
 import fs from 'fs';
 import hashCrypto from 'crypto';
 import authStore from './auth-store.js';
@@ -315,6 +316,11 @@ function isValidChoreWorkspaceDataVersion(value, schemaVersion) {
     (value.experience !== undefined && !isValidChoreExperience(value.experience))
   ) {
     return false;
+  }
+  const occurrenceIds = Object.keys(value.occurrencesById);
+  for (let occurrenceIndex = 0; occurrenceIndex < occurrenceIds.length; occurrenceIndex += 1) {
+    const occurrence = value.occurrencesById[occurrenceIds[occurrenceIndex]];
+    if (occurrence && occurrence.supersededAt !== undefined && (typeof occurrence.supersededAt !== 'string' || !Number.isFinite(choreRecurrencePolicy.parseChoreInstant(occurrence.supersededAt)))) return false;
   }
   for (let index = 0; index < value.activity.length; index += 1) {
     if (!isValidActivity(value.activity[index])) {
@@ -755,7 +761,7 @@ function nextReminderDeliveryAt(timestamp, participant, fallbackTimeZone) {
   const quietHours = isRecord(preferences.quietHours) ? preferences.quietHours : null;
   if (!quietHours || quietHours.start === quietHours.end) return timestamp;
   const timeZone = quietHours.timeZone || fallbackTimeZone;
-  const parts = getTimeZoneParts(Date.parse(timestamp), timeZone);
+  const parts = getTimeZoneParts(choreRecurrencePolicy.parseChoreInstant(timestamp), timeZone);
   const localMinutes = Number(parts.hour) * 60 + Number(parts.minute);
   const startMinutes = choreTimeToMinutes(quietHours.start);
   const endMinutes = choreTimeToMinutes(quietHours.end);
@@ -794,7 +800,8 @@ function createReminderOutboxItem(definition, occurrence, participant, eventType
 
 function runWorkspaceScheduler(data, timestamp) {
   const now = Date.parse(timestamp);
-  const occurrencesById = Object.assign({}, data.occurrencesById);
+  const retainedOccurrences = choreRecurrencePolicy.retainChoreSupersession(data.occurrencesById, data.definitionsById, timestamp, data.activity, Object.keys(data.participantsById));
+  const occurrencesById = Object.assign({}, retainedOccurrences);
   const activities = [];
   const reminderItems = [];
   const existingOutboxIds = Object.create(null);
@@ -853,11 +860,11 @@ function runWorkspaceScheduler(data, timestamp) {
     if (occurrence.status !== 'available' && occurrence.status !== 'claimed') continue;
     if (!occurrenceHasActiveAssignee(occurrence, data, timestamp)) continue;
     const definition = data.definitionsById[occurrence.definitionId];
-    const policy = isRecord(definition) && isRecord(definition.missedPolicy)
-      ? definition.missedPolicy
-      : null;
-    if (!policy || !Number.isFinite(policy.graceMinutes)) continue;
-    const missedBoundary = Date.parse(occurrence.dueAt) + policy.graceMinutes * 60000;
+    if (!definition || definition.schedule.frequency === 'after_completion') continue;
+    const superseding = choreRecurrencePolicy.getSupersedingChoreOccurrence(occurrence, definition, data.occurrencesById, timestamp, Object.keys(data.participantsById));
+    const policy = superseding ? { graceMinutes: 0, action: 'none' } : definition.missedPolicy;
+    if (!policy || (!superseding && policy.action === 'none' && definition.schedule.frequency !== 'once') || !Number.isFinite(policy.graceMinutes)) continue;
+    const missedBoundary = superseding ? choreRecurrencePolicy.parseChoreInstant(superseding.scheduledAt) : Date.parse(occurrence.dueAt) + policy.graceMinutes * 60000;
     if (!Number.isFinite(missedBoundary) || now < missedBoundary) continue;
 
     const activity = {
@@ -866,7 +873,7 @@ function runWorkspaceScheduler(data, timestamp) {
       occurrenceId: occurrence.id,
       definitionId: definition.id,
       type: policy.action === 'skip' ? 'skipped' : 'missed',
-      reason: 'Missed-work policy',
+      reason: superseding ? 'Next scheduled occurrence started' : 'Missed-work policy',
       timestamp,
     };
     const nextOccurrence = Object.assign({}, occurrence, {
@@ -875,6 +882,7 @@ function runWorkspaceScheduler(data, timestamp) {
     });
     if (policy.action === 'skip') nextOccurrence.skippedAt = timestamp;
     else nextOccurrence.missedAt = timestamp;
+    if (superseding) nextOccurrence.supersededAt = superseding.scheduledAt;
     activities.push(activity);
 
     if (policy.action === 'carry_forward') {
@@ -982,7 +990,7 @@ function runWorkspaceScheduler(data, timestamp) {
     }
   }
 
-  if (activities.length === 0 && reminderItems.length === 0) {
+  if (activities.length === 0 && reminderItems.length === 0 && retainedOccurrences === data.occurrencesById) {
     return { activities, outboxItems: reminderItems, data };
   }
   return {
@@ -1187,7 +1195,7 @@ function localDateTimeToIso(dateKey, time, timeZone) {
 }
 
 function getZonedDateKey(timestamp, timeZone) {
-  const parts = getTimeZoneParts(Date.parse(timestamp), timeZone);
+  const parts = getTimeZoneParts(choreRecurrencePolicy.parseChoreInstant(timestamp), timeZone);
   return parts.year + '-' + parts.month + '-' + parts.day;
 }
 
@@ -1195,6 +1203,21 @@ function materializeDefinition(definition, participantsById, rangeStart, rangeEn
   if (!definition.enabled || definition.archivedAt !== undefined) return [];
   const startTime = Date.parse(rangeStart);
   const endTime = Date.parse(rangeEnd);
+  if (definition.schedule.frequency === 'after_completion') {
+    if (definition.assignment.mode === 'everyone') {
+      const personal = [];
+      for (let index = 0; index < definition.assignment.participantIds.length; index += 1) {
+        const participantId = definition.assignment.participantIds[index];
+        const personalOccurrences = choreRecurrencePolicy.getParticipantChoreOccurrences(definition, existing, participantId, Object.keys(participantsById));
+        const personalDefinition = Object.assign({}, definition, { assignment: Object.assign({}, definition.assignment, {mode: 'person', participantIds: [participantId]}) });
+        const next = materializeDefinition(personalDefinition, participantsById, rangeStart, rangeEnd, personalOccurrences, choreRecurrencePolicy.getLatestChoreCompletion(personalOccurrences), materializeNextAfterCompletion);
+        for (let nextIndex = 0; nextIndex < next.length; nextIndex += 1) personal.push(next[nextIndex]);
+      }
+      return personal;
+    }
+    const outstanding = choreRecurrencePolicy.getOutstandingChoreOccurrence(definition, existing);
+    if (outstanding) return [outstanding];
+  }
   const completionCountsByParticipant = Object.create(null);
   if (definition.assignment.rotationStrategy === 'fair') {
     for (const occurrenceId in existing) {
@@ -1257,7 +1280,7 @@ function materializeDefinition(definition, participantsById, rangeStart, rangeEn
     const anchor = latestCompletedAt ? getZonedDateKey(latestCompletedAt, schedule.timeZone) : schedule.startDate;
     const nextDate = latestCompletedAt ? choreCalendarPolicy.addCalendarDays(anchor, schedule.intervalDays) : anchor;
     if (
-      (materializeNextAfterCompletion || (nextDate >= rangeStartDate && nextDate <= finalDate)) &&
+      (materializeNextAfterCompletion || nextDate < rangeStartDate || (nextDate >= rangeStartDate && nextDate <= finalDate)) &&
       (schedule.endDate === undefined || nextDate <= schedule.endDate) &&
       !includesValue(schedule.excludedDates, nextDate)
     ) dates.push(nextDate);
@@ -1294,7 +1317,7 @@ function materializeDefinition(definition, participantsById, rangeStart, rangeEn
           : dates[dateIndex];
         const scheduledAt = localDateTimeToIso(personalDate, times[timeIndex], schedule.timeZone);
         const scheduledTime = Date.parse(scheduledAt);
-        if (!(materializeNextAfterCompletion && schedule.frequency === 'after_completion') &&
+        if (!(schedule.frequency === 'after_completion' && (materializeNextAfterCompletion || scheduledTime < startTime)) &&
           (scheduledTime < startTime || scheduledTime > endTime)) continue;
         const id = definition.id + ':' + scheduledAt + ':' + slot.assignmentSlot;
         countAssignment(id, slot.assigneeIds);
@@ -1853,6 +1876,7 @@ function appendWorkspaceActivities(data, activities) {
 
 function applyWorkspaceAction(data, commandId, action, timestamp, recurrenceDefinitionId) {
   recordSafety.assertSafeRecord(action);
+  data = Object.assign({}, data, { occurrencesById: choreRecurrencePolicy.retainChoreSupersession(data.occurrencesById, data.definitionsById, timestamp, data.activity, Object.keys(data.participantsById)) });
   if (action.type === 'occurrence_action') {
     const next = applyOccurrenceAction(data, commandId, action, timestamp);
     const previous = data.occurrencesById[action.occurrenceId];
@@ -2014,7 +2038,8 @@ function applyWorkspaceAction(data, commandId, action, timestamp, recurrenceDefi
         if (
           occurrence.definitionId !== action.definitionId ||
           occurrence.status === 'done' ||
-          occurrence.status === 'skipped'
+          occurrence.status === 'skipped' ||
+          (occurrence.status === 'missed' && !!(occurrence.supersededAt || occurrence.carriedForwardTo))
         ) {
           recordSafety.setOwnRecordValue(occurrencesById, occurrenceId, occurrence);
         }
@@ -2427,7 +2452,7 @@ function applyWorkspaceAction(data, commandId, action, timestamp, recurrenceDefi
         return occurrence.definitionId === definition.id && typeof occurrence.completedAt === 'string';
       })
       .map(function (occurrence) { return occurrence.completedAt; })
-      .sort();
+      .sort(function (a, b) { return choreRecurrencePolicy.parseChoreInstant(a) - choreRecurrencePolicy.parseChoreInstant(b); });
     const materialized = materializeDefinition(
       definition,
       data.participantsById,
@@ -2508,8 +2533,7 @@ function applyWorkspaceAction(data, commandId, action, timestamp, recurrenceDefi
     if (!Object.prototype.hasOwnProperty.call(occurrencesById, occurrenceId)) continue;
     const occurrence = occurrencesById[occurrenceId];
     if (
-      (occurrence.status === 'done' || occurrence.status === 'skipped') &&
-      Date.parse(occurrence.scheduledAt) < retentionBoundary
+      choreRecurrencePolicy.shouldPruneChoreOccurrence(occurrence, data.definitionsById, occurrencesById, retentionBoundary, Object.keys(data.participantsById))
     ) {
       delete occurrencesById[occurrenceId];
     }
@@ -2594,7 +2618,7 @@ function applyScheduledState(document) {
   const timestamp = nowIso();
   lastSchedulerRunAt = timestamp;
   const scheduled = runWorkspaceScheduler(document.data, timestamp);
-  if (scheduled.activities.length === 0 && scheduled.outboxItems.length === 0) {
+  if (scheduled.activities.length === 0 && scheduled.outboxItems.length === 0 && sameObjectKeys(scheduled.data.occurrencesById, document.data.occurrencesById)) {
     appendEventHistory(document.data.activity, document.data.historyRetention);
     return document;
   }
@@ -2613,7 +2637,7 @@ function sameObjectKeys(left, right) {
   const rightKeys = Object.keys(right).sort();
   if (leftKeys.length !== rightKeys.length) return false;
   for (let index = 0; index < leftKeys.length; index += 1) {
-    if (leftKeys[index] !== rightKeys[index]) return false;
+    if (leftKeys[index] !== rightKeys[index] || left[leftKeys[index]].supersededAt !== right[rightKeys[index]].supersededAt) return false;
   }
   return true;
 }

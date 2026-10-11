@@ -451,6 +451,55 @@ class ChoreAuthorityTests(unittest.IsolatedAsyncioTestCase):
             "2026-10-25T03:00:00.000Z", "2026-10-25T05:00:00.000Z",
         ])
 
+    async def test_vacation_replacement_supersedes_at_its_actual_date(self):
+        data = chores._empty_data()
+        data["participantsById"] = {"manager": _participant(),
+            "child": {**_participant("child"), "pausedAt": "2026-08-05T00:00:00.000Z",
+                "resumeAt": "2026-08-12T00:00:00.000Z"}}
+        definition = {"id": "dishes", "assignment": {"mode": "rotation"},
+            "schedule": {"frequency": "weekly", "timeZone": "Europe/Stockholm"}}
+        data["definitionsById"] = {"dishes": definition}
+        previous = {"id": "previous", "definitionId": "dishes",
+            "scheduledAt": "2026-08-03T16:00:00.000Z", "dueAt": "2026-08-03T19:00:00.000Z",
+            "assigneeIds": ["manager"], "assignmentSlot": "manager", "status": "available"}
+        original = {**previous, "id": "vacation-next", "assigneeIds": ["child"],
+            "assignmentSlot": "child", "scheduledAt": "2026-08-10T16:00:00.000Z",
+            "dueAt": "2026-08-10T19:00:00.000Z"}
+        data["occurrencesById"] = {previous["id"]: previous, original["id"]: original}
+        moved, _events = chores._vacation_reschedule(data, {
+            "actorParticipantId": "manager", "participantId": "child",
+            "occurrenceIds": [original["id"]], "startDate": "2026-08-13",
+        }, "2026-08-06T08:00:00.000Z", "move-next")
+        replacement = next(item for item in moved["occurrencesById"].values()
+            if item.get("carriedForwardFrom") == original["id"])
+        for now in [original["scheduledAt"], "2026-08-13T15:59:59.000Z"]:
+            self.assertIsNone(chores._superseding_occurrence(previous, definition,
+                moved["occurrencesById"], now))
+        self.assertEqual(chores._superseding_occurrence(previous, definition,
+            moved["occurrencesById"], replacement["scheduledAt"]), replacement)
+        del moved["occurrencesById"][original["id"]]
+        self.assertEqual(chores._superseding_occurrence(previous, definition,
+            moved["occurrencesById"], replacement["scheduledAt"]), replacement)
+
+    async def test_automatic_carried_work_is_not_a_calendar_boundary(self):
+        definition = {"schedule": {"frequency": "weekly"}, "assignment": {"mode": "rotation"}}
+        previous = {"id": "previous", "definitionId": "dishes", "assignmentSlot": "manager",
+            "scheduledAt": "2026-08-10T16:00:00.000Z", "status": "available"}
+        carried = {**previous, "id": "carried", "assignmentSlot": "carry:older-missed",
+            "carriedForwardFrom": "older-missed", "scheduledAt": "2026-08-11T16:00:00.000Z",
+            "status": "skipped", "carriedForwardTo": "moved-carry"}
+        moved = {**carried, "id": "moved-carry", "status": "available",
+            "carriedForwardFrom": carried["id"], "scheduledAt": "2026-08-13T16:00:00.000Z"}
+        moved.pop("carriedForwardTo")
+        occurrences = {item["id"]: item for item in [previous, carried, moved]}
+        self.assertIsNone(chores._superseding_occurrence(previous, definition,
+            occurrences, moved["scheduledAt"]))
+        calendar_skip = {**moved, "id": "calendar-skip", "assignmentSlot": "manager", "status": "skipped"}
+        calendar_skip.pop("carriedForwardFrom")
+        occurrences[calendar_skip["id"]] = calendar_skip
+        self.assertEqual(chores._superseding_occurrence(previous, definition,
+            occurrences, calendar_skip["scheduledAt"]), calendar_skip)
+
     async def test_vacation_reschedule_keeps_claimed_work(self):
         data = chores._empty_data()
         data["participantsById"] = {"manager": _participant(),
@@ -627,6 +676,9 @@ class ChoreAuthorityTests(unittest.IsolatedAsyncioTestCase):
                 preserved = {}
                 for occurrence, status in zip(values, ["done", "claimed", "awaiting_approval", "skipped", "missed"]):
                     occurrence["status"] = status
+                    if status == "missed":
+                        # A complete historical fixture retains its fixed-work boundary.
+                        occurrence["supersededAt"] = values[5]["scheduledAt"]
                     preserved[occurrence["id"]] = copy.deepcopy(occurrence)
                 values[5]["carriedForwardFrom"] = "earlier"
                 preserved[values[5]["id"]] = copy.deepcopy(values[5])
@@ -893,6 +945,297 @@ class ChoreAuthorityTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("activity:expired", saved_ids)
         self.assertIn("activity:manager-create", saved_ids)
 
+    async def _seed_outstanding_interval(self, everyone=False, approval=False):
+        original_now = chores._now
+        chores._now = lambda: datetime(2026, 10, 11, 10, 0, tzinfo=timezone.utc)
+        self.addCleanup(setattr, chores, "_now", original_now)
+        await self._create_manager()
+        if everyone:
+            await self.authority.async_command({"commandId": "other-create", "baseRevision": self.authority.revision,
+                "action": {"type": "participant_create", "actorParticipantId": "manager", "participant": _participant("other")}}, "ha-user-1")
+        definition = {"id": "repeat", "title": "Repeat", "enabled": True,
+            "assignment": {"mode": "everyone" if everyone else "person", "participantIds": ["manager", "other"] if everyone else ["manager"]},
+            "schedule": {"frequency": "after_completion", "startDate": "2026-01-01", "time": "10:00", "timeZone": "UTC", "intervalDays": 14},
+            "missedPolicy": {"graceMinutes": 0, "action": "carry_forward"},
+            "dueWindowMinutes": 60, "approval": {"required": approval, "approverIds": ["manager"] if approval else []},
+            "createdAt": "2026-01-01T08:00:00.000Z", "updatedAt": "2026-01-01T08:00:00.000Z"}
+        await self.authority.async_command({"commandId": "repeat-create", "baseRevision": self.authority.revision,
+            "action": {"type": "definition_create", "actorParticipantId": "manager", "definition": definition}}, "ha-user-1")
+        await self.authority.async_tick()
+        return definition
+
+    async def _assert_started_interval_survives_edit(self, change):
+        definition = await self._seed_outstanding_interval(everyone=True)
+        original = next(item for item in self.authority.data["occurrencesById"].values() if item["assigneeIds"] == ["manager"])
+        await self.authority.async_command({"commandId": "complete-anchor", "baseRevision": self.authority.revision,
+            "action": {"type": "occurrence_action", "occurrenceId": original["id"], "action": {"type": "complete", "participantId": "manager"}}}, "ha-user-1")
+        outstanding = copy.deepcopy([item for item in self.authority.data["occurrencesById"].values() if not item.get("completedAt")])
+        self.assertEqual(len(outstanding), 2)
+        self.assertTrue(any(item["scheduledAt"] == "2026-10-25T10:00:00.000Z" for item in outstanding))
+        chores._now = lambda: datetime(2026, 10, 26, 10, 0, tzinfo=timezone.utc)
+        edited = copy.deepcopy(definition)
+        if change == "interval":
+            edited["schedule"]["intervalDays"] = 7
+        elif change == "time":
+            edited["schedule"]["time"] = "11:00"
+        else:
+            edited["assignment"]["participantIds"] = ["other", "manager"]
+        await self.authority.async_command({"commandId": "edit-repeat", "baseRevision": self.authority.revision,
+            "action": {"type": "definition_update", "actorParticipantId": "manager", "definition": edited}}, "ha-user-1")
+        await self.authority.async_tick()
+        self.assertEqual({item["id"]: item for item in self.authority.data["occurrencesById"].values() if not item.get("completedAt")}, {item["id"]: item for item in outstanding})
+
+    async def test_started_after_completion_interval_survives_interval_edit(self):
+        await self._assert_started_interval_survives_edit("interval")
+
+    async def test_started_after_completion_interval_survives_time_edit(self):
+        await self._assert_started_interval_survives_edit("time")
+
+    async def test_started_after_completion_interval_survives_assignment_edit(self):
+        await self._assert_started_interval_survives_edit("assignment")
+
+    async def test_offset_outstanding_interval_preserves_earliest_future_work_after_completion(self):
+        await self._seed_outstanding_interval(approval=True)
+        original = next(iter(self.authority.data["occurrencesById"].values()))
+        earlier = {**original, "id": "restored-earlier", "scheduledAt": "2026-10-25T00:30:00+02:00",
+            "dueAt": "2026-10-25T01:30:00+02:00", "updatedAt": "2026-10-11T10:00:00.000Z"}
+        later = {**original, "id": "restored-later", "scheduledAt": "2026-10-24T23:00:00.000Z",
+            "dueAt": "2026-10-25T00:00:00.000Z", "updatedAt": "2026-10-11T10:00:00.000Z"}
+        self.assertLess(chores._parse_iso(earlier["scheduledAt"]), chores._parse_iso(later["scheduledAt"]))
+        self.authority.data["occurrencesById"].update({earlier["id"]: earlier, later["id"]: later})
+        result = await self.authority.async_command({"commandId": "offset-outstanding-complete", "baseRevision": self.authority.revision,
+            "action": {"type": "occurrence_action", "occurrenceId": original["id"], "action": {"type": "complete", "participantId": "manager"}}}, "ha-user-1")
+        self.assertEqual(result["data"]["occurrencesById"][original["id"]]["status"], "awaiting_approval")
+        self.assertEqual([item for item in result["data"]["occurrencesById"].values() if not item.get("completedAt")], [earlier])
+        restarted = chores.ChoreAuthority(self.hass)
+        await restarted.async_initialize()
+        await restarted.async_tick()
+        self.assertEqual(restarted.data["occurrencesById"], result["data"]["occurrencesById"])
+
+    async def test_old_after_completion_stays_actionable_and_survives_done_and_restart(self):
+        await self._seed_outstanding_interval()
+        self.assertEqual(len(self.authority.data["occurrencesById"]), 1)
+        original = next(iter(self.authority.data["occurrencesById"].values()))
+        self.assertEqual(original["status"], "available")
+        original["status"] = "missed"  # Legacy overdue state restored from an older version.
+        original["missedAt"] = "2026-01-02T10:00:00.000Z"
+        result = await self.authority.async_command({"commandId": "old-complete", "baseRevision": self.authority.revision,
+            "action": {"type": "occurrence_action", "occurrenceId": original["id"], "action": {"type": "complete", "participantId": "manager"}}}, "ha-user-1")
+        self.assertEqual(result["data"]["occurrencesById"][original["id"]]["completedAt"], "2026-10-11T10:00:00.000Z")
+        self.assertEqual([item["scheduledAt"] for item in result["data"]["occurrencesById"].values() if item["status"] == "available"], ["2026-10-25T10:00:00.000Z"])
+        restarted = chores.ChoreAuthority(self.hass)
+        await restarted.async_initialize()
+        await restarted.async_tick()
+        self.assertEqual(restarted.data["occurrencesById"], result["data"]["occurrencesById"])
+
+    async def test_everyone_after_completion_advances_independently_on_submission(self):
+        await self._seed_outstanding_interval(everyone=True, approval=True)
+        original = next(item for item in self.authority.data["occurrencesById"].values() if item["assigneeIds"] == ["manager"])
+        result = await self.authority.async_command({"commandId": "manager-submit", "baseRevision": self.authority.revision,
+            "action": {"type": "occurrence_action", "occurrenceId": original["id"], "action": {"type": "complete", "participantId": "manager"}}}, "ha-user-1")
+        values = list(result["data"]["occurrencesById"].values())
+        self.assertEqual(result["data"]["occurrencesById"][original["id"]]["status"], "awaiting_approval")
+        self.assertEqual(sorted((item["assigneeIds"][0], item["scheduledAt"]) for item in values if item["status"] == "available"), [("manager", "2026-10-25T10:00:00.000Z"), ("other", "2026-01-01T10:00:00.000Z")])
+        original_now = chores._now
+        chores._now = lambda: datetime(2026, 10, 13, 10, 0, tzinfo=timezone.utc)
+        self.addCleanup(setattr, chores, "_now", original_now)
+        other = next(item for item in values if item["assigneeIds"] == ["other"])
+        result = await self.authority.async_command({"commandId": "other-submit", "baseRevision": self.authority.revision,
+            "action": {"type": "occurrence_action", "occurrenceId": other["id"], "action": {"type": "complete", "participantId": "other"}}}, "ha-user-1")
+        self.assertEqual(sorted((item["assigneeIds"][0], item["scheduledAt"]) for item in result["data"]["occurrencesById"].values() if item["status"] == "available"), [("manager", "2026-10-25T10:00:00.000Z"), ("other", "2026-10-27T10:00:00.000Z")])
+
+    async def test_everyone_reopen_discards_only_that_persons_next_interval_and_reminder(self):
+        await self._seed_outstanding_interval(everyone=True)
+        original = next(item for item in self.authority.data["occurrencesById"].values() if item["assigneeIds"] == ["manager"])
+        result = await self.authority.async_command({"commandId": "manager-complete", "baseRevision": self.authority.revision,
+            "action": {"type": "occurrence_action", "occurrenceId": original["id"], "action": {"type": "complete", "participantId": "manager"}}}, "ha-user-1")
+        future = next(item for item in result["data"]["occurrencesById"].values() if item["assigneeIds"] == ["manager"] and item["status"] == "available")
+        self.authority.data["outbox"].append(chores._outbox(chores._activity("future-reminder", "2026-10-11T10:00:00.000Z", "reminder_due", occurrenceId=future["id"])))
+        result = await self.authority.async_command({"commandId": "manager-reopen", "baseRevision": self.authority.revision,
+            "action": {"type": "occurrence_action", "occurrenceId": original["id"], "action": {"type": "reopen", "participantId": "manager", "reason": "Completed by mistake"}}}, "ha-user-1")
+        self.assertNotIn(future["id"], result["data"]["occurrencesById"])
+        self.assertFalse(any(item.get("occurrenceId") == future["id"] for item in result["data"]["outbox"]))
+        self.assertEqual(result["data"]["occurrencesById"][original["id"]]["status"], "available")
+        self.assertEqual(len(result["data"]["occurrencesById"]), 2)
+
+    async def test_everyone_reassignment_keeps_original_clock_through_completion_restart_and_retention(self):
+        await self._seed_outstanding_interval(everyone=True)
+        original_manager = next(item for item in self.authority.data["occurrencesById"].values() if item["assigneeIds"] == ["manager"])
+        original_other = next(item for item in self.authority.data["occurrencesById"].values() if item["assigneeIds"] == ["other"])
+        await self.authority.async_command({"commandId": "transfer-manager-work", "baseRevision": self.authority.revision,
+            "action": {"type": "occurrence_action", "occurrenceId": original_manager["id"], "action": {"type": "reassign", "participantId": "manager", "assigneeIds": ["other"], "reason": "Help manager"}}}, "ha-user-1")
+        transferred = self.authority.data["occurrencesById"][original_manager["id"]]
+        self.assertEqual(transferred["assigneeIds"], ["other"])
+        self.assertEqual(transferred["assignmentSlot"], "manager:other")
+        result = await self.authority.async_command({"commandId": "complete-transfer", "baseRevision": self.authority.revision,
+            "action": {"type": "occurrence_action", "occurrenceId": original_manager["id"], "action": {"type": "complete", "participantId": "other"}}}, "ha-user-1")
+        self.assertEqual(result["data"]["occurrencesById"][original_other["id"]], original_other)
+        self.assertEqual([item["scheduledAt"] for item in result["data"]["occurrencesById"].values() if item["status"] == "available" and item["assigneeIds"] == ["manager"]], ["2026-10-25T10:00:00.000Z"])
+        chores._now = lambda: datetime(2026, 10, 13, 10, 0, tzinfo=timezone.utc)
+        await self.authority.async_command({"commandId": "complete-own-other", "baseRevision": self.authority.revision,
+            "action": {"type": "occurrence_action", "occurrenceId": original_other["id"], "action": {"type": "complete", "participantId": "other"}}}, "ha-user-1")
+        restarted = chores.ChoreAuthority(self.hass)
+        await restarted.async_initialize()
+        chores._now = lambda: datetime(2027, 2, 1, 10, 0, tzinfo=timezone.utc)
+        await restarted.async_tick()
+        self.assertEqual(restarted.data["occurrencesById"][original_manager["id"]]["completedAt"], "2026-10-11T10:00:00.000Z")
+        self.assertEqual(sorted((item["assigneeIds"][0], item["scheduledAt"]) for item in restarted.data["occurrencesById"].values() if item["status"] == "available"), [("manager", "2026-10-25T10:00:00.000Z"), ("other", "2026-10-27T10:00:00.000Z")])
+
+    async def test_fixed_everyone_supersession_uses_original_reassigned_slot_and_offset_instant(self):
+        await self._seed_outstanding_interval(everyone=True)
+        data = copy.deepcopy(self.authority.data)
+        original = next(item for item in data["occurrencesById"].values() if item["assigneeIds"] == ["manager"])
+        definition = data["definitionsById"]["repeat"]
+        definition["schedule"] = {"frequency": "weekly", "startDate": "2026-01-01", "time": "10:00", "timeZone": "UTC", "daysOfWeek": [0]}
+        changed, _ = chores._apply_occurrence(data, original["id"], {"type": "reassign", "participantId": "manager", "assigneeIds": ["other"], "reason": "Help"}, "2026-10-10T10:00:00.000Z", "transfer-fixed")
+        transferred = changed["occurrencesById"][original["id"]]
+        manager_next = {**original, "id": "repeat:2026-10-18T10:00:00.000Z:manager", "scheduledAt": "2026-10-18T12:00:00+02:00"}
+        other_next = {**original, "id": "repeat:2026-10-17T10:00:00.000Z:other", "scheduledAt": "2026-10-17T10:00:00.000Z", "assigneeIds": ["other"], "assignmentSlot": "other"}
+        occurrences = {item["id"]: item for item in [transferred, manager_next, other_next]}
+        self.assertIsNone(chores._superseding_occurrence(transferred, definition, occurrences, "2026-10-17T10:00:00.000Z"))
+        self.assertIsNone(chores._superseding_occurrence(transferred, definition, occurrences, "2026-10-18T09:59:59.999Z"))
+        self.assertEqual(chores._superseding_occurrence(transferred, definition, occurrences, "2026-10-18T10:00:00.000Z"), manager_next)
+        self.assertEqual(transferred["assigneeIds"], ["other"])
+
+    async def test_shared_completion_work_is_preserved_when_definition_changes_to_everyone(self):
+        definition = await self._seed_outstanding_interval(everyone=True)
+        data = copy.deepcopy(self.authority.data)
+        original = next(iter(data["occurrencesById"].values()))
+        original.update({"id": f"repeat:{original['scheduledAt']}:shared", "assignmentSlot": "shared", "assigneeIds": ["manager", "other"]})
+        data["occurrencesById"] = {original["id"]: original}
+        data["definitionsById"]["repeat"]["assignment"]["mode"] = "anyone"
+        changed, _ = self.authority._apply_workspace_action(data, {"type": "definition_update", "actorParticipantId": "manager", "definition": definition}, "2026-10-11T10:00:00.000Z", "adopt-shared")
+        materialized, _ = chores._materialize(changed, "2026-10-11T00:00:00.000Z", "2026-10-30T00:00:00.000Z", "2026-10-11T10:00:00.000Z", "materialize-shared")
+        self.assertEqual(materialized["occurrencesById"], data["occurrencesById"])
+
+    async def test_offset_completion_history_uses_latest_instant_for_recurrence_and_retention(self):
+        await self._seed_outstanding_interval(everyone=True)
+        for everyone in (False, True):
+            with self.subTest(everyone=everyone):
+                data = copy.deepcopy(self.authority.data)
+                data["definitionsById"]["repeat"]["assignment"] = {"mode": "everyone" if everyone else "person", "participantIds": ["manager", "other"] if everyone else ["manager"]}
+                manager = next(item for item in data["occurrencesById"].values() if item["assigneeIds"] == ["manager"])
+                other = next(item for item in data["occurrencesById"].values() if item["assigneeIds"] == ["other"])
+                earlier = {**manager, "id": "earlier-offset", "status": "done", "completedBy": "manager", "completedAt": "2026-08-17T01:00:00+02:00"}
+                later = {**manager, "id": "later-utc", "status": "done", "scheduledAt": "2026-01-15T10:00:00.000Z", "completedBy": "manager", "completedAt": "2026-08-17T00:30:00Z"}
+                data["occurrencesById"] = {earlier["id"]: earlier, later["id"]: later}
+                if everyone:
+                    data["occurrencesById"][other["id"]] = other
+                restored = chores._normalize_data(json.loads(json.dumps(data)))
+                result, _ = chores._materialize(restored, "2026-08-18T00:00:00.000Z", "2026-09-03T00:00:00.000Z", "2026-08-18T10:00:00.000Z", "offset-clock")
+                self.assertEqual([item["scheduledAt"] for item in result["occurrencesById"].values() if item["status"] == "available" and item["assigneeIds"] == ["manager"]], ["2026-08-31T10:00:00.000Z"])
+                boundary = datetime(2026, 9, 1, tzinfo=timezone.utc)
+                self.assertTrue(chores._should_prune_occurrence(earlier, data["definitionsById"], data["occurrencesById"], boundary, data["participantsById"]))
+                self.assertFalse(chores._should_prune_occurrence(later, data["definitionsById"], data["occurrencesById"], boundary, data["participantsById"]))
+                self.assertEqual(restored["occurrencesById"][earlier["id"]]["completedAt"], "2026-08-17T01:00:00+02:00")
+
+    async def test_scheduled_work_becomes_missed_when_next_starts_and_keeps_approval(self):
+        definition = await self._seed_outstanding_interval()
+        definition["schedule"] = {"frequency": "weekly", "startDate": "2026-01-01", "time": "10:00", "timeZone": "UTC", "daysOfWeek": [0]}
+        definition["missedPolicy"] = {"graceMinutes": 0, "action": "none"}
+        await self.authority.async_command({"commandId": "fixed-schedule", "baseRevision": self.authority.revision,
+            "action": {"type": "definition_update", "actorParticipantId": "manager", "definition": definition}}, "ha-user-1")
+        await self.authority.async_tick()
+        values = list(self.authority.data["occurrencesById"].values())
+        self.assertTrue(any(item["status"] == "missed" for item in values))
+        today = next(item for item in values if item["scheduledAt"] == "2026-10-11T10:00:00.000Z")
+        self.assertEqual(today["status"], "available")
+        missed = next(item for item in values if item["status"] == "missed")
+        result = await self.authority.async_command({"commandId": "history-complete", "baseRevision": self.authority.revision,
+            "action": {"type": "occurrence_action", "occurrenceId": missed["id"], "action": {"type": "complete", "participantId": "manager"}}}, "ha-user-1")
+        self.assertEqual(result["data"]["occurrencesById"][today["id"]], today)
+
+    async def test_fixed_supersession_survives_storage_pruning_and_reopen(self):
+        definition = await self._seed_outstanding_interval()
+        definition["schedule"] = {"frequency": "weekly", "startDate": "2026-01-01", "time": "10:00", "timeZone": "UTC", "daysOfWeek": [0]}
+        definition["missedPolicy"] = {"graceMinutes": 0, "action": "none"}
+        await self.authority.async_command({"commandId": "fixed-marker", "baseRevision": self.authority.revision,
+            "action": {"type": "definition_update", "actorParticipantId": "manager", "definition": definition}}, "ha-user-1")
+        await self.authority.async_tick()
+        data = json.loads(json.dumps(self.authority.data))
+        old = next(item for item in data["occurrencesById"].values() if item.get("supersededAt"))
+        restarted = chores.ChoreAuthority(self.hass)
+        await restarted.async_initialize()
+        self.assertEqual(restarted.data["occurrencesById"][old["id"]]["supersededAt"], old["supersededAt"])
+        old["status"] = "missed"
+        old.pop("completedAt", None)
+        restored = chores._normalize_data(json.loads(json.dumps(data)))
+        self.assertEqual(restored["occurrencesById"][old["id"]]["supersededAt"], old["supersededAt"])
+        reopened, _ = chores._apply_occurrence(restored, old["id"], {"type": "reopen", "participantId": "manager", "reason": "Again"}, "2026-10-12T10:00:00.000Z", "reopen-marker")
+        self.assertEqual(reopened["occurrencesById"][old["id"]]["status"], "available")
+        self.assertNotIn("supersededAt", reopened["occurrencesById"][old["id"]])
+        restored["occurrencesById"][old["id"]]["supersededAt"] = "invalid"
+        with self.assertRaises(chores.ChoreStorageError):
+            chores._normalize_data(restored)
+
+    async def test_archive_preserves_superseded_missed_history_across_restart_and_restore(self):
+        definition = await self._seed_outstanding_interval()
+        definition["schedule"] = {"frequency": "weekly", "startDate": "2026-01-01", "time": "10:00", "timeZone": "UTC", "daysOfWeek": [0]}
+        definition["missedPolicy"] = {"graceMinutes": 0, "action": "none"}
+        await self.authority.async_command({"commandId": "fixed-archive", "baseRevision": self.authority.revision,
+            "action": {"type": "definition_update", "actorParticipantId": "manager", "definition": definition}}, "ha-user-1")
+        await self.authority.async_tick()
+        historical = next(item for item in self.authority.data["occurrencesById"].values() if item.get("supersededAt"))
+        active_ids = {item["id"] for item in self.authority.data["occurrencesById"].values() if item["status"] == "available"}
+        self.assertTrue(active_ids)
+        result = await self.authority.async_command({"commandId": "archive-fixed-history", "baseRevision": self.authority.revision,
+            "action": {"type": "definition_archive", "actorParticipantId": "manager", "definitionId": "repeat"}}, "ha-user-1")
+        self.assertEqual(result["data"]["occurrencesById"][historical["id"]], historical)
+        self.assertTrue(active_ids.isdisjoint(result["data"]["occurrencesById"]))
+        with self.assertRaisesRegex(chores.ChoreAuthorityError, "Chore definition is no longer available"):
+            await self.authority.async_command({"commandId": "reject-archived-completion", "baseRevision": self.authority.revision,
+                "action": {"type": "occurrence_action", "occurrenceId": historical["id"], "action": {"type": "complete", "participantId": "manager"}}}, "ha-user-1")
+        restarted = chores.ChoreAuthority(self.hass)
+        await restarted.async_initialize()
+        self.assertEqual(restarted.data["occurrencesById"][historical["id"]], historical)
+        restored = await restarted.async_command({"commandId": "restore-fixed-history", "baseRevision": restarted.revision,
+            "action": {"type": "definition_restore", "actorParticipantId": "manager", "definitionId": "repeat"}}, "ha-user-1")
+        self.assertEqual(restored["data"]["occurrencesById"][historical["id"]], historical)
+        completed = await restarted.async_command({"commandId": "complete-restored-fixed-history", "baseRevision": restarted.revision,
+            "action": {"type": "occurrence_action", "occurrenceId": historical["id"], "action": {"type": "complete", "participantId": "manager"}}}, "ha-user-1")
+        self.assertEqual(completed["data"]["occurrencesById"][historical["id"]]["status"], "done")
+
+    async def test_archive_retains_original_carry_history_across_restart_and_restore(self):
+        definition = await self._seed_outstanding_interval()
+        definition["schedule"] = {"frequency": "once", "date": "2026-10-10", "time": "10:00", "timeZone": "UTC"}
+        self.authority.data["definitionsById"][definition["id"]] = definition
+        original = next(iter(self.authority.data["occurrencesById"].values()))
+        original.update({"status": "missed", "missedAt": "2026-10-10T11:00:00.000Z", "carriedForwardTo": "carry-replacement"})
+        replacement = {**original, "id": "carry-replacement", "status": "available", "assignmentSlot": f"carry:{original['id']}", "carriedForwardFrom": original["id"], "scheduledAt": "2026-10-12T10:00:00.000Z", "dueAt": "2026-10-12T11:00:00.000Z"}
+        replacement.pop("carriedForwardTo")
+        self.authority.data["occurrencesById"][replacement["id"]] = replacement
+        result = await self.authority.async_command({"commandId": "archive-carry-history", "baseRevision": self.authority.revision,
+            "action": {"type": "definition_archive", "actorParticipantId": "manager", "definitionId": definition["id"]}}, "ha-user-1")
+        self.assertEqual(result["data"]["occurrencesById"][original["id"]], original)
+        self.assertNotIn(replacement["id"], result["data"]["occurrencesById"])
+        with self.assertRaises(chores.ChoreAuthorityError):
+            await self.authority.async_command({"commandId": "blocked-archived-carry", "baseRevision": self.authority.revision,
+                "action": {"type": "occurrence_action", "occurrenceId": original["id"], "action": {"type": "complete", "participantId": "manager"}}}, "ha-user-1")
+        restarted = chores.ChoreAuthority(self.hass)
+        await restarted.async_initialize()
+        restored = await restarted.async_command({"commandId": "restore-carry-history", "baseRevision": restarted.revision,
+            "action": {"type": "definition_restore", "actorParticipantId": "manager", "definitionId": definition["id"]}}, "ha-user-1")
+        self.assertEqual(restored["data"]["occurrencesById"][original["id"]], original)
+
+    async def test_legacy_supersession_backfills_before_prune_and_frequency_edit(self):
+        definition = await self._seed_outstanding_interval()
+        data = json.loads(json.dumps(self.authority.data))
+        definition["schedule"] = {"frequency": "weekly", "startDate": "2026-01-01", "time": "10:00", "timeZone": "UTC", "daysOfWeek": [0]}
+        data["definitionsById"][definition["id"]] = definition
+        old = next(iter(data["occurrencesById"].values()))
+        old.update({"status": "missed", "scheduledAt": "2026-06-01T10:00:00.000Z", "dueAt": "2026-06-01T11:00:00.000Z", "updatedAt": "2026-06-01T11:00:00.000Z"})
+        old.pop("supersededAt", None)
+        successor = {**old, "id": "successor", "status": "done", "scheduledAt": "2026-06-08T10:00:00.000Z", "dueAt": "2026-06-08T11:00:00.000Z", "updatedAt": "2026-06-08T11:00:00.000Z", "completedAt": "2026-06-08T11:00:00.000Z", "completedBy": "manager"}
+        data["occurrencesById"]["successor"] = successor
+        pruned, _ = chores._materialize(data, "2026-10-11T00:00:00.000Z", "2026-10-12T00:00:00.000Z", "2026-10-11T10:00:00.000Z", "prune")
+        self.assertNotIn("successor", pruned["occurrencesById"])
+        self.assertEqual(pruned["occurrencesById"][old["id"]]["supersededAt"], successor["scheduledAt"])
+        edited = {**definition, "schedule": {"frequency": "after_completion", "startDate": "2026-10-11", "time": "10:00", "timeZone": "UTC", "intervalDays": 14}}
+        changed, _ = self.authority._apply_workspace_action(data, {"type": "definition_update", "actorParticipantId": "manager", "definition": edited}, "2026-10-11T10:00:00.000Z", "edit")
+        self.assertEqual(changed["occurrencesById"][old["id"]]["supersededAt"], successor["scheduledAt"])
+        next_data, _ = chores._materialize(changed, "2026-10-11T00:00:00.000Z", "2026-10-25T00:00:00.000Z", "2026-10-11T10:00:00.000Z", "next")
+        self.assertFalse(any(item["id"] == old["id"] for item in next_data["occurrencesById"].values() if item["status"] == "available"))
+
     async def test_early_completion_persists_next_date_fourteen_days_later(self):
         original_now = chores._now
         chores._now = lambda: datetime(2026, 10, 4, 10, 0, tzinfo=timezone.utc)
@@ -944,6 +1287,43 @@ class ChoreAuthorityTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_ten_year_completion_persists_and_reloads_next_date(self):
         await self._assert_completion_interval(3650, "2036-10-01T16:00:00.000Z")
+
+    async def test_once_none_policy_becomes_missed_at_grace_and_stays_completable(self):
+        fixed_now = datetime(2026, 10, 11, 10, 0, tzinfo=timezone.utc)
+        original_now = chores._now
+        chores._now = lambda: fixed_now
+        self.addCleanup(setattr, chores, "_now", original_now)
+        await self._create_manager()
+        definition = {
+            "id": "one-time", "title": "One-time chore", "enabled": True,
+            "assignment": {"mode": "person", "participantIds": ["manager"]},
+            "schedule": {"frequency": "once", "date": "2026-10-11", "time": "10:00", "timeZone": "UTC"},
+            "dueWindowMinutes": 60, "missedPolicy": {"graceMinutes": 15, "action": "none"},
+            "approval": {"required": False, "approverIds": []},
+            "createdAt": "2026-10-11T10:00:00.000Z", "updatedAt": "2026-10-11T10:00:00.000Z",
+        }
+        await self.authority.async_command({"commandId": "one-time-create", "baseRevision": self.authority.revision,
+            "action": {"type": "definition_create", "actorParticipantId": "manager", "definition": definition}}, "ha-user-1")
+        await self.authority.async_tick()
+        occurrence_id = next(iter(self.authority.data["occurrencesById"]))
+        fixed_now = datetime(2026, 10, 11, 11, 14, tzinfo=timezone.utc)
+        await self.authority.async_tick()
+        self.assertEqual(self.authority.data["occurrencesById"][occurrence_id]["status"], "available")
+        fixed_now = datetime(2026, 10, 11, 11, 15, tzinfo=timezone.utc)
+        await self.authority.async_tick()
+        missed = self.authority.data["occurrencesById"][occurrence_id]
+        self.assertEqual(missed["status"], "missed")
+        self.assertEqual(missed["missedAt"], "2026-10-11T11:15:00.000Z")
+        self.assertNotIn("supersededAt", missed)
+        self.assertNotIn("carriedForwardTo", missed)
+        await self.authority.async_tick()
+        self.assertEqual(sum(item["type"] == "missed" and item.get("occurrenceId") == occurrence_id for item in self.authority.data["activity"]), 1)
+        restarted = chores.ChoreAuthority(self.hass)
+        await restarted.async_initialize()
+        self.assertEqual(restarted.data["occurrencesById"][occurrence_id], missed)
+        result = await restarted.async_command({"commandId": "complete-one-time-missed", "baseRevision": restarted.revision,
+            "action": {"type": "occurrence_action", "occurrenceId": occurrence_id, "action": {"type": "complete", "participantId": "manager"}}}, "ha-user-1")
+        self.assertEqual(result["data"]["occurrencesById"][occurrence_id]["status"], "done")
 
     async def test_missed_policy_carries_forward_once(self):
         fixed_now = datetime(2026, 8, 28, 12, 0, tzinfo=timezone.utc)

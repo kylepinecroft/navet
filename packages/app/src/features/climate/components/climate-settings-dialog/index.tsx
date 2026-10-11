@@ -27,6 +27,7 @@ import { ClimateGauge } from '../climate-card/climate-gauge';
 import { ClimateModeControls } from '../climate-card/climate-mode-controls';
 import { ClimateTempControls } from '../climate-card/climate-temp-controls';
 import { useClimateVisualMode } from '../climate-card/use-climate-visual-mode';
+import { ClimateAdvancedControls } from './climate-advanced-controls';
 import { getClimateSettingsDialogStyles } from './styles';
 import type { ClimateSettingsDialogProps } from './types';
 
@@ -170,7 +171,7 @@ export const ClimateSettingsDialog = memo(function ClimateSettingsDialog({
   const climateTabContent = (
     <div className="relative -mx-6 max-sm:-mx-3.5">
       <div className="relative z-10 pt-2 pb-6 max-sm:pb-3">
-        <div className="-mt-8">
+        <div>
           <ClimateGauge
             id={entityId}
             mode={visualMode}
@@ -221,7 +222,7 @@ export const ClimateSettingsDialog = memo(function ClimateSettingsDialog({
             }
           />
 
-          <DialogSectionRow label={t('climate.presets')}>
+          <DialogSectionRow label={t('climate.advanced.temperaturePresets')}>
             <div className="flex flex-wrap items-center gap-2.5">
               {temperaturePresets.map((preset) => {
                 const sourcePresetValue = convertCelsiusPresetToSourceUnit(
@@ -258,6 +259,7 @@ export const ClimateSettingsDialog = memo(function ClimateSettingsDialog({
               })}
             </div>
           </DialogSectionRow>
+          <ClimateAdvancedControls entityId={entityId} />
         </div>
       </div>
     </div>

@@ -3,6 +3,7 @@ import type { ChoreDefinition, ChoreOccurrence, ChoreWorkspaceData } from '@nave
 import { describe, expect, it } from 'vitest';
 import {
   getHousePulse,
+  getMissedScheduledChoreHistory,
   getMissionProgressList,
   getNextChores,
   getParticipantPointHistory,
@@ -344,4 +345,145 @@ describe('upcoming week', () => {
     data.definitionsById.dishes.enabled = false;
     expect(getUpcomingChores(data, 'all', localNow)).toEqual([]);
   });
+});
+
+it('keeps missed fixed chores in history and missed after-completion chores in Today', () => {
+  const data = workspace();
+  data.definitionsById.dishes.schedule = {
+    frequency: 'weekly',
+    startDate: '2026-08-01',
+    time: '09:00',
+    timeZone: 'UTC',
+    daysOfWeek: [6],
+  };
+  data.definitionsById.toys.schedule = {
+    frequency: 'after_completion',
+    startDate: '2026-08-01',
+    time: '09:00',
+    timeZone: 'UTC',
+    intervalDays: 14,
+  };
+  data.occurrencesById = {
+    fixed: { ...occurrence('fixed', 'dishes', 'missed'), scheduledAt: '2026-08-08T09:00:00.000Z' },
+    repeat: occurrence('repeat', 'toys', 'missed'),
+    pending: occurrence('pending', 'dishes', 'awaiting_approval'),
+  };
+  expect(getTodayChoresForParticipant(data, 'all', now).map((item) => item.id)).toEqual([
+    'pending',
+    'repeat',
+  ]);
+  expect(data.occurrencesById.fixed.status).toBe('missed');
+});
+
+it('keeps the original once carry-forward occurrence in history while its replacement remains Today work', () => {
+  const data = workspace();
+  const original = {
+    ...occurrence('original-once', 'dishes', 'missed'),
+    carriedForwardTo: 'carried-once',
+    missedAt: '2026-08-15T09:30:00.000Z',
+  };
+  const replacement = {
+    ...occurrence('carried-once', 'dishes', 'available'),
+    carriedForwardFrom: original.id,
+  };
+  data.occurrencesById = { [original.id]: original, [replacement.id]: replacement };
+  expect(getTodayChoresForParticipant(data, 'all', now).map((item) => item.id)).toEqual([
+    replacement.id,
+  ]);
+  expect(getMissedScheduledChoreHistory(data, now)).toEqual([original]);
+  data.occurrencesById[replacement.id] = {
+    ...replacement,
+    status: 'done',
+    completedAt: now.toISOString(),
+  };
+  expect(getTodayChoresForParticipant(data, 'all', now).map((item) => item.id)).toEqual([
+    replacement.id,
+  ]);
+  expect(getMissedScheduledChoreHistory(data, now)).toEqual([original]);
+  delete data.occurrencesById[replacement.id];
+  expect(getTodayChoresForParticipant(data, 'all', now)).toEqual([]);
+  expect(getMissedScheduledChoreHistory(data, now)).toEqual([original]);
+});
+
+it.each(['successor pruning', 'once', 'after_completion'] as const)(
+  'keeps superseded missed work in Progress history after %s',
+  (change) => {
+    const data = workspace();
+    data.definitionsById.dishes.schedule = {
+      frequency: 'daily',
+      startDate: '2026-08-01',
+      time: '09:00',
+      timeZone: 'UTC',
+    };
+    const previous = {
+      ...occurrence('previous', 'dishes', 'missed'),
+      scheduledAt: '2026-08-13T09:00:00.000Z',
+      dueAt: '2026-08-13T10:00:00.000Z',
+      missedAt: '2026-08-14T09:00:00.000Z',
+      supersededAt: '2026-08-14T09:00:00.000Z',
+    };
+    const next = {
+      ...occurrence('next', 'dishes', 'done', 'maya'),
+      scheduledAt: '2026-08-14T09:00:00.000Z',
+      dueAt: '2026-08-14T10:00:00.000Z',
+    };
+    data.occurrencesById = { previous, next };
+    expect(getMissedScheduledChoreHistory(data, now)).toEqual([previous]);
+    if (change === 'successor pruning') delete data.occurrencesById.next;
+    else if (change === 'once') {
+      data.definitionsById.dishes.schedule = {
+        frequency: 'once',
+        date: '2026-08-15',
+        time: '09:00',
+        timeZone: 'UTC',
+      };
+    } else {
+      data.definitionsById.dishes.schedule = {
+        frequency: 'after_completion',
+        startDate: '2026-08-01',
+        time: '09:00',
+        timeZone: 'UTC',
+        intervalDays: 14,
+      };
+    }
+    expect(getTodayChoresForParticipant(data, 'all', now).map((item) => item.id)).not.toContain(
+      'previous'
+    );
+    expect(getMissedScheduledChoreHistory(data, now)).toEqual([previous]);
+    data.occurrencesById.previous = { ...previous, status: 'available', supersededAt: undefined };
+    expect(getTodayChoresForParticipant(data, 'all', now).map((item) => item.id)).toContain(
+      'previous'
+    );
+    expect(getMissedScheduledChoreHistory(data, now)).toEqual([]);
+  }
+);
+
+it('keeps an existing early-missed scheduled chore actionable until its successor starts', () => {
+  const data = workspace();
+  data.definitionsById.dishes.schedule = {
+    frequency: 'daily',
+    startDate: '2026-08-01',
+    time: '09:00',
+    timeZone: 'UTC',
+  };
+  const previous = {
+    ...occurrence('previous', 'dishes', 'missed'),
+    scheduledAt: '2026-08-14T09:00:00.000Z',
+    dueAt: '2026-08-14T10:00:00.000Z',
+  };
+  const next = {
+    ...occurrence('next', 'dishes', 'available'),
+    scheduledAt: '2026-08-15T11:00:00.000Z',
+    dueAt: '2026-08-15T12:00:00.000Z',
+  };
+  data.occurrencesById = { previous, next };
+  expect(getTodayChoresForParticipant(data, 'all', now).map((item) => item.id)).toContain(
+    'previous'
+  );
+  expect(getMissedScheduledChoreHistory(data, now)).toEqual([]);
+  const started = new Date(next.scheduledAt);
+  expect(getTodayChoresForParticipant(data, 'all', started).map((item) => item.id)).not.toContain(
+    'previous'
+  );
+  expect(getMissedScheduledChoreHistory(data, started)).toEqual([previous]);
 });

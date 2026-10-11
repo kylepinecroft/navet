@@ -1,3 +1,5 @@
+import { advancedClimateEntityFactory } from '@navet/app/test/fixtures/home-assistant/entities/advanced-climate';
+import { writableHelperEntities } from '@navet/app/test/fixtures/home-assistant/entities/writable-helper';
 import { createProviderScopedId } from '@navet/core/ids';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
@@ -91,12 +93,15 @@ const { callHomeAssistantServiceMock, resolveArtworkMock } = vi.hoisted(() => ({
 }));
 
 describe('homeassistant-adapter', () => {
+  const getConnectionMock = vi.fn<HomeAssistantServiceBridge['getConnection']>(() => null);
   const connectMock = vi.fn(async () => undefined);
   const disconnectMock = vi.fn(async () => undefined);
   const syncPanelHassMock = vi.fn();
   let currentMediaPlayerState: 'playing' | 'paused' = 'playing';
 
   beforeEach(() => {
+    getConnectionMock.mockReset();
+    getConnectionMock.mockReturnValue(null);
     callHomeAssistantServiceMock.mockReset();
     resolveArtworkMock.mockReset();
     connectMock.mockReset();
@@ -112,9 +117,11 @@ describe('homeassistant-adapter', () => {
       addListener: vi.fn(() => () => {}),
       isConnected: vi.fn(() => true),
       getPanelHass: vi.fn(() => null),
-      getConnection: vi.fn(() => null),
+      getConnection: getConnectionMock,
       sendWebSocketBinary: vi.fn(),
       getEntities: vi.fn(() => ({
+        ...writableHelperEntities,
+        'climate.living_room': advancedClimateEntityFactory(),
         'light.kitchen': lightEntityFactory(),
         'alarm_control_panel.home': alarmEntityFactory(),
         'vacuum.roborock': vacuumEntityFactory(),
@@ -165,6 +172,8 @@ describe('homeassistant-adapter', () => {
         reconnecting: false,
         error: null,
         entities: {
+          ...writableHelperEntities,
+          'climate.living_room': advancedClimateEntityFactory(),
           'light.kitchen': lightEntityFactory(),
           'alarm_control_panel.home': alarmEntityFactory(),
           'vacuum.roborock': vacuumEntityFactory(),
@@ -182,6 +191,74 @@ describe('homeassistant-adapter', () => {
       })),
       subscribeStore: vi.fn(() => () => {}),
     });
+  });
+
+  it('rejects commands when the household changes during command loading', async () => {
+    const previousConnection = { sendMessagePromise: vi.fn() };
+    const replacementConnection = { sendMessagePromise: vi.fn() };
+    getConnectionMock
+      .mockReturnValueOnce(previousConnection)
+      .mockReturnValue(replacementConnection);
+    const adapter = createHomeAssistantContractAdapter();
+
+    await expect(adapter.execute({ type: 'turn_on', entityId: 'light.kitchen' })).rejects.toThrow(
+      'Home Assistant session changed'
+    );
+    expect(callHomeAssistantServiceMock).not.toHaveBeenCalled();
+  });
+
+  it('routes advanced climate commands to the owning entity with event confirmation', async () => {
+    const adapter = createHomeAssistantContractAdapter();
+    await expect(
+      adapter.execute({
+        type: 'set_climate_fan_mode',
+        entityId: 'home_assistant:climate.living_room',
+        mode: 'quiet',
+      })
+    ).resolves.toMatchObject({ accepted: true, requiresEventConfirmation: true });
+    expect(callHomeAssistantServiceMock).toHaveBeenCalledWith(
+      'climate',
+      'set_fan_mode',
+      { fan_mode: 'quiet' },
+      { entityId: 'climate.living_room' }
+    );
+    callHomeAssistantServiceMock.mockClear();
+    await expect(
+      adapter.execute({
+        type: 'set_climate_humidity',
+        entityId: 'climate.living_room',
+        humidity: 101,
+      })
+    ).rejects.toThrow();
+    await expect(
+      adapter.execute({ type: 'set_climate_fan_mode', entityId: 'light.kitchen', mode: 'quiet' })
+    ).rejects.toThrow();
+    expect(callHomeAssistantServiceMock).not.toHaveBeenCalled();
+  });
+
+  it('executes helper commands against the owning entity and rejects incompatible toggles', async () => {
+    const adapter = createHomeAssistantContractAdapter();
+    await expect(
+      adapter.execute({
+        type: 'set_number_value',
+        entityId: 'home_assistant:input_number.target',
+        value: 22,
+      })
+    ).resolves.toMatchObject({ accepted: true, requiresEventConfirmation: true });
+    expect(callHomeAssistantServiceMock).toHaveBeenCalledWith(
+      'input_number',
+      'set_value',
+      { value: 22 },
+      { entityId: 'input_number.target' }
+    );
+    callHomeAssistantServiceMock.mockClear();
+    await expect(
+      adapter.execute({ type: 'set_number_value', entityId: 'input_number.target', value: 31 })
+    ).rejects.toThrow();
+    await expect(
+      adapter.execute({ type: 'turn_on', entityId: 'input_number.target' })
+    ).rejects.toThrow();
+    expect(callHomeAssistantServiceMock).not.toHaveBeenCalled();
   });
 
   it('maps provider-neutral color temperature commands to color_temp_kelvin', async () => {

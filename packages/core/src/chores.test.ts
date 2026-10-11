@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { createChoreExperienceState } from './chore-experience';
 import {
+  getLatestChoreCompletion,
+  getParticipantChoreOccurrences,
+  shouldPruneChoreOccurrence,
+} from './chore-recurrence-policy';
+import {
   applyChoreOccurrenceCommand,
   applyChoreWorkspaceAction,
   applyChoreWorkspaceOccurrenceCommand,
@@ -273,6 +278,119 @@ describe('chores domain', () => {
       rangeEnd: '2026-10-27T00:00:00.000Z',
     });
     expect(occurrences[0]?.scheduledAt).toBe('2026-10-26T17:00:00.000Z');
+  });
+
+  it('supersedes older work at the reviewed vacation replacement date', () => {
+    const definition = makeDefinition({ missedPolicy: { graceMinutes: 0, action: 'none' } });
+    const previous = makeOccurrence({
+      id: 'previous',
+      scheduledAt: '2026-08-03T16:00:00.000Z',
+      dueAt: '2026-08-03T19:00:00.000Z',
+    });
+    const original = makeOccurrence({
+      id: 'vacation-next',
+      assigneeIds: ['bob'],
+      assignmentSlot: 'bob',
+    });
+    const workspace = {
+      ...createEmptyChoreWorkspace(),
+      participantsById: {
+        alice,
+        bob: { ...bob, pausedAt: '2026-08-05T00:00:00.000Z', resumeAt: '2026-08-12T00:00:00.000Z' },
+      },
+      definitionsById: { [definition.id]: definition },
+      occurrencesById: { [previous.id]: previous, [original.id]: original },
+    };
+    const moved = applyChoreWorkspaceAction({
+      workspace,
+      timestamp: '2026-08-06T08:00:00.000Z',
+      commandId: 'move-next',
+      action: {
+        type: 'vacation_reschedule',
+        actorParticipantId: 'alice',
+        participantId: 'bob',
+        occurrenceIds: [original.id],
+        startDate: '2026-08-13',
+      },
+    }).data;
+    const replacement = Object.values(moved.occurrencesById).find(
+      (item) => item.carriedForwardFrom === original.id
+    ) as ChoreOccurrence;
+    expect(
+      runChoreWorkspaceScheduler(moved, original.scheduledAt).data.occurrencesById[previous.id]
+        .status
+    ).toBe('available');
+    expect(
+      runChoreWorkspaceScheduler(moved, '2026-08-13T15:59:59.000Z').data.occurrencesById[
+        previous.id
+      ].status
+    ).toBe('available');
+    const superseded = runChoreWorkspaceScheduler(moved, replacement.scheduledAt);
+    expect(superseded.data.occurrencesById[previous.id]).toMatchObject({
+      status: 'missed',
+      missedAt: replacement.scheduledAt,
+    });
+    expect(superseded.data.occurrencesById[original.id]).toEqual(
+      moved.occurrencesById[original.id]
+    );
+    // Resolved history may age out before a far-future reviewed replacement starts.
+    const withoutPlaceholder = {
+      ...moved,
+      occurrencesById: { [previous.id]: previous, [replacement.id]: replacement },
+    };
+    expect(
+      runChoreWorkspaceScheduler(withoutPlaceholder, replacement.scheduledAt).data.occurrencesById[
+        previous.id
+      ].status
+    ).toBe('missed');
+  });
+
+  it('does not use automatic carry-forward work as a new fixed-schedule boundary', () => {
+    const definition = makeDefinition({ missedPolicy: { graceMinutes: 0, action: 'none' } });
+    const previous = makeOccurrence({ id: 'previous' });
+    const carried = makeOccurrence({
+      id: 'carried',
+      scheduledAt: '2026-08-11T16:00:00.000Z',
+      carriedForwardFrom: 'older-missed',
+      assignmentSlot: 'carry:older-missed',
+    });
+    const movedCarry = {
+      ...carried,
+      id: 'moved-carry',
+      scheduledAt: '2026-08-13T16:00:00.000Z',
+      carriedForwardFrom: carried.id,
+    };
+    const workspace = {
+      ...createEmptyChoreWorkspace(),
+      participantsById: { alice, bob },
+      definitionsById: { [definition.id]: definition },
+      occurrencesById: {
+        [previous.id]: previous,
+        [carried.id]: { ...carried, status: 'skipped' as const, carriedForwardTo: movedCarry.id },
+        [movedCarry.id]: movedCarry,
+      },
+    };
+    expect(
+      runChoreWorkspaceScheduler(workspace, movedCarry.scheduledAt).data.occurrencesById[
+        previous.id
+      ].status
+    ).toBe('available');
+    const calendarSkip = {
+      ...movedCarry,
+      id: 'calendar-skip',
+      assignmentSlot: 'alice',
+      carriedForwardFrom: undefined,
+      status: 'skipped' as const,
+    };
+    const withCalendarSkip = {
+      ...workspace,
+      occurrencesById: { ...workspace.occurrencesById, [calendarSkip.id]: calendarSkip },
+    };
+    expect(
+      runChoreWorkspaceScheduler(withCalendarSkip, calendarSkip.scheduledAt).data.occurrencesById[
+        previous.id
+      ].status
+    ).toBe('missed');
   });
 
   it('keeps vacation work through participant updates and rematerialization for review', () => {
@@ -2188,4 +2306,892 @@ describe('completion-based recurrence updates', () => {
       ).toEqual([repeatedDate]);
     }
   );
+});
+
+describe('outstanding chore intervals', () => {
+  const timestamp = '2026-10-11T10:00:00.000Z';
+  const range = { rangeStart: '2026-07-13T00:00:00.000Z', rangeEnd: '2026-11-25T00:00:00.000Z' };
+  function repeatWorkspace(intervalDays = 14, everyone = false) {
+    const definition = makeDefinition({
+      assignment: {
+        mode: everyone ? 'everyone' : 'person',
+        participantIds: everyone ? ['alice', 'bob'] : ['alice'],
+      },
+      schedule: {
+        frequency: 'after_completion',
+        startDate: '2026-01-01',
+        time: '18:00',
+        timeZone: 'UTC',
+        intervalDays,
+      },
+      missedPolicy: { graceMinutes: 0, action: 'carry_forward' },
+    });
+    const first = makeOccurrence({
+      id: 'old-alice',
+      scheduledAt: '2026-01-01T18:00:00.000Z',
+      dueAt: '2026-01-01T19:00:00.000Z',
+      status: 'missed',
+      missedAt: '2026-01-02T00:00:00.000Z',
+    });
+    const second = { ...first, id: 'old-bob', assignmentSlot: 'bob', assigneeIds: ['bob'] };
+    return {
+      ...createEmptyChoreWorkspace(),
+      participantsById: { alice, bob },
+      definitionsById: { [definition.id]: definition },
+      occurrencesById: everyone
+        ? { [first.id]: first, [second.id]: second }
+        : { [first.id]: first },
+    };
+  }
+  it.each(['interval', 'time', 'assignment'] as const)(
+    'preserves the started after-completion interval when its %s changes',
+    (change) => {
+      const workspace = repeatWorkspace();
+      const completed = applyChoreWorkspaceAction({
+        workspace,
+        timestamp,
+        commandId: 'complete-anchor',
+        action: {
+          type: 'occurrence_action',
+          occurrenceId: 'old-alice',
+          action: { type: 'complete', participantId: 'alice' },
+        },
+      }).data;
+      const outstanding = Object.values(completed.occurrencesById).find(
+        (item) => !item.completedAt
+      );
+      expect(outstanding?.scheduledAt).toBe('2026-10-25T18:00:00.000Z');
+      const definition = completed.definitionsById['take-out-recycling'];
+      const edited = applyChoreWorkspaceAction({
+        workspace: completed,
+        timestamp: '2026-10-26T10:00:00.000Z',
+        commandId: 'edit-repeat',
+        action: {
+          type: 'definition_update',
+          actorParticipantId: 'alice',
+          definition: {
+            ...definition,
+            schedule: {
+              ...definition.schedule,
+              ...(change === 'interval' ? { intervalDays: 7 } : {}),
+              ...(change === 'time' ? { time: '19:00' } : {}),
+            },
+            assignment:
+              change === 'assignment'
+                ? { mode: 'person', participantIds: ['bob'] }
+                : definition.assignment,
+          },
+        },
+      }).data;
+      const refreshed = applyChoreWorkspaceAction({
+        workspace: edited,
+        timestamp: '2026-10-26T10:00:00.000Z',
+        commandId: 'refresh-edited-repeat',
+        action: { type: 'materialize_occurrences', ...range },
+      }).data;
+      expect(Object.values(refreshed.occurrencesById).filter((item) => !item.completedAt)).toEqual([
+        outstanding,
+      ]);
+    }
+  );
+  it.each(['none', 'skip', 'carry_forward'] as const)(
+    'keeps after-completion work actionable despite automatic %s policy',
+    (action) => {
+      const workspace = repeatWorkspace();
+      workspace.definitionsById['take-out-recycling'].missedPolicy = { graceMinutes: 0, action };
+      workspace.occurrencesById['old-alice'].status = 'available';
+      const scheduled = runChoreWorkspaceScheduler(workspace, timestamp);
+      expect(scheduled.data.occurrencesById).toEqual(workspace.occurrencesById);
+      const result = applyChoreWorkspaceAction({
+        workspace,
+        timestamp,
+        commandId: 'refresh',
+        action: { type: 'materialize_occurrences', ...range },
+      });
+      expect(
+        Object.values(result.data.occurrencesById).filter((item) => !item.completedAt)
+      ).toEqual([workspace.occurrencesById['old-alice']]);
+    }
+  );
+  it.each([14, 365])(
+    'retains the completion anchor and next interval for an old chore (%i days)',
+    (intervalDays) => {
+      const workspace = repeatWorkspace(intervalDays);
+      const result = applyChoreWorkspaceAction({
+        workspace,
+        timestamp,
+        commandId: 'late-complete',
+        action: {
+          type: 'occurrence_action',
+          occurrenceId: 'old-alice',
+          action: { type: 'complete', participantId: 'alice' },
+        },
+      });
+      expect(result.data.occurrencesById['old-alice']).toMatchObject({
+        status: 'done',
+        completedAt: timestamp,
+      });
+      const expected =
+        intervalDays === 14 ? '2026-10-25T18:00:00.000Z' : '2027-10-11T18:00:00.000Z';
+      expect(
+        Object.values(result.data.occurrencesById)
+          .filter((item) => item.status === 'available')
+          .map((item) => item.scheduledAt)
+      ).toEqual([expected]);
+      const reloaded = applyChoreWorkspaceAction({
+        workspace: result.data,
+        timestamp,
+        commandId: 'reload',
+        action: { type: 'materialize_occurrences', ...range },
+      });
+      expect(reloaded.data.occurrencesById).toEqual(result.data.occurrencesById);
+      if (intervalDays === 365) {
+        const monthsLater = applyChoreWorkspaceAction({
+          workspace: reloaded.data,
+          timestamp: '2027-02-01T10:00:00.000Z',
+          commandId: 'months-later',
+          action: {
+            type: 'materialize_occurrences',
+            rangeStart: '2026-11-03T00:00:00.000Z',
+            rangeEnd: '2027-03-18T00:00:00.000Z',
+          },
+        });
+        expect(monthsLater.data.occurrencesById['old-alice'].completedAt).toBe(timestamp);
+      }
+    }
+  );
+  it('starts each everyone interval independently, including approval submissions', () => {
+    const workspace = repeatWorkspace(14, true);
+    workspace.definitionsById['take-out-recycling'].approval = {
+      required: true,
+      approverIds: ['alice'],
+    };
+    const completed = applyChoreWorkspaceAction({
+      workspace,
+      timestamp,
+      commandId: 'alice-submit',
+      action: {
+        type: 'occurrence_action',
+        occurrenceId: 'old-alice',
+        action: { type: 'complete', participantId: 'alice' },
+      },
+    });
+    expect(completed.data.occurrencesById['old-alice'].status).toBe('awaiting_approval');
+    expect(completed.data.occurrencesById['old-bob']).toEqual(workspace.occurrencesById['old-bob']);
+    expect(
+      Object.values(completed.data.occurrencesById)
+        .filter((item) => item.status === 'available')
+        .map((item) => [item.assigneeIds, item.scheduledAt])
+    ).toEqual([[['alice'], '2026-10-25T18:00:00.000Z']]);
+    const bobCompleted = applyChoreWorkspaceAction({
+      workspace: completed.data,
+      timestamp: '2026-10-13T10:00:00.000Z',
+      commandId: 'bob-submit',
+      action: {
+        type: 'occurrence_action',
+        occurrenceId: 'old-bob',
+        action: { type: 'complete', participantId: 'bob' },
+      },
+    });
+    expect(
+      Object.values(bobCompleted.data.occurrencesById)
+        .filter((item) => item.status === 'available')
+        .map((item) => [item.assigneeIds, item.scheduledAt])
+    ).toEqual([
+      [['alice'], '2026-10-25T18:00:00.000Z'],
+      [['bob'], '2026-10-27T18:00:00.000Z'],
+    ]);
+  });
+  it('keeps an everyone recurrence clock with its original slot after reassignment and completion', () => {
+    const workspace = repeatWorkspace(14, true);
+    workspace.occurrencesById = Object.fromEntries(
+      Object.values(workspace.occurrencesById).map((item) => {
+        const id = `${item.definitionId}:${item.scheduledAt}:${item.assigneeIds[0]}`;
+        return [id, { ...item, id, status: 'available' as const, missedAt: undefined }];
+      })
+    );
+    const originalAlice = Object.values(workspace.occurrencesById).find(
+      (item) => item.assigneeIds[0] === 'alice'
+    );
+    const originalBob = Object.values(workspace.occurrencesById).find(
+      (item) => item.assigneeIds[0] === 'bob'
+    );
+    if (!originalAlice || !originalBob) throw new Error('Expected both original recurrence clocks');
+    const reassigned = applyChoreWorkspaceAction({
+      workspace,
+      timestamp,
+      commandId: 'transfer-alice-work',
+      action: {
+        type: 'occurrence_action',
+        occurrenceId: originalAlice.id,
+        action: {
+          type: 'reassign',
+          participantId: 'alice',
+          assigneeIds: ['bob'],
+          reason: 'Help Alice',
+        },
+      },
+    }).data;
+    expect(reassigned.occurrencesById[originalAlice.id]).toMatchObject({
+      assigneeIds: ['bob'],
+      assignmentSlot: 'manager:bob',
+      status: 'available',
+    });
+    const completed = applyChoreWorkspaceAction({
+      workspace: reassigned,
+      timestamp,
+      commandId: 'finish-transferred-work',
+      action: {
+        type: 'occurrence_action',
+        occurrenceId: originalAlice.id,
+        action: { type: 'complete', participantId: 'bob' },
+      },
+    }).data;
+    expect(completed.occurrencesById[originalBob.id]).toEqual(
+      workspace.occurrencesById[originalBob.id]
+    );
+    expect(
+      Object.values(completed.occurrencesById)
+        .filter((item) => item.status === 'available' && item.assigneeIds.includes('alice'))
+        .map((item) => item.scheduledAt)
+    ).toEqual(['2026-10-25T18:00:00.000Z']);
+    const bobCompleted = applyChoreWorkspaceAction({
+      workspace: completed,
+      timestamp: '2026-10-13T10:00:00.000Z',
+      commandId: 'finish-bob-own-work',
+      action: {
+        type: 'occurrence_action',
+        occurrenceId: originalBob.id,
+        action: { type: 'complete', participantId: 'bob' },
+      },
+    }).data;
+    const restored = migrateChoreWorkspaceData(JSON.parse(JSON.stringify(bobCompleted)));
+    const retained = applyChoreWorkspaceAction({
+      workspace: restored,
+      timestamp: '2027-02-01T10:00:00.000Z',
+      commandId: 'retain-original-clock',
+      action: {
+        type: 'materialize_occurrences',
+        rangeStart: '2027-02-01T00:00:00.000Z',
+        rangeEnd: '2027-03-01T00:00:00.000Z',
+      },
+    }).data;
+    expect(retained.occurrencesById[originalAlice.id]).toMatchObject({
+      completedAt: timestamp,
+      completedBy: 'bob',
+      assigneeIds: ['bob'],
+    });
+    expect(
+      Object.values(retained.occurrencesById)
+        .filter((item) => item.status === 'available')
+        .map((item) => [item.assigneeIds, item.scheduledAt])
+    ).toEqual([
+      [['alice'], '2026-10-25T18:00:00.000Z'],
+      [['bob'], '2026-10-27T18:00:00.000Z'],
+    ]);
+  });
+  it.each(['vacation', 'carry', 'nested'])(
+    'retains an original everyone clock through %s ancestry and reassignment',
+    (kind) => {
+      const workspace = repeatWorkspace(14, true);
+      const definition = workspace.definitionsById['take-out-recycling'];
+      const original = workspace.occurrencesById['old-alice'];
+      const originalId = `${definition.id}:${original.scheduledAt}:alice`;
+      const sourceId =
+        kind === 'nested'
+          ? `${definition.id}:2026-10-11T18:00:00.000Z:carry:${originalId}`
+          : originalId;
+      const lineageKind = kind === 'nested' ? 'vacation' : kind;
+      const moved: ChoreOccurrence = {
+        ...original,
+        id: `${definition.id}:2026-10-12T18:00:00.000Z:${lineageKind}:${sourceId}`,
+        scheduledAt: '2026-10-12T18:00:00.000Z',
+        dueAt: '2026-10-12T19:00:00.000Z',
+        status: 'available',
+        assigneeIds: ['bob'],
+        assignmentSlot: 'manager:bob',
+        carriedForwardFrom: sourceId,
+      };
+      const existingOccurrences = {
+        [moved.id]: moved,
+        'old-bob': workspace.occurrencesById['old-bob'],
+      };
+      const result = materializeChoreOccurrences({
+        definition,
+        participantsById: workspace.participantsById,
+        existingOccurrences,
+        rangeStart: '2026-10-11T00:00:00.000Z',
+        rangeEnd: '2026-10-30T00:00:00.000Z',
+      });
+      expect(result.map((item) => item.id)).toEqual([moved.id, 'old-bob']);
+      expect(result[0].assigneeIds).toEqual(['bob']);
+    }
+  );
+  it.each([
+    'manager:alice',
+    'carry:alice',
+    'vacation:alice',
+    'carry:chores:repeat:2026-01-01T18:00:00.000Z:alice',
+    'vacation:chores:repeat:2026-01-01T18:00:00.000Z:alice',
+  ])('keeps opaque participant slot %s independent of mutable assignees', (participantId) => {
+    const definition = makeDefinition({
+      id: 'chores:repeat',
+      assignment: { mode: 'everyone', participantIds: [participantId, 'bob'] },
+    });
+    const occurrence = makeOccurrence({
+      definitionId: definition.id,
+      id: `${definition.id}:2026-01-01T18:00:00.000Z:${participantId}`,
+      assigneeIds: ['bob'],
+      assignmentSlot: 'manager:bob',
+    });
+    const existing = { [occurrence.id]: occurrence };
+    expect(getParticipantChoreOccurrences(definition, existing, participantId)).toEqual(existing);
+    expect(getParticipantChoreOccurrences(definition, existing, 'bob')).toEqual({});
+  });
+  it('retains the legacy assignee fallback for noncanonical occurrence IDs', () => {
+    const definition = makeDefinition({
+      assignment: { mode: 'everyone', participantIds: ['alice', 'bob'] },
+    });
+    const occurrence = makeOccurrence({
+      id: `${definition.id}:2026-01-01 18:00:00.000Z:alice`,
+      assigneeIds: ['bob'],
+      assignmentSlot: 'manager:bob',
+    });
+    const existing = { [occurrence.id]: occurrence };
+    expect(getParticipantChoreOccurrences(definition, existing, 'alice')).toEqual({});
+    expect(getParticipantChoreOccurrences(definition, existing, 'bob')).toEqual(existing);
+  });
+  it('adopts outstanding shared work when its definition changes to everyone', () => {
+    const definition = makeDefinition({
+      assignment: { mode: 'anyone', participantIds: ['alice', 'bob'] },
+      schedule: {
+        frequency: 'after_completion',
+        startDate: '2026-01-01',
+        time: '18:00',
+        timeZone: 'UTC',
+        intervalDays: 14,
+      },
+    });
+    const original = makeOccurrence({
+      id: `${definition.id}:2026-01-01T18:00:00.000Z:shared`,
+      scheduledAt: '2026-01-01T18:00:00.000Z',
+      dueAt: '2026-01-01T19:00:00.000Z',
+      status: 'available',
+      assignmentSlot: 'shared',
+      assigneeIds: ['alice', 'bob'],
+    });
+    const workspace = {
+      ...createEmptyChoreWorkspace(),
+      participantsById: { alice, bob },
+      definitionsById: { [definition.id]: definition },
+      occurrencesById: { [original.id]: original },
+    };
+    const changed = applyChoreWorkspaceAction({
+      workspace,
+      timestamp,
+      commandId: 'adopt-shared-clock',
+      action: {
+        type: 'definition_update',
+        actorParticipantId: 'alice',
+        definition: {
+          ...definition,
+          assignment: { mode: 'everyone', participantIds: ['alice', 'bob'] },
+        },
+      },
+    }).data;
+    expect(changed.occurrencesById).toEqual(workspace.occurrencesById);
+    const completed = applyChoreWorkspaceAction({
+      workspace: changed,
+      timestamp,
+      commandId: 'finish-adopted-shared',
+      action: {
+        type: 'occurrence_action',
+        occurrenceId: original.id,
+        action: { type: 'complete', participantId: 'bob' },
+      },
+    }).data;
+    expect(
+      Object.values(completed.occurrencesById)
+        .filter((item) => item.status === 'available')
+        .map((item) => [item.assigneeIds, item.scheduledAt])
+    ).toEqual([
+      [['alice'], '2026-10-25T18:00:00.000Z'],
+      [['bob'], '2026-10-25T18:00:00.000Z'],
+    ]);
+  });
+  it.each([false, true])(
+    'orders restored offset completion anchors by instant for everyone=%s',
+    (everyone) => {
+      const workspace = repeatWorkspace(14, everyone);
+      const earlier = makeOccurrence({
+        id: 'earlier-offset',
+        scheduledAt: '2026-01-01T18:00:00.000Z',
+        status: 'done',
+        completedBy: 'alice',
+        completedAt: '2026-08-17T01:00:00+02:00',
+      });
+      const later = makeOccurrence({
+        id: 'later-utc',
+        scheduledAt: '2026-01-15T18:00:00.000Z',
+        status: 'done',
+        completedBy: 'alice',
+        completedAt: '2026-08-17T00:30:00Z',
+      });
+      workspace.occurrencesById = {
+        ...(everyone ? { 'old-bob': workspace.occurrencesById['old-bob'] } : {}),
+        [earlier.id]: earlier,
+        [later.id]: later,
+      };
+      expect(isChoreWorkspaceData(workspace)).toBe(true);
+      const restored = migrateChoreWorkspaceData(JSON.parse(JSON.stringify(workspace)));
+      expect(getLatestChoreCompletion({ [earlier.id]: earlier, [later.id]: later })).toBe(
+        later.completedAt
+      );
+      const result = applyChoreWorkspaceAction({
+        workspace: restored,
+        timestamp: '2026-08-18T10:00:00.000Z',
+        commandId: 'offset-clock',
+        action: {
+          type: 'materialize_occurrences',
+          rangeStart: '2026-08-18T00:00:00.000Z',
+          rangeEnd: '2026-09-03T00:00:00.000Z',
+        },
+      }).data;
+      expect(
+        Object.values(result.occurrencesById)
+          .filter((item) => item.status === 'available' && item.assigneeIds.includes('alice'))
+          .map((item) => item.scheduledAt)
+      ).toEqual(['2026-08-31T18:00:00.000Z']);
+      expect(
+        shouldPruneChoreOccurrence(
+          earlier,
+          workspace.definitionsById,
+          restored.occurrencesById,
+          Date.parse('2026-09-01T00:00:00Z')
+        )
+      ).toBe(true);
+      expect(
+        shouldPruneChoreOccurrence(
+          later,
+          workspace.definitionsById,
+          restored.occurrencesById,
+          Date.parse('2026-09-01T00:00:00Z')
+        )
+      ).toBe(false);
+      expect(restored.occurrencesById[earlier.id].completedAt).toBe('2026-08-17T01:00:00+02:00');
+    }
+  );
+  it('marks scheduled unfinished work missed only when the next occurrence starts', () => {
+    const definition = makeDefinition({ missedPolicy: { graceMinutes: 0, action: 'none' } });
+    const previous = makeOccurrence({ status: 'claimed', claimedBy: 'alice' });
+    const next = makeOccurrence({
+      id: 'next',
+      scheduledAt: '2026-08-17T16:00:00.000Z',
+      dueAt: '2026-08-17T19:00:00.000Z',
+    });
+    const submitted = makeOccurrence({
+      id: 'submitted',
+      scheduledAt: '2026-08-03T16:00:00.000Z',
+      status: 'awaiting_approval',
+      completedAt: '2026-08-04T10:00:00.000Z',
+    });
+    const workspace = {
+      ...createEmptyChoreWorkspace(),
+      participantsById: { alice, bob },
+      definitionsById: { [definition.id]: definition },
+      occurrencesById: { [previous.id]: previous, next, submitted },
+    };
+    expect(
+      runChoreWorkspaceScheduler(workspace, '2026-08-17T15:59:59.000Z').data.occurrencesById[
+        previous.id
+      ].status
+    ).toBe('claimed');
+    const superseded = runChoreWorkspaceScheduler(workspace, next.scheduledAt);
+    expect(superseded.data.occurrencesById[previous.id]).toMatchObject({
+      status: 'missed',
+      claimedBy: 'alice',
+      missedAt: next.scheduledAt,
+    });
+    expect(superseded.data.occurrencesById.submitted).toEqual(submitted);
+    expect(
+      runChoreWorkspaceScheduler(
+        { ...superseded.data, activity: superseded.activities },
+        next.scheduledAt
+      ).activities
+    ).toEqual([]);
+    const late = applyChoreWorkspaceAction({
+      workspace: superseded.data,
+      timestamp: '2026-08-18T10:00:00.000Z',
+      commandId: 'history-complete',
+      action: {
+        type: 'occurrence_action',
+        occurrenceId: previous.id,
+        action: { type: 'complete', participantId: 'alice' },
+      },
+    });
+    expect(late.data.occurrencesById.next).toEqual(next);
+    expect(late.data.occurrencesById[previous.id].status).toBe('done');
+  });
+});
+
+describe('durable fixed-work supersession', () => {
+  it('uses the instant of an offset successor at the fixed-work boundary', () => {
+    const definition = makeDefinition({
+      assignment: { mode: 'everyone', participantIds: ['alice', 'bob'] },
+      missedPolicy: { graceMinutes: 0, action: 'none' },
+    });
+    const original = makeOccurrence();
+    const next = makeOccurrence({
+      id: `${definition.id}:2026-08-17T16:00:00.000Z:alice`,
+      scheduledAt: '2026-08-17T18:00:00+02:00',
+      dueAt: '2026-08-17T21:00:00+02:00',
+    });
+    const workspace = {
+      ...createEmptyChoreWorkspace(),
+      definitionsById: { [definition.id]: definition },
+      participantsById: { alice, bob },
+      occurrencesById: { [original.id]: original, [next.id]: next },
+    };
+    const before = runChoreWorkspaceScheduler(workspace, '2026-08-17T15:59:59.999Z').data;
+    expect(before.occurrencesById[original.id].status).toBe('available');
+    const boundary = runChoreWorkspaceScheduler(before, '2026-08-17T16:00:00.000Z').data;
+    expect(boundary.occurrencesById[original.id]).toMatchObject({
+      status: 'missed',
+      supersededAt: next.scheduledAt,
+    });
+  });
+  it.each([true, false])(
+    'supersedes reassigned everyone work at its original next boundary with original membership %s',
+    (retainsOriginal) => {
+      const definition = makeDefinition({
+        assignment: { mode: 'everyone', participantIds: ['alice', 'bob'] },
+        missedPolicy: { graceMinutes: 0, action: 'none' },
+      });
+      const original = makeOccurrence();
+      const aliceNext = makeOccurrence({
+        id: `${definition.id}:2026-08-17T16:00:00.000Z:alice`,
+        scheduledAt: '2026-08-17T16:00:00.000Z',
+        dueAt: '2026-08-17T19:00:00.000Z',
+      });
+      const bobNext = makeOccurrence({
+        id: `${definition.id}:2026-08-16T16:00:00.000Z:bob`,
+        scheduledAt: '2026-08-16T16:00:00.000Z',
+        dueAt: '2026-08-16T19:00:00.000Z',
+        assigneeIds: ['bob'],
+        assignmentSlot: 'bob',
+      });
+      const workspace = {
+        ...createEmptyChoreWorkspace(),
+        definitionsById: { [definition.id]: definition },
+        participantsById: { alice, bob },
+        occurrencesById: {
+          [original.id]: original,
+          [aliceNext.id]: aliceNext,
+          [bobNext.id]: bobNext,
+        },
+      };
+      const reassigned = applyChoreWorkspaceAction({
+        workspace,
+        timestamp: '2026-08-10T18:00:00.000Z',
+        commandId: 'reassign-fixed-slot',
+        action: {
+          type: 'occurrence_action',
+          occurrenceId: original.id,
+          action: {
+            type: 'reassign',
+            participantId: 'alice',
+            assigneeIds: ['bob'],
+            reason: 'Help',
+          },
+        },
+      }).data;
+      expect(reassigned.occurrencesById[original.id].assignmentSlot).toBe('manager:bob');
+      if (!retainsOriginal) {
+        reassigned.definitionsById[definition.id] = {
+          ...definition,
+          assignment: { mode: 'everyone', participantIds: ['bob'] },
+        };
+        reassigned.occurrencesById[aliceNext.id] = {
+          ...aliceNext,
+          status: 'claimed',
+          claimedBy: 'alice',
+          claimedAt: '2026-08-15T16:00:00.000Z',
+        };
+      }
+      const earlier = runChoreWorkspaceScheduler(reassigned, bobNext.scheduledAt).data;
+      expect(earlier.occurrencesById[original.id].status).toBe('available');
+      const rolled = runChoreWorkspaceScheduler(earlier, aliceNext.scheduledAt).data;
+      expect(rolled.occurrencesById[original.id]).toMatchObject({
+        status: 'missed',
+        supersededAt: aliceNext.scheduledAt,
+        assigneeIds: ['bob'],
+      });
+      expect(rolled.occurrencesById[aliceNext.id]).toEqual(
+        reassigned.occurrencesById[aliceNext.id]
+      );
+      expect(rolled.occurrencesById[bobNext.id]).toEqual(bobNext);
+      const completed = applyChoreWorkspaceAction({
+        workspace: rolled,
+        timestamp: '2026-08-17T18:00:00.000Z',
+        commandId: 'complete-transferred-fixed-history',
+        action: {
+          type: 'occurrence_action',
+          occurrenceId: original.id,
+          action: { type: 'complete', participantId: 'bob' },
+        },
+      }).data;
+      expect(completed.occurrencesById[original.id].completedBy).toBe('bob');
+      expect(completed.occurrencesById[aliceNext.id]).toEqual(
+        reassigned.occurrencesById[aliceNext.id]
+      );
+    }
+  );
+  function fixture(status: ChoreOccurrence['status'] = 'available'): ChoreWorkspaceData {
+    const previous = makeOccurrence({ id: 'older', status });
+    const next = makeOccurrence({
+      id: 'next',
+      scheduledAt: '2026-08-17T16:00:00.000Z',
+      dueAt: '2026-08-17T19:00:00.000Z',
+      status: 'done',
+      completedBy: 'alice',
+      completedAt: '2026-08-17T18:00:00.000Z',
+      updatedAt: '2026-08-17T18:00:00.000Z',
+    });
+    return {
+      ...createEmptyChoreWorkspace(),
+      participantsById: { alice, bob },
+      definitionsById: { 'take-out-recycling': makeDefinition() },
+      occurrencesById: { older: previous, next },
+    };
+  }
+  it('persists supersession at the fixed scheduler transition and clears it on reopen', () => {
+    const result = runChoreWorkspaceScheduler(fixture(), '2026-08-17T18:00:00.000Z').data;
+    expect(result.occurrencesById.older).toMatchObject({
+      status: 'missed',
+      supersededAt: '2026-08-17T16:00:00.000Z',
+    });
+    const reopened = applyChoreWorkspaceAction({
+      workspace: result,
+      timestamp: '2026-08-17T18:30:00.000Z',
+      commandId: 'reopen-superseded',
+      action: {
+        type: 'occurrence_action',
+        occurrenceId: 'older',
+        action: { type: 'reopen', participantId: 'alice', reason: 'Do it again' },
+      },
+    }).data;
+    expect(reopened.occurrencesById.older.status).toBe('available');
+    expect(reopened.occurrencesById.older.supersededAt).toBeUndefined();
+  });
+  it('backfills legacy missed work before its successor is pruned', () => {
+    const workspace = fixture('missed');
+    const result = applyChoreWorkspaceAction({
+      workspace,
+      timestamp: '2026-12-01T18:00:00.000Z',
+      commandId: 'prune-successor',
+      action: {
+        type: 'materialize_occurrences',
+        rangeStart: '2026-12-01T00:00:00.000Z',
+        rangeEnd: '2026-12-01T23:59:59.000Z',
+      },
+    }).data;
+    expect(result.occurrencesById.next).toBeUndefined();
+    expect(result.occurrencesById.older).toMatchObject({
+      status: 'missed',
+      supersededAt: '2026-08-17T16:00:00.000Z',
+    });
+  });
+  it('backfills before changing frequency and keeps historical work out of completion-based clocks', () => {
+    const workspace = fixture('missed');
+    const definition = workspace.definitionsById['take-out-recycling'];
+    const result = applyChoreWorkspaceAction({
+      workspace,
+      timestamp: '2026-08-18T18:00:00.000Z',
+      commandId: 'change-fixed-frequency',
+      action: {
+        type: 'definition_update',
+        actorParticipantId: 'alice',
+        definition: {
+          ...definition,
+          schedule: {
+            frequency: 'after_completion',
+            startDate: '2026-08-18',
+            time: '18:00',
+            timeZone: 'UTC',
+            intervalDays: 7,
+          },
+        },
+      },
+    }).data;
+    expect(result.occurrencesById.older).toMatchObject({
+      status: 'missed',
+      supersededAt: '2026-08-17T16:00:00.000Z',
+    });
+    expect(
+      materializeChoreOccurrences({
+        definition: result.definitionsById[definition.id],
+        participantsById: result.participantsById,
+        existingOccurrences: result.occurrencesById,
+        latestCompletedAt: '2026-08-17T18:00:00.000Z',
+        rangeStart: '2026-08-18T00:00:00.000Z',
+        rangeEnd: '2026-09-01T00:00:00.000Z',
+      }).some((item) => item.id === 'older')
+    ).toBe(false);
+  });
+  it('preserves superseded missed history through archive and restore while removing unfinished work', () => {
+    const workspace = runChoreWorkspaceScheduler(fixture(), '2026-08-18T18:00:00.000Z').data;
+    workspace.occurrencesById.active = makeOccurrence({
+      id: 'active',
+      scheduledAt: '2026-08-24T16:00:00.000Z',
+      dueAt: '2026-08-24T19:00:00.000Z',
+      status: 'available',
+    });
+    workspace.occurrencesById.early = makeOccurrence({
+      id: 'early',
+      scheduledAt: '2026-08-25T16:00:00.000Z',
+      dueAt: '2026-08-25T19:00:00.000Z',
+      status: 'missed',
+    });
+    const archived = applyChoreWorkspaceAction({
+      workspace,
+      timestamp: '2026-08-18T18:00:00.000Z',
+      commandId: 'archive-history',
+      action: {
+        type: 'definition_archive',
+        definitionId: 'take-out-recycling',
+        actorParticipantId: 'alice',
+      },
+    }).data;
+    expect(archived.occurrencesById.older).toEqual(workspace.occurrencesById.older);
+    expect(archived.occurrencesById.next).toEqual(workspace.occurrencesById.next);
+    expect(archived.occurrencesById.active).toBeUndefined();
+    expect(archived.occurrencesById.early).toBeUndefined();
+    expect(() =>
+      applyChoreWorkspaceAction({
+        workspace: archived,
+        timestamp: '2026-08-18T18:01:00.000Z',
+        commandId: 'blocked-archived-history',
+        action: {
+          type: 'occurrence_action',
+          occurrenceId: 'older',
+          action: { type: 'complete', participantId: 'alice' },
+        },
+      })
+    ).toThrow('Chore definition is no longer available');
+    const restarted = migrateChoreWorkspaceData(JSON.parse(JSON.stringify(archived)));
+    const restored = applyChoreWorkspaceAction({
+      workspace: restarted,
+      timestamp: '2026-08-18T18:02:00.000Z',
+      commandId: 'restore-history',
+      action: {
+        type: 'definition_restore',
+        definitionId: 'take-out-recycling',
+        actorParticipantId: 'alice',
+      },
+    }).data;
+    expect(restored.occurrencesById.older).toEqual(workspace.occurrencesById.older);
+    const completed = applyChoreWorkspaceAction({
+      workspace: restored,
+      timestamp: '2026-08-18T18:03:00.000Z',
+      commandId: 'complete-restored-history',
+      action: {
+        type: 'occurrence_action',
+        occurrenceId: 'older',
+        action: { type: 'complete', participantId: 'alice' },
+      },
+    }).data;
+    expect(completed.occurrencesById.older.status).toBe('done');
+  });
+  it('keeps original carry-forward history through archive, restart and restore', () => {
+    const definition = makeDefinition({
+      schedule: { frequency: 'once', date: '2026-08-10', time: '16:00', timeZone: 'UTC' },
+    });
+    const original = makeOccurrence({ status: 'missed', carriedForwardTo: 'replacement' });
+    const replacement = makeOccurrence({
+      id: 'replacement',
+      status: 'available',
+      carriedForwardFrom: original.id,
+      assignmentSlot: `carry:${original.id}`,
+    });
+    const workspace = {
+      ...createEmptyChoreWorkspace(),
+      definitionsById: { [definition.id]: definition },
+      participantsById: { alice, bob },
+      occurrencesById: { [original.id]: original, replacement },
+    };
+    const archived = applyChoreWorkspaceAction({
+      workspace,
+      timestamp: '2026-08-11T18:00:00.000Z',
+      commandId: 'archive-carry-history',
+      action: {
+        type: 'definition_archive',
+        definitionId: definition.id,
+        actorParticipantId: 'alice',
+      },
+    }).data;
+    expect(archived.occurrencesById[original.id]).toEqual(original);
+    expect(archived.occurrencesById.replacement).toBeUndefined();
+    expect(() =>
+      applyChoreWorkspaceAction({
+        workspace: archived,
+        timestamp: '2026-08-11T18:01:00.000Z',
+        commandId: 'blocked-archive-carry',
+        action: {
+          type: 'occurrence_action',
+          occurrenceId: original.id,
+          action: { type: 'complete', participantId: 'alice' },
+        },
+      })
+    ).toThrow('Chore definition is no longer available');
+    const restarted = migrateChoreWorkspaceData(JSON.parse(JSON.stringify(archived)));
+    const restored = applyChoreWorkspaceAction({
+      workspace: restarted,
+      timestamp: '2026-08-11T18:02:00.000Z',
+      commandId: 'restore-carry-history',
+      action: {
+        type: 'definition_restore',
+        definitionId: definition.id,
+        actorParticipantId: 'alice',
+      },
+    }).data;
+    expect(restored.occurrencesById[original.id]).toEqual(original);
+    expect(restored.occurrencesById.replacement).toBeUndefined();
+  });
+  it('round-trips optional supersession markers and accepts legacy snapshots', () => {
+    const legacy = fixture('missed');
+    expect(isChoreWorkspaceData(legacy)).toBe(true);
+    const marked = runChoreWorkspaceScheduler(fixture(), '2026-08-17T18:00:00.000Z').data;
+    const restored = migrateChoreWorkspaceData(JSON.parse(JSON.stringify(marked)));
+    expect(restored.occurrencesById.older.supersededAt).toBe('2026-08-17T16:00:00.000Z');
+    restored.occurrencesById.older.supersededAt = 'invalid';
+    expect(isChoreWorkspaceData(restored)).toBe(false);
+  });
+  it('keeps early missed completion-based work actionable without supersession evidence', () => {
+    const workspace = fixture('missed');
+    delete workspace.occurrencesById.next;
+    const definition = makeDefinition({
+      schedule: {
+        frequency: 'after_completion',
+        startDate: '2026-08-10',
+        time: '18:00',
+        timeZone: 'UTC',
+        intervalDays: 7,
+      },
+    });
+    workspace.definitionsById[definition.id] = definition;
+    const result = applyChoreWorkspaceAction({
+      workspace,
+      timestamp: '2026-08-11T18:00:00.000Z',
+      commandId: 'keep-early-missed',
+      action: {
+        type: 'materialize_occurrences',
+        rangeStart: '2026-08-11T00:00:00.000Z',
+        rangeEnd: '2026-08-25T00:00:00.000Z',
+      },
+    }).data;
+    expect(result.occurrencesById.older).toEqual(workspace.occurrencesById.older);
+    expect(
+      Object.values(result.occurrencesById).filter((item) => item.status === 'available')
+    ).toHaveLength(0);
+  });
 });
