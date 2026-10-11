@@ -1,5 +1,6 @@
 import { AuthProvider, useAuthSession } from '@navet/app/auth/AuthProvider';
 import { EffectiveEffectsQualityProvider } from '@navet/app/components/shared/theme/effective-effects-quality';
+import { BrowserZoomPreference } from '@navet/app/components/system/browser-zoom-preference';
 import { useMediaQuery } from '@navet/app/hooks/use-media-query';
 import { useSettingsStore } from '@navet/app/stores';
 import { settingsSelectors } from '@navet/app/stores/selectors';
@@ -62,7 +63,10 @@ function AppLoading({
   const hasBackToLoginAction = Boolean(onBackToLogin && backToLoginLabel);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950 text-white">
+    <main
+      aria-busy={!detail}
+      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950 text-white"
+    >
       <div className="flex max-w-md flex-col items-center gap-4 px-6 text-center">
         <svg
           viewBox="0 0 24 24"
@@ -103,7 +107,7 @@ function AppLoading({
           </div>
         ) : null}
       </div>
-    </div>
+    </main>
   );
 }
 
@@ -154,6 +158,7 @@ function AppGate() {
 export default function App() {
   return (
     <VisualQualityRoot>
+      <BrowserZoomPreference />
       <I18nProvider>
         <AuthProvider>
           <AppGate />

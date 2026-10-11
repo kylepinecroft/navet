@@ -36,6 +36,7 @@ import {
   type SettingsPreferenceProjection,
 } from '@navet/app/utils/settings-profile-scope';
 import { useEffect, useRef, useState } from 'react';
+import { createDashboardSyncRuntime } from '../sync/dashboard-sync-runtime';
 
 const PREFERENCE_SAVE_DEBOUNCE_MS = 750;
 const PREFERENCE_POLL_INTERVAL_MS = 60_000;
@@ -78,12 +79,20 @@ function materializeRemoteProjection(
   remote: PreferenceProjection
 ): PreferenceProjection {
   const defaults = projectDefaultLayer(layer);
+  const settings = {
+    ...defaults.settings,
+    ...remote.settings,
+  };
+
+  // Browser zoom joined the version-1 device document after that schema was already live. An
+  // absent field is therefore a legacy document, not an explicit request to reset the local value.
+  if (layer === 'device' && !Object.hasOwn(remote.settings, 'preventBrowserZoom')) {
+    settings.preventBrowserZoom = projectLayer('device').settings.preventBrowserZoom;
+  }
+
   return {
     schemaVersion: SETTINGS_PROFILE_SCHEMA_VERSION,
-    settings: {
-      ...defaults.settings,
-      ...remote.settings,
-    },
+    settings,
   } as PreferenceProjection;
 }
 
@@ -148,15 +157,13 @@ export function useDashboardPreferenceSync({
     setPreferencesLoadCompleted(false);
 
     let activeClient = initialClient;
-    let cancelled = false;
+    const syncRuntime = createDashboardSyncRuntime();
     let applying = false;
     let clientBindingRecoveryStarted = false;
     let initialized = false;
     let pollTimer: number | null = null;
     let refreshPending = false;
     let refreshInFlight = false;
-    let online = typeof navigator === 'undefined' ? true : navigator.onLine;
-    let visible = typeof document === 'undefined' || document.visibilityState === 'visible';
     const states: Record<PreferenceLayer, PreferenceLayerState> = {
       account: {
         available: false,
@@ -187,14 +194,14 @@ export function useDashboardPreferenceSync({
 
     function clearLayerTimer(state: PreferenceLayerState) {
       if (state.saveTimer !== null) {
-        window.clearTimeout(state.saveTimer);
+        syncRuntime.clear(state.saveTimer);
         state.saveTimer = null;
       }
     }
 
     function clearPollTimer() {
       if (pollTimer !== null) {
-        window.clearTimeout(pollTimer);
+        syncRuntime.clear(pollTimer);
         pollTimer = null;
       }
     }
@@ -449,7 +456,13 @@ export function useDashboardPreferenceSync({
     }
 
     function drainPendingRefresh() {
-      if (!refreshPending || cancelled || !initialized || refreshInFlight || hasSaveInFlight()) {
+      if (
+        !refreshPending ||
+        syncRuntime.disposed ||
+        !initialized ||
+        refreshInFlight ||
+        hasSaveInFlight()
+      ) {
         return false;
       }
 
@@ -460,8 +473,8 @@ export function useDashboardPreferenceSync({
 
     function schedulePoll() {
       clearPollTimer();
-      if (!cancelled && initialized && online && visible) {
-        pollTimer = window.setTimeout(() => {
+      if (!syncRuntime.disposed && initialized && syncRuntime.online && syncRuntime.visible) {
+        pollTimer = syncRuntime.schedule(() => {
           pollTimer = null;
           void refreshAllLayers();
         }, PREFERENCE_POLL_INTERVAL_MS);
@@ -483,7 +496,7 @@ export function useDashboardPreferenceSync({
       projection = projectLayer(state.layer),
       allowStaleRetry = true
     ) {
-      if (cancelled || !state.available) {
+      if (syncRuntime.disposed || !state.available) {
         return;
       }
       if (state.saving) {
@@ -512,7 +525,7 @@ export function useDashboardPreferenceSync({
         state.saving = false;
         const hadPendingSave = state.pendingSave;
         state.pendingSave = false;
-        if (cancelled) {
+        if (syncRuntime.disposed) {
           return;
         }
 
@@ -568,7 +581,7 @@ export function useDashboardPreferenceSync({
 
     function scheduleLayerSave(state: PreferenceLayerState) {
       clearLayerTimer(state);
-      state.saveTimer = window.setTimeout(() => {
+      state.saveTimer = syncRuntime.schedule(() => {
         state.saveTimer = null;
         void saveLayer(state);
       }, PREFERENCE_SAVE_DEBOUNCE_MS);
@@ -714,7 +727,7 @@ export function useDashboardPreferenceSync({
       const result = await loadDashboardPreferences(preferenceScope(state.layer), {
         author: getActiveClient(),
       });
-      if (cancelled) {
+      if (syncRuntime.disposed) {
         return;
       }
       if (recoverClientBinding(result.failureCode)) {
@@ -736,27 +749,25 @@ export function useDashboardPreferenceSync({
     }
 
     async function refreshAllLayers() {
-      if (cancelled || !online || !visible) {
-        return;
-      }
-      if (refreshInFlight) {
-        refreshPending = true;
+      if (syncRuntime.disposed || !syncRuntime.online || !syncRuntime.visible) {
         return;
       }
 
-      refreshInFlight = true;
-      try {
-        await Promise.all(activeStates.map((state) => refreshLayer(state)));
-      } finally {
-        refreshInFlight = false;
-        if (!drainPendingRefresh()) {
-          schedulePoll();
+      return syncRuntime.runLatest('preference-refresh', async () => {
+        refreshInFlight = true;
+        try {
+          await Promise.all(activeStates.map((state) => refreshLayer(state)));
+        } finally {
+          refreshInFlight = false;
+          if (!drainPendingRefresh()) {
+            schedulePoll();
+          }
         }
-      }
+      });
     }
 
     function handleSettingsChange() {
-      if (!initialized || applying || cancelled) {
+      if (!initialized || applying || syncRuntime.disposed) {
         return;
       }
       for (const state of activeStates) {
@@ -774,16 +785,13 @@ export function useDashboardPreferenceSync({
 
     const unsubscribe = useSettingsStore.subscribe(handleSettingsChange);
     const handleOnline = () => {
-      online = true;
       void refreshAllLayers();
     };
     const handleOffline = () => {
-      online = false;
       clearPollTimer();
     };
     const handleVisibility = () => {
-      visible = document.visibilityState === 'visible';
-      if (visible) {
+      if (syncRuntime.visible) {
         void refreshAllLayers();
       } else {
         clearPollTimer();
@@ -820,17 +828,19 @@ export function useDashboardPreferenceSync({
       }
       void refreshAllLayers();
     };
-    window.addEventListener('online', handleOnline);
-    window.addEventListener('offline', handleOffline);
-    window.addEventListener('pagehide', handlePageHide);
+    syncRuntime.listen({
+      online: handleOnline,
+      offline: handleOffline,
+      pagehide: handlePageHide,
+      visibility: handleVisibility,
+    });
     window.addEventListener(
       AUTH_SESSION_REFRESHED_EVENT,
       handleAuthSessionRefreshed as EventListener
     );
-    document.addEventListener('visibilitychange', handleVisibility);
 
     async function initialize() {
-      if (!online) {
+      if (!syncRuntime.online) {
         initialized = true;
         setPreferencesLoadCompleted(true);
         return;
@@ -841,7 +851,7 @@ export function useDashboardPreferenceSync({
           const result = await loadDashboardPreferences(preferenceScope(state.layer), {
             author: getActiveClient(),
           });
-          if (cancelled) {
+          if (syncRuntime.disposed) {
             return;
           }
 
@@ -865,7 +875,7 @@ export function useDashboardPreferenceSync({
         }
       } finally {
         initialized = true;
-        if (!cancelled) {
+        if (!syncRuntime.disposed) {
           setPreferencesLoadCompleted(true);
         }
       }
@@ -878,19 +888,15 @@ export function useDashboardPreferenceSync({
     void initialize();
 
     return () => {
-      cancelled = true;
+      syncRuntime.dispose();
       unsubscribe();
       clearPollTimer();
       clearLayerTimer(states.account);
       clearLayerTimer(states.device);
-      window.removeEventListener('online', handleOnline);
-      window.removeEventListener('offline', handleOffline);
-      window.removeEventListener('pagehide', handlePageHide);
       window.removeEventListener(
         AUTH_SESSION_REFRESHED_EVENT,
         handleAuthSessionRefreshed as EventListener
       );
-      document.removeEventListener('visibilitychange', handleVisibility);
     };
   }, [accountEnabled, clientId, enabled]);
 

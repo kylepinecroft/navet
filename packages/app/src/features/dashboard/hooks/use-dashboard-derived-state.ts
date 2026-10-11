@@ -1,6 +1,19 @@
 import type { DeviceWithType } from '@navet/app/types/device.types';
 import { getDeviceRoom } from '@navet/app/utils/device-location';
+import { normalizeRoomName, roomNamesMatch } from '@navet/app/utils/room-name';
 import { useMemo } from 'react';
+
+export function getRoomScopedDashboardEntityIds(
+  entityIds: string[],
+  availableDeviceMap: Map<string, DeviceWithType>,
+  room: string
+): string[] {
+  return entityIds.filter((entityId) => {
+    const device = availableDeviceMap.get(entityId);
+    const deviceRoom = device ? getDeviceRoom(device) : null;
+    return deviceRoom ? roomNamesMatch(deviceRoom, room) : false;
+  });
+}
 
 interface UseDashboardDerivedStateParams {
   activeRoom: string;
@@ -48,13 +61,25 @@ export function useDashboardDerivedState({
     lightDeviceMap.forEach((device) => {
       const room = getDeviceRoom(device);
       if (room) {
-        roomsWithLights.add(room);
+        roomsWithLights.add(normalizeRoomName(room));
       }
     });
-    return rooms.filter((room) => roomsWithLights.has(room));
+    return rooms.filter((room) => roomsWithLights.has(normalizeRoomName(room)));
   }, [lightDeviceMap, rooms]);
 
-  const orderedCardIds = includeOrderedCardIds ? cardOrders[activeRoom] || [] : [];
+  const orderedCardIds = useMemo(
+    () =>
+      includeOrderedCardIds
+        ? Array.from(
+            new Set(
+              Object.entries(cardOrders)
+                .filter(([room]) => roomNamesMatch(room, activeRoom))
+                .flatMap(([, ids]) => ids)
+            )
+          )
+        : [],
+    [activeRoom, cardOrders, includeOrderedCardIds]
+  );
 
   return {
     addableEntityIds,

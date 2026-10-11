@@ -2,23 +2,16 @@ import { getDashboardClientIdentity } from '@navet/app/features/dashboard/client
 import { useDashboardProfileRuntimeStore } from '@navet/app/features/dashboard/clients/dashboard-profile-runtime-store';
 import { emptyDeviceDisplayProfilePolicy } from '@navet/app/features/dashboard/clients/device-display-profile';
 import { useDeviceDisplayProfileRuntimeStore } from '@navet/app/features/dashboard/clients/device-display-profile-runtime-store';
-import {
-  DASHBOARD_PROFILE_REBIND_EVENT,
-  DASHBOARD_PROFILE_REFRESH_EVENT,
-} from '@navet/app/features/dashboard/hooks/use-dashboard-profile-sync';
 import { getSettingsSectionStyles } from '@navet/app/features/settings/hooks/settings-section-styles';
 import type { SettingsSectionController } from '@navet/app/features/settings/hooks/use-settings-section-controller';
-import { DASHBOARD_PROFILE_ERROR_CODES } from '@navet/app/services/dashboard-profile.contract';
+import { resetRuntimeContextForTests } from '@navet/app/infrastructure/home-assistant/runtime/runtime-detector';
 import { renderWithProviders } from '@navet/app/test/render';
-import { fireEvent, screen, waitFor, within } from '@testing-library/react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { act, fireEvent, screen, waitFor } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { SettingsSystemSection } from '../settings-system-section';
 
 const dashboardProfileServiceMocks = vi.hoisted(() => ({
   copyDashboardDisplaySettings: vi.fn(),
-  forgetDashboardProfileClient: vi.fn(),
-  loadDashboardProfileHistory: vi.fn(),
-  restoreDashboardProfileRevision: vi.fn(),
 }));
 
 vi.mock('@navet/app/services/dashboard-profile.service', async (importOriginal) => {
@@ -180,10 +173,30 @@ function createController(): SettingsSectionController {
 describe('SettingsSystemSection', () => {
   let controller: SettingsSectionController;
 
+  it('explains when a signed-in Homey hub is offline', () => {
+    const offlineController = createController();
+    offlineController.providerCards = offlineController.providerCards.map((provider) =>
+      provider.id === 'homey'
+        ? {
+            ...provider,
+            status: 'offline',
+            isConnected: true,
+            baseUrl: 'https://homey.example.com',
+            error: null,
+          }
+        : provider
+    );
+
+    renderWithProviders(<SettingsSystemSection controller={offlineController} />);
+
+    expect(screen.getByText('Offline')).toBeInTheDocument();
+    expect(
+      screen.getByText('Homey is offline or unreachable. Check the hub and network connection.')
+    ).toBeInTheDocument();
+  });
+
   beforeEach(() => {
     vi.clearAllMocks();
-    dashboardProfileServiceMocks.forgetDashboardProfileClient.mockResolvedValue(false);
-    dashboardProfileServiceMocks.loadDashboardProfileHistory.mockResolvedValue(null);
     localStorage.clear();
     useDashboardProfileRuntimeStore.getState().reset();
     useDeviceDisplayProfileRuntimeStore.setState({
@@ -203,48 +216,129 @@ describe('SettingsSystemSection', () => {
     controller = createController();
   });
 
+  afterEach(() => {
+    window.__NAVET_PANEL__ = undefined;
+    window.__NAVET_CONFIG__ = undefined;
+    resetRuntimeContextForTests();
+  });
+
   it('shows connected providers immediately and keeps disconnected ones in provider management', () => {
-    const { container } = renderWithProviders(<SettingsSystemSection controller={controller} />);
+    renderWithProviders(<SettingsSystemSection controller={controller} />);
 
     expect(screen.getByText('Providers')).toBeInTheDocument();
     expect(screen.getByText('Home Assistant')).toBeInTheDocument();
-    const providerActions = container.querySelector<HTMLElement>(
-      '[data-provider-actions="home_assistant"]'
+    expect(screen.queryByRole('link', { name: 'Open' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Disconnect' })).not.toBeInTheDocument();
+    const providerActions = screen.getByRole('button', { name: 'More actions: Home Assistant' });
+    expect(providerActions).toHaveClass('self-center');
+    fireEvent.pointerDown(providerActions);
+    expect(screen.getByRole('menuitem', { name: 'Open' })).toHaveAttribute(
+      'href',
+      'https://ha.example.com'
     );
-    expect(providerActions).not.toBeNull();
-    if (providerActions) {
-      expect(within(providerActions).getByRole('link', { name: 'Open' })).toBeInTheDocument();
-      expect(
-        within(providerActions).getByRole('button', { name: 'Disconnect' })
-      ).toBeInTheDocument();
-    }
+    expect(screen.getByRole('menuitem', { name: 'Edit URL' })).toBeInTheDocument();
+    expect(screen.getByRole('menuitem', { name: 'Disconnect' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Manage 2 other providers' })).toBeInTheDocument();
     expect(screen.queryByText('openHAB')).not.toBeInTheDocument();
     expect(screen.queryByText('Camera live streams')).not.toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'View supported entities' })).toHaveAttribute(
-      'href',
-      'https://docs.navet.app/integrations/#home-assistant'
-    );
+    expect(screen.queryByRole('link', { name: 'View supported entities' })).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: 'Manage 2 other providers' }));
 
     expect(screen.getByText('Homey')).toBeInTheDocument();
     expect(screen.getByText('openHAB')).toBeInTheDocument();
     expect(screen.getAllByText('Not connected on this device').length).toBeGreaterThan(0);
-    expect(screen.getAllByText('Connected')[0]).toBeInTheDocument();
-    expect(screen.queryByText('Active')).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Make active' })).not.toBeInTheDocument();
+    const connectedBadge = screen.getAllByText('Connected')[0];
+    expect(connectedBadge).toBeInTheDocument();
+    expect(connectedBadge).toHaveClass(
+      'rounded-full',
+      'border',
+      'px-2',
+      'py-0.5',
+      'text-[10px]',
+      'border-emerald-500/30',
+      'bg-emerald-500/10'
+    );
+    expect(screen.queryByText('Primary')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Make primary' })).not.toBeInTheDocument();
     expect(screen.queryByText('Lighting')).not.toBeInTheDocument();
     expect(screen.queryByText('Notifications')).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'View supported entities' })).not.toBeInTheDocument();
+  });
+
+  it.each([
+    ['Home Assistant add-on', () => (window.__NAVET_CONFIG__ = { runtime: 'ha-ingress' })],
+    ['HACS panel', () => (window.__NAVET_PANEL__ = true)],
+  ])('hides Homey and openHAB for a %s installation', (_installation, configureRuntime) => {
+    configureRuntime();
+    resetRuntimeContextForTests();
+
+    renderWithProviders(<SettingsSystemSection controller={controller} />);
+
+    expect(screen.getByText('Home Assistant')).toBeInTheDocument();
+    expect(screen.queryByText('Homey')).not.toBeInTheDocument();
+    expect(screen.queryByText('openHAB')).not.toBeInTheDocument();
+    expect(screen.queryByText('Authorized devices')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Refresh now' })).not.toBeInTheDocument();
     expect(
-      screen
-        .getAllByRole('link', { name: 'View supported entities' })
-        .map((link) => link.getAttribute('href'))
-    ).toEqual([
-      'https://docs.navet.app/integrations/#home-assistant',
-      'https://docs.navet.app/integrations/#homey',
-      'https://docs.navet.app/integrations/#openhab',
-    ]);
+      screen.queryByRole('button', { name: /Manage .* other providers/ })
+    ).not.toBeInTheDocument();
+  });
+
+  it.each([
+    ['home_assistant', 'Home Assistant'],
+    ['homey', 'Homey'],
+    ['openhab', 'openHAB'],
+  ] as const)('requires confirmation before disconnecting %s', async (providerId, label) => {
+    controller.providerCards = controller.providerCards.map((provider) =>
+      provider.id === providerId
+        ? { ...provider, isConnected: true, canDisconnect: true, status: 'connected' }
+        : provider
+    );
+    renderWithProviders(<SettingsSystemSection controller={controller} />);
+
+    fireEvent.pointerDown(screen.getByRole('button', { name: `More actions: ${label}` }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Disconnect' }));
+
+    expect(screen.getByRole('alertdialog', { name: `Disconnect ${label}?` })).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        `This disconnects ${label} on all connected devices. You can connect it again later.`
+      )
+    ).toBeInTheDocument();
+    expect(controller.handleDisconnectProvider).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+    expect(controller.handleDisconnectProvider).not.toHaveBeenCalled();
+
+    fireEvent.pointerDown(screen.getByRole('button', { name: `More actions: ${label}` }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Disconnect' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Disconnect' }));
+
+    expect(controller.handleDisconnectProvider).toHaveBeenCalledExactlyOnceWith(providerId);
+    await waitFor(() => expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument());
+  });
+
+  it('starts a fresh Home Assistant connection from its current address', async () => {
+    renderWithProviders(<SettingsSystemSection controller={controller} />);
+
+    fireEvent.pointerDown(screen.getByRole('button', { name: 'More actions: Home Assistant' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Edit URL' }));
+    const urlInput = screen.getByLabelText('URL');
+    expect(urlInput).toHaveValue('https://ha.example.com');
+    fireEvent.change(urlInput, {
+      target: { value: 'http://100.77.118.32:8123' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Connect' }));
+
+    expect(controller.handleConnectProvider).toHaveBeenCalledWith(
+      'home_assistant',
+      'http://100.77.118.32:8123',
+      undefined,
+      undefined
+    );
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
   });
 
   it('uses the configured Home Assistant URL when the connected provider omits its base URL', () => {
@@ -257,7 +351,7 @@ describe('SettingsSystemSection', () => {
     expect(screen.getByText('https://ha.example.com')).toBeInTheDocument();
   });
 
-  it('shows all connected providers without hiding them behind provider management', () => {
+  it('shows all connected providers without hiding them behind provider management', async () => {
     controller.providerCards = [
       {
         id: 'home_assistant',
@@ -324,18 +418,20 @@ describe('SettingsSystemSection', () => {
     expect(
       screen.queryByRole('button', { name: /Manage .* other providers/ })
     ).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Make active' })).toBeInTheDocument();
-    expect(screen.getAllByRole('link', { name: 'Open' }).length).toBeGreaterThan(0);
-    expect(screen.getByText('Active')).toBeInTheDocument();
+    expect(screen.queryByText('Primary')).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Make active' }));
-    expect(controller.setActiveProvider).toHaveBeenCalledWith('home_assistant');
+    fireEvent.pointerDown(screen.getByRole('button', { name: 'More actions: Home Assistant' }));
+    expect(screen.getByRole('menuitem', { name: 'Open' })).toBeInTheDocument();
+    expect(screen.queryByRole('menuitem', { name: 'Make primary' })).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getAllByRole('button', { name: 'Disconnect' })[0]);
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Disconnect' }));
+    expect(controller.handleDisconnectProvider).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Disconnect' }));
     expect(controller.handleDisconnectProvider).toHaveBeenCalledWith('home_assistant');
+    await waitFor(() => expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument());
   });
 
-  it('submits a Home Assistant URL and disconnects connected providers', () => {
+  it('submits a Home Assistant URL and disconnects connected providers', async () => {
     controller.providerCards = [
       {
         id: 'home_assistant',
@@ -411,148 +507,109 @@ describe('SettingsSystemSection', () => {
       undefined
     );
 
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    fireEvent.pointerDown(screen.getByRole('button', { name: 'More actions: Homey' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Disconnect' }));
+    expect(controller.handleDisconnectProvider).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole('button', { name: 'Disconnect' }));
     expect(controller.handleDisconnectProvider).toHaveBeenCalledWith('homey');
+    await waitFor(() => expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument());
   });
 
-  it('submits openHAB credentials from settings connect flow', () => {
-    controller.providerCards = [
-      {
-        id: 'openhab',
-        label: 'openHAB',
-        loginMode: 'url_session',
-        status: 'disconnected',
-        isActive: false,
-        isConnected: false,
-        canConnect: true,
-        canDisconnect: false,
-        baseUrl: null,
-        error: null,
-        implementationStatus: 'implemented',
-        featureMatrix: {
-          rooms: true,
-          lighting: true,
-          sensors: true,
-          climate: true,
-          mediaControls: false,
-          mediaBrowse: false,
-          mediaArtwork: false,
-          cameraSnapshot: false,
-          cameraStreams: false,
-          energyNow: false,
-          calendar: false,
-          weather: false,
-          notifications: false,
+  it.each([undefined, 'Unable to reach openHAB'])(
+    'shows openHAB connection progress until the request settles (%s)',
+    async (connectionError) => {
+      let finishConnection!: (error: string | undefined) => void;
+      vi.mocked(controller.handleConnectProvider).mockReturnValueOnce(
+        new Promise<string | undefined>((resolve) => {
+          finishConnection = resolve;
+        })
+      );
+      controller.providerCards = [
+        {
+          id: 'openhab',
+          label: 'openHAB',
+          loginMode: 'url_session',
+          status: 'disconnected',
+          isActive: false,
+          isConnected: false,
+          canConnect: true,
+          canDisconnect: false,
+          baseUrl: null,
+          error: null,
+          implementationStatus: 'implemented',
+          featureMatrix: {
+            rooms: true,
+            lighting: true,
+            sensors: true,
+            climate: true,
+            mediaControls: false,
+            mediaBrowse: false,
+            mediaArtwork: false,
+            cameraSnapshot: false,
+            cameraStreams: false,
+            energyNow: false,
+            calendar: false,
+            weather: false,
+            notifications: false,
+          },
         },
-      },
-    ] as typeof controller.providerCards;
+      ] as typeof controller.providerCards;
 
+      renderWithProviders(<SettingsSystemSection controller={controller} />);
+
+      fireEvent.click(screen.getByRole('button', { name: 'Connect' }));
+
+      fireEvent.change(screen.getByPlaceholderText('http://openhab.local:8080'), {
+        target: { value: 'http://openhab.local:8080' },
+      });
+      fireEvent.change(screen.getByLabelText('Username'), {
+        target: { value: 'navet' },
+      });
+      fireEvent.change(screen.getByLabelText('Password'), {
+        target: { value: 'secret' },
+      });
+      fireEvent.click(screen.getByRole('button', { name: 'Connect' }));
+
+      expect(controller.handleConnectProvider).toHaveBeenCalledWith(
+        'openhab',
+        'http://openhab.local:8080',
+        'navet',
+        'secret'
+      );
+      expect(screen.getByRole('dialog')).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Connecting...' })).toBeDisabled();
+      expect(screen.getByRole('button', { name: 'Cancel' })).toBeDisabled();
+      expect(screen.getByLabelText('Username')).toBeDisabled();
+      expect(screen.getByLabelText('Password')).toBeDisabled();
+      const form = screen.getByRole('button', { name: 'Connecting...' }).closest('form');
+      if (!form) throw new Error('Connection form is missing');
+      fireEvent.submit(form);
+      expect(controller.handleConnectProvider).toHaveBeenCalledTimes(1);
+
+      await act(async () => {
+        finishConnection(connectionError);
+      });
+      if (connectionError) {
+        expect(screen.getByRole('alert')).toHaveTextContent(connectionError);
+        expect(screen.getByLabelText('Username')).toHaveValue('navet');
+        expect(screen.getByLabelText('Password')).toHaveValue('secret');
+        expect(screen.getByRole('button', { name: 'Connect' })).toBeEnabled();
+        fireEvent.click(screen.getByRole('button', { name: 'Connect' }));
+        await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+        expect(controller.handleConnectProvider).toHaveBeenCalledTimes(2);
+      } else {
+        expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+      }
+    }
+  );
+
+  it('uses authorized devices as the only device roster', () => {
     renderWithProviders(<SettingsSystemSection controller={controller} />);
 
-    fireEvent.click(screen.getByRole('button', { name: 'Connect' }));
-
-    fireEvent.change(screen.getByPlaceholderText('http://openhab.local:8080'), {
-      target: { value: 'http://openhab.local:8080' },
-    });
-    fireEvent.change(screen.getByLabelText('Username'), {
-      target: { value: 'navet' },
-    });
-    fireEvent.change(screen.getByLabelText('Password'), {
-      target: { value: 'secret' },
-    });
-    fireEvent.click(screen.getByRole('button', { name: 'Connect' }));
-
-    expect(controller.handleConnectProvider).toHaveBeenCalledWith(
-      'openhab',
-      'http://openhab.local:8080',
-      'navet',
-      'secret'
-    );
-  });
-
-  it('shows sync state, attributed changes, and lets this device be renamed', () => {
-    const currentClient = useDashboardProfileRuntimeStore.getState().client;
-    expect(currentClient).not.toBeNull();
-    useDashboardProfileRuntimeStore.getState().setClients([
-      {
-        id: currentClient?.id ?? 'current',
-        name: currentClient?.name ?? 'Phone 5555',
-        kind: 'phone',
-        firstSeenAt: '2026-07-25T08:00:00.000Z',
-        lastSeenAt: '2026-07-25T08:00:00.000Z',
-        lastRevision: 4,
-      },
-      {
-        id: 'kitchen_panel',
-        name: 'Kitchen panel',
-        kind: 'wall_panel',
-        firstSeenAt: '2026-07-24T08:00:00.000Z',
-        lastSeenAt: '2026-07-25T09:00:00.000Z',
-        lastRevision: 5,
-        userName: 'Vishal',
-      },
-    ]);
-    useDashboardProfileRuntimeStore.getState().markSynced({
-      revision: 5,
-      workspaceId: 'workspace_1',
-      activity: {
-        id: 'workspace_1:5',
-        revision: 5,
-        changedAt: '2026-07-25T09:00:00.000Z',
-        changedPaths: ['/theme/primaryColor'],
-        actor: {
-          clientId: 'kitchen_panel',
-          clientName: 'Kitchen panel',
-          clientKind: 'wall_panel',
-          userName: 'Vishal',
-        },
-      },
-    });
-
-    renderWithProviders(<SettingsSystemSection controller={controller} />);
-
-    expect(screen.getByText('Connected devices')).toBeInTheDocument();
-    expect(screen.getByText('This device')).toBeInTheDocument();
-    expect(screen.getByText('Other devices')).toBeInTheDocument();
-    expect(screen.getByText('Synced')).toBeInTheDocument();
-    expect(screen.getAllByText('Revision 5')).toHaveLength(2);
-    expect(screen.getByText('Dashboard updated from Kitchen panel')).toBeInTheDocument();
-    expect(screen.getByText('Signed in as Vishal')).toBeInTheDocument();
-
-    expect(screen.queryByRole('textbox', { name: 'Device name' })).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'Rename device' }));
-
-    fireEvent.change(screen.getByRole('textbox', { name: 'Device name' }), {
-      target: { value: 'Vishal’s phone' },
-    });
-    fireEvent.click(screen.getByRole('button', { name: 'Save name' }));
-    expect(useDashboardProfileRuntimeStore.getState().client?.name).toBe('Vishal’s phone');
-    expect(screen.queryByRole('textbox', { name: 'Device name' })).not.toBeInTheDocument();
-  });
-
-  it('hides the other devices section when this is the only registered device', () => {
-    const currentClient = useDashboardProfileRuntimeStore.getState().client;
-    expect(currentClient).not.toBeNull();
-    if (!currentClient) return;
-
-    useDashboardProfileRuntimeStore.getState().setClients([
-      {
-        id: currentClient.id,
-        name: currentClient.name,
-        kind: currentClient.kind,
-        firstSeenAt: '2026-07-25T08:00:00.000Z',
-        lastSeenAt: '2026-07-25T08:00:00.000Z',
-        lastRevision: 5,
-      },
-    ]);
-
-    renderWithProviders(<SettingsSystemSection controller={controller} />);
-
-    expect(screen.queryByText('Other devices')).not.toBeInTheDocument();
-    expect(
-      screen.queryByText('No other device has connected to this Navet installation yet.')
-    ).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Rename device' })).toBeInTheDocument();
+    expect(screen.queryByText('Connected displays')).not.toBeInTheDocument();
+    expect(screen.getByText('Authorized devices')).toBeInTheDocument();
+    expect(screen.getByText('Device settings')).toBeInTheDocument();
   });
 
   it('copies display settings once or creates an automatic linked profile', async () => {
@@ -563,6 +620,7 @@ describe('SettingsSystemSection', () => {
       id: 'kitchen_panel',
       name: 'Kitchen panel',
       kind: 'wall_panel' as const,
+      userName: 'Vishal',
       firstSeenAt: '2026-07-24T08:00:00.000Z',
       lastSeenAt: '2026-07-25T09:00:00.000Z',
       lastRevision: 5,
@@ -588,8 +646,15 @@ describe('SettingsSystemSection', () => {
 
     renderWithProviders(<SettingsSystemSection controller={controller} />);
 
-    expect(screen.getByText('Independent on this device')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'Copy to devices' }));
+    expect(screen.getByText('Not shared — changes affect only this device')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Copy settings once' }));
+    expect(screen.getByRole('button', { name: 'Copy settings' })).toBeDisabled();
+    expect(screen.getByText(/Signed in as Vishal/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Kitchen panel/ })).toHaveAttribute(
+      'aria-pressed',
+      'false'
+    );
+    fireEvent.click(screen.getByRole('button', { name: /Kitchen panel/ }));
     fireEvent.click(screen.getByRole('button', { name: 'Copy settings' }));
     await waitFor(() =>
       expect(dashboardProfileServiceMocks.copyDashboardDisplaySettings).toHaveBeenCalledWith(
@@ -599,7 +664,7 @@ describe('SettingsSystemSection', () => {
       )
     );
 
-    fireEvent.click(screen.getByRole('button', { name: 'Keep devices in sync' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Keep settings synced' }));
     fireEvent.change(screen.getByRole('textbox', { name: 'Group name' }), {
       target: { value: 'Personal devices' },
     });
@@ -619,324 +684,5 @@ describe('SettingsSystemSection', () => {
     expect(
       useDeviceDisplayProfileRuntimeStore.getState().policy.profileIdByClientId[currentClient.id]
     ).toBeTruthy();
-  });
-
-  it('loads revision history on demand and restores an older snapshot as a new revision', async () => {
-    const currentClient = useDashboardProfileRuntimeStore.getState().client;
-    expect(currentClient).not.toBeNull();
-    if (!currentClient) return;
-
-    useDashboardProfileRuntimeStore.getState().markSynced({
-      revision: 5,
-      workspaceId: 'workspace_1',
-    });
-    dashboardProfileServiceMocks.loadDashboardProfileHistory.mockResolvedValue({
-      workspace: {
-        contractVersion: 1,
-        installationId: 'installation_1',
-        workspaceId: 'workspace_1',
-        defaultProfileId: 'default',
-        createdAt: '2026-07-20T08:00:00.000Z',
-      },
-      entries: [
-        {
-          contractVersion: 1,
-          installationId: 'installation_1',
-          workspaceId: 'workspace_1',
-          profileId: 'default',
-          revision: 5,
-          generation: 'generation_5',
-          kind: 'update',
-          updatedAt: '2026-07-25T09:00:00.000Z',
-          author: {
-            id: currentClient.id,
-            name: currentClient.name,
-            kind: currentClient.kind,
-            providerId: 'home_assistant',
-            userId: 'user_1',
-            userName: 'Vishal',
-          },
-          changedPaths: ['/theme/primaryColor'],
-          hasProfile: true,
-        },
-        {
-          contractVersion: 1,
-          installationId: 'installation_1',
-          workspaceId: 'workspace_1',
-          profileId: 'default',
-          revision: 3,
-          generation: 'generation_3',
-          kind: 'update',
-          updatedAt: '2026-07-24T09:00:00.000Z',
-          author: {
-            id: 'kitchen_panel',
-            name: 'Kitchen panel',
-            kind: 'wall_panel',
-            providerId: 'home_assistant',
-            userId: 'user_1',
-            userName: 'Vishal',
-          },
-          changedPaths: ['/homeDashboardLayout/sections'],
-          hasProfile: true,
-        },
-      ],
-    });
-    dashboardProfileServiceMocks.restoreDashboardProfileRevision.mockResolvedValue({
-      saved: true,
-      unauthorized: false,
-      permanentFailure: false,
-      preconditionFailed: false,
-      preconditionRequired: false,
-      etag: '"revision-6"',
-      lastModified: '2026-07-25T10:00:00.000Z',
-      generation: 'generation_6',
-      revision: 6,
-      workspace: {
-        contractVersion: 1,
-        installationId: 'installation_1',
-        workspaceId: 'workspace_1',
-        defaultProfileId: 'default',
-        createdAt: '2026-07-20T08:00:00.000Z',
-      },
-      metadata: {
-        contractVersion: 1,
-        installationId: 'installation_1',
-        workspaceId: 'workspace_1',
-        profileId: 'default',
-        revision: 6,
-        generation: 'generation_6',
-        kind: 'restore',
-        updatedAt: '2026-07-25T10:00:00.000Z',
-        author: {
-          id: currentClient.id,
-          name: currentClient.name,
-          kind: currentClient.kind,
-          providerId: 'home_assistant',
-          userId: 'user_1',
-          userName: 'Vishal',
-        },
-        changedPaths: ['/'],
-        restoredFromRevision: 3,
-      },
-      recovery: {
-        status: 'active',
-        resetRevision: null,
-        latestRecoverableRevision: null,
-      },
-    });
-    const refreshListener = vi.fn();
-    window.addEventListener(DASHBOARD_PROFILE_REFRESH_EVENT, refreshListener);
-
-    renderWithProviders(<SettingsSystemSection controller={controller} />);
-
-    expect(dashboardProfileServiceMocks.loadDashboardProfileHistory).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole('button', { name: 'Revision history' }));
-
-    await waitFor(() => {
-      expect(dashboardProfileServiceMocks.loadDashboardProfileHistory).toHaveBeenCalledTimes(1);
-    });
-    expect(screen.getByText('Current')).toBeInTheDocument();
-    expect(screen.getByText('Revision 3')).toBeInTheDocument();
-    const historyViewport = screen.getByRole('region', { name: 'Revision history' });
-    expect(historyViewport).toHaveClass(
-      'max-h-[min(22rem,55vh)]',
-      'overflow-y-auto',
-      'overscroll-contain'
-    );
-    expect(historyViewport.querySelector('[class*="content-visibility:auto"]')).toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole('button', { name: 'Restore' }));
-    const confirmation = screen.getByRole('group', { name: 'Restore revision 3?' });
-    expect(
-      within(confirmation).getByText(/records the restore as a new revision/)
-    ).toBeInTheDocument();
-    expect(dashboardProfileServiceMocks.restoreDashboardProfileRevision).not.toHaveBeenCalled();
-
-    fireEvent.click(within(confirmation).getByRole('button', { name: 'Restore' }));
-
-    await waitFor(() => {
-      expect(dashboardProfileServiceMocks.restoreDashboardProfileRevision).toHaveBeenCalledWith(3, {
-        author: currentClient,
-        baseRevision: 5,
-      });
-    });
-    expect(useDashboardProfileRuntimeStore.getState().revision).toBe(6);
-    expect(refreshListener).toHaveBeenCalledTimes(1);
-    expect(
-      screen.getByText('Revision 3 was restored and saved as a new revision.')
-    ).toBeInTheDocument();
-
-    window.removeEventListener(DASHBOARD_PROFILE_REFRESH_EVENT, refreshListener);
-  });
-
-  it('refreshes sync and history after a stale restore attempt', async () => {
-    const currentClient = useDashboardProfileRuntimeStore.getState().client;
-    expect(currentClient).not.toBeNull();
-    if (!currentClient) return;
-
-    useDashboardProfileRuntimeStore.getState().markSynced({
-      revision: 5,
-      workspaceId: 'workspace_1',
-    });
-    dashboardProfileServiceMocks.loadDashboardProfileHistory.mockResolvedValue({
-      workspace: {
-        contractVersion: 1,
-        installationId: 'installation_1',
-        workspaceId: 'workspace_1',
-        defaultProfileId: 'default',
-        createdAt: '2026-07-20T08:00:00.000Z',
-      },
-      entries: [
-        {
-          contractVersion: 1,
-          installationId: 'installation_1',
-          workspaceId: 'workspace_1',
-          profileId: 'default',
-          revision: 3,
-          generation: 'generation_3',
-          kind: 'update',
-          updatedAt: '2026-07-24T09:00:00.000Z',
-          author: {
-            id: 'kitchen_panel',
-            name: 'Kitchen panel',
-            kind: 'wall_panel',
-            providerId: 'home_assistant',
-            userId: 'user_1',
-            userName: 'Vishal',
-          },
-          changedPaths: ['/homeDashboardLayout/sections'],
-          hasProfile: true,
-        },
-      ],
-    });
-    dashboardProfileServiceMocks.restoreDashboardProfileRevision.mockResolvedValue({
-      saved: false,
-      unauthorized: false,
-      permanentFailure: false,
-      preconditionFailed: true,
-      preconditionRequired: false,
-      etag: '"revision-6"',
-      lastModified: '2026-07-25T10:00:00.000Z',
-      generation: 'generation_6',
-      revision: 6,
-      workspace: {
-        contractVersion: 1,
-        installationId: 'installation_1',
-        workspaceId: 'workspace_1',
-        defaultProfileId: 'default',
-        createdAt: '2026-07-20T08:00:00.000Z',
-      },
-      metadata: null,
-      recovery: {
-        status: 'active',
-        resetRevision: null,
-        latestRecoverableRevision: null,
-      },
-    });
-    const refreshListener = vi.fn();
-    window.addEventListener(DASHBOARD_PROFILE_REFRESH_EVENT, refreshListener);
-
-    renderWithProviders(<SettingsSystemSection controller={controller} />);
-    fireEvent.click(screen.getByRole('button', { name: 'Revision history' }));
-    await waitFor(() => {
-      expect(dashboardProfileServiceMocks.loadDashboardProfileHistory).toHaveBeenCalledTimes(1);
-    });
-
-    fireEvent.click(screen.getByRole('button', { name: 'Restore' }));
-    fireEvent.click(
-      within(screen.getByRole('group', { name: 'Restore revision 3?' })).getByRole('button', {
-        name: 'Restore',
-      })
-    );
-
-    await waitFor(() => {
-      expect(dashboardProfileServiceMocks.loadDashboardProfileHistory).toHaveBeenCalledTimes(2);
-      expect(refreshListener).toHaveBeenCalledTimes(1);
-    });
-    expect(
-      screen.getByText(
-        'The dashboard changed before the restore finished. Refresh the history and try again.'
-      )
-    ).toBeInTheDocument();
-    expect(screen.queryByRole('group', { name: 'Restore revision 3?' })).not.toBeInTheDocument();
-
-    window.removeEventListener(DASHBOARD_PROFILE_REFRESH_EVENT, refreshListener);
-  });
-
-  it('does not offer shared revision history when this dashboard is local only', () => {
-    useDashboardProfileRuntimeStore.getState().markDisabled();
-
-    renderWithProviders(<SettingsSystemSection controller={controller} />);
-
-    expect(screen.getByText('Local only')).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Revision history' })).not.toBeInTheDocument();
-  });
-
-  it('offers a manual recovery action when dashboard sync needs attention', () => {
-    useDashboardProfileRuntimeStore
-      .getState()
-      .markError('Shared dashboard sync is unavailable. Local settings are preserved.');
-    const refreshListener = vi.fn();
-    window.addEventListener(DASHBOARD_PROFILE_REFRESH_EVENT, refreshListener);
-
-    renderWithProviders(<SettingsSystemSection controller={controller} />);
-
-    fireEvent.click(screen.getByRole('button', { name: 'Retry sync' }));
-    expect(refreshListener).toHaveBeenCalledTimes(1);
-
-    window.removeEventListener(DASHBOARD_PROFILE_REFRESH_EVENT, refreshListener);
-  });
-
-  it('confirms before replacing a mismatched workspace with this local dashboard', () => {
-    useDashboardProfileRuntimeStore
-      .getState()
-      .markError(
-        'This shared dashboard belongs to a different Home Assistant address.',
-        DASHBOARD_PROFILE_ERROR_CODES.workspaceTenantMismatch
-      );
-    const rebindListener = vi.fn();
-    window.addEventListener(DASHBOARD_PROFILE_REBIND_EVENT, rebindListener);
-
-    renderWithProviders(<SettingsSystemSection controller={controller} />);
-
-    fireEvent.click(screen.getByRole('button', { name: 'Use this dashboard' }));
-    const confirmation = screen.getByRole('group', { name: 'Start a new shared sync?' });
-    expect(
-      within(confirmation).getByText(/keeps this device’s current dashboard/i)
-    ).toBeInTheDocument();
-    fireEvent.click(within(confirmation).getByRole('button', { name: 'Start new sync' }));
-    expect(rebindListener).toHaveBeenCalledTimes(1);
-
-    window.removeEventListener(DASHBOARD_PROFILE_REBIND_EVENT, rebindListener);
-  });
-
-  it('lists another dashboard without exposing a cross-browser removal control', () => {
-    const currentClient = useDashboardProfileRuntimeStore.getState().client;
-    expect(currentClient).not.toBeNull();
-    if (!currentClient) return;
-
-    useDashboardProfileRuntimeStore.getState().setClients([
-      {
-        id: currentClient.id,
-        name: currentClient.name,
-        kind: currentClient.kind,
-        firstSeenAt: '2026-07-25T08:00:00.000Z',
-        lastSeenAt: '2026-07-25T08:00:00.000Z',
-        lastRevision: 5,
-      },
-      {
-        id: 'kitchen_panel',
-        name: 'Kitchen panel',
-        kind: 'wall_panel',
-        firstSeenAt: '2026-07-24T08:00:00.000Z',
-        lastSeenAt: '2026-07-25T09:00:00.000Z',
-        lastRevision: 5,
-      },
-    ]);
-    renderWithProviders(<SettingsSystemSection controller={controller} />);
-
-    expect(screen.getByText('Kitchen panel')).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Remove device' })).not.toBeInTheDocument();
-    expect(dashboardProfileServiceMocks.forgetDashboardProfileClient).not.toHaveBeenCalled();
   });
 });

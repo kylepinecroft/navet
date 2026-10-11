@@ -5,7 +5,7 @@ import type { DeviceWithType } from '@navet/app/types/device.types';
 import type { DashboardEntityView } from '@navet/ui/dashboard-entity-view';
 import type { ClimateDashboardSection } from '../../climate/types/climate-dashboard';
 import type { AllViewGrouping } from '../all-view-grid';
-import type { CardTemplate } from '../components/add-card-dialog';
+import type { CardTemplate } from '../components/add-entity-dialog';
 import type { DashboardPackId } from '../packs/dashboard-packs';
 import type { CustomCard } from '../stores/custom-cards-store';
 import type { ZoneName } from '../zones/zone-types';
@@ -101,3 +101,116 @@ export type DashboardController = OnboardingController &
     updateCardSize: ReturnType<typeof useCardState>['updateCardSize'];
     updateCardZone: (id: string, zone: ZoneName) => void;
   };
+
+export type DashboardPageModel = Pick<
+  DashboardController,
+  | 'activeRoom'
+  | 'activeSection'
+  | 'connecting'
+  | 'dashboardArrivalVariant'
+  | 'devicesLoaded'
+  | 'homeLayoutHydrated'
+  | 'isEditMode'
+  | 'isOnboardingClosing'
+  | 'onDismissImportedDashboardReveal'
+  | 'showAddCardDialog'
+  | 'showAddEntityDialog'
+  | 'showImportedDashboardReveal'
+>;
+
+export type DashboardOverlayModel = Pick<
+  DashboardController,
+  | 'activeRoom'
+  | 'activeSection'
+  | 'addableEntityIds'
+  | 'allCustomCards'
+  | 'allEntityIds'
+  | 'availableDeviceMap'
+  | 'customCards'
+  | 'handleAddCard'
+  | 'handleAddEntity'
+  | 'handleAddGenericEntityCard'
+  | 'handleAddLibraryCard'
+  | 'handleChooseAllEntities'
+  | 'handleChooseBlankDashboard'
+  | 'handleOnboardingImportDashboardConfig'
+  | 'hiddenEntityIds'
+  | 'homeLayout'
+  | 'isEditMode'
+  | 'isOnboardingClosing'
+  | 'manualDeviceMap'
+  | 'manualEntityViewsByCanonicalId'
+  | 'onCloseAddCardDialog'
+  | 'onCloseAddEntityDialog'
+  | 'onCompleteOnboardingClose'
+  | 'onboardingCompleted'
+  | 'orderedCardIds'
+  | 'sectionData'
+  | 'showAddCardDialog'
+  | 'showAddEntityDialog'
+>;
+
+export type DashboardSectionModel = Pick<
+  DashboardController,
+  | 'activeRoom'
+  | 'activeRoomSecurityAlertCount'
+  | 'activeSection'
+  | 'addHomeColumnSection'
+  | 'addHomeSection'
+  | 'addHomeSectionBelow'
+  | 'addableEntityIds'
+  | 'allCustomCards'
+  | 'allViewGrouping'
+  | 'availableDeviceMap'
+  | 'canRedoHomeLayout'
+  | 'canUndoHomeLayout'
+  | 'cardOrders'
+  | 'cardSizes'
+  | 'changeRoom'
+  | 'customCards'
+  | 'dashboardRooms'
+  | 'densePerformanceMode'
+  | 'deviceMap'
+  | 'handleAddEntity'
+  | 'handleApplyDashboardPack'
+  | 'handleDeleteCard'
+  | 'handleRemoveEntity'
+  | 'handleUpdateCard'
+  | 'hiddenEntityIds'
+  | 'hiddenRoomNames'
+  | 'homeLayout'
+  | 'isEditMode'
+  | 'lightDeviceMap'
+  | 'lightRooms'
+  | 'moveHomeCard'
+  | 'moveHomeColumn'
+  | 'moveHomeSection'
+  | 'onOpenAddCardDialog'
+  | 'onOpenAddEntityDialog'
+  | 'onSetAllViewGrouping'
+  | 'onSetHiddenRoomNames'
+  | 'onSetRoomOrder'
+  | 'onToggleEditMode'
+  | 'optimizeOffscreenPaint'
+  | 'orderedCardIds'
+  | 'redoHomeLayout'
+  | 'removeHomeCard'
+  | 'removeHomeSection'
+  | 'renameHomeSection'
+  | 'resizeHomeSection'
+  | 'roomHiddenItemCounts'
+  | 'roomItemCounts'
+  | 'rooms'
+  | 'sectionData'
+  | 'securityAlertCount'
+  | 'setActiveSection'
+  | 'setHomeLayoutMode'
+  | 'undoHomeLayout'
+  | 'updateCardSize'
+>;
+
+export interface DashboardComposition {
+  page: DashboardPageModel;
+  overlays: DashboardOverlayModel;
+  section: DashboardSectionModel;
+}

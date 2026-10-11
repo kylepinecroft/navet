@@ -18,20 +18,23 @@ available, Energy shows a setup state instead of an empty chart.
 - The KPI strip summarizes live energy, grid import, solar production, battery, and cost when those
   readings are available.
 - **Day**, **Week**, **Month**, **Year**, and **Custom** set the history range.
+- **Day** uses five-minute history intervals for today's detailed view when the provider supplies
+  them.
 - **Devices**, **Rooms**, and **Sources** change how usage is grouped.
 - **Live** and the period comparison show current demand beside accumulated energy.
 - Selecting a chart period opens its energy-used total and highest consumer details.
 - **Untracked** represents load that is not assigned to a tracked device.
 - Source and sensor warnings remain visible when provider data is incomplete.
 
-![The current Energy dashboard with KPI strip, detailed usage chart, range controls, and device grouping.](/docs/how-to/everyday-control/energy-dashboard.webp)
+![The Energy dashboard on Day, with KPI summaries, detailed usage bars, and device grouping.](/docs/how-to/everyday-control/energy-dashboard.webp)
 
 ## Customize Energy
 
-Choose **Customize** while Energy is open to apply the **Essentials** or **Balanced** overview
-layout. Open **KPIs** to keep automatic metric selection or manually choose and order the four
-metrics shown above Energy usage. These choices change Navet's presentation; they do not change
-the provider's source configuration.
+Choose **Customize** while Energy is open to arrange the usage chart, metric cards, and device
+cards. Use a metric card's edit button to choose a replacement from **Energy KPIs**.
+
+Choose **Hide KPIs** to hide the summary metrics, or **Show KPIs** to restore your selected metrics.
+The usage chart stays visible. Choose **Done** when you finish arranging the dashboard.
 
 ## Manage source selection
 
@@ -44,5 +47,7 @@ Follow [Configure Home Assistant Energy sources](/guide/everyday-control/manual-
 
 ## Provider availability
 
-An unavailable Energy section on Homey or openHAB is a current provider capability difference, not
-an indication that the dashboard failed to load.
+Homey and openHAB can contribute live power and energy device readings when their devices expose
+them. The detailed statistics history dashboard requires Home Assistant's Energy and history
+services. If only Homey or openHAB is connected, an unavailable detailed view reflects that
+capability difference.

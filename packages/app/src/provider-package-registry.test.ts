@@ -22,8 +22,6 @@ const mocks = vi.hoisted(() => ({
   }),
   createHomeyProviderPackageRegistrationMock: vi.fn(() => ({ runtimeRegistration: {} })),
   createOpenHABProviderPackageRegistrationMock: vi.fn(() => ({ runtimeRegistration: {} })),
-  createHubitatProviderPackageRegistrationMock: vi.fn(() => ({ runtimeRegistration: {} })),
-  createSmartThingsProviderPackageRegistrationMock: vi.fn(() => ({ runtimeRegistration: {} })),
   subscribeCameraWebRtcOfferMock: vi.fn(async () => () => undefined),
 }));
 
@@ -38,15 +36,6 @@ vi.mock('@navet/provider-homey', () => ({
 
 vi.mock('@navet/provider-openhab', () => ({
   createOpenHABProviderPackageRegistration: mocks.createOpenHABProviderPackageRegistrationMock,
-}));
-
-vi.mock('@navet/provider-hubitat', () => ({
-  createHubitatProviderPackageRegistration: mocks.createHubitatProviderPackageRegistrationMock,
-}));
-
-vi.mock('@navet/provider-smartthings', () => ({
-  createSmartThingsProviderPackageRegistration:
-    mocks.createSmartThingsProviderPackageRegistrationMock,
 }));
 
 vi.mock('./integration-session-runtime', () => ({
@@ -82,7 +71,6 @@ vi.mock('./services/home-assistant.service', () => ({
     browseMediaSource: vi.fn(async () => ({ title: 'Media' })),
     resolveMediaSource: vi.fn(async () => ({ url: '/media' })),
     getAutomationConfig: vi.fn(async () => ({ config: {} })),
-    saveAutomationConfig: vi.fn(async () => undefined),
     getCameraCapabilities: vi.fn(async () => ({})),
     enableCameraMotionDetection: vi.fn(async () => undefined),
     disableCameraMotionDetection: vi.fn(async () => undefined),

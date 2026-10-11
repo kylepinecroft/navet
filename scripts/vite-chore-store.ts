@@ -1,3 +1,4 @@
+import choreDurableStorage from '../docker/njs/chore-durable-storage.js'
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto'
 import { mkdirSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from 'node:fs'
 import type { IncomingMessage, ServerResponse } from 'node:http'
@@ -31,7 +32,9 @@ import {
   type ChoreWorkspaceResetRequest,
   type ChoreWorkspaceRestoreRequest,
 } from '../packages/app/src/services/chore-workspace.contract.ts'
-import type { ViteDashboardProfilePrincipal } from './vite-dashboard-profile-store.ts'
+export interface ViteChorePrincipal {
+  sessionId: string
+}
 import { isViteStrictSameOriginMutation } from './vite-provider-session-store.ts'
 
 const CONTRACT_VERSION = 1
@@ -283,7 +286,7 @@ export function createViteChoreStoreRequestHandler(options: {
   filePath?: string
   resolvePrincipal: (
     request: IncomingMessage
-  ) => ViteDashboardProfilePrincipal | null | Promise<ViteDashboardProfilePrincipal | null>
+  ) => ViteChorePrincipal | null | Promise<ViteChorePrincipal | null>
 }) {
   const filePath =
     options.filePath ?? path.resolve(process.cwd(), '.cache', 'navet-chore-workspace.json')
@@ -294,6 +297,19 @@ export function createViteChoreStoreRequestHandler(options: {
   let managementSessions: ChoreManagementSession[] = []
   let failedManagementAttempts = 0
   let managementBlockedUntil = 0
+
+  const workspaceKey = () => {
+    const identityPath = `${filePath}.identity`
+    const missing = Symbol('missing')
+    const identity = readJson<unknown>(identityPath, missing, 1024)
+    if (identity !== missing && (typeof identity !== 'string' || !/^hat_[a-f0-9]{64}$/.test(identity))) {
+      throw new Error('Chore workspace identity is invalid')
+    }
+    if (typeof identity === 'string') return identity
+    const created = `hat_${randomBytes(32).toString('hex')}`
+    writeJson(identityPath, created, 1024)
+    return created
+  }
 
   const readManagementSecurity = (
     tenantId: string
@@ -306,11 +322,18 @@ export function createViteChoreStoreRequestHandler(options: {
     if (!security) return null
     if (
       security.contractVersion !== CONTRACT_VERSION ||
-      security.tenantId !== tenantId ||
+      typeof security.tenantId !== 'string' ||
+      !/^hat_[a-f0-9]{64}$/.test(security.tenantId) ||
       typeof security.salt !== 'string' ||
       typeof security.pinHash !== 'string'
     ) {
       throw new Error('Chore management security is invalid')
+    }
+    if (security.tenantId !== tenantId) {
+      const migrated = { ...security, tenantId, updatedAt: new Date().toISOString() }
+      writeJson(managementSecurityPath, migrated, MAX_MANAGEMENT_SECURITY_BYTES)
+      managementSessions = []
+      return migrated
     }
     return security
   }
@@ -401,7 +424,8 @@ export function createViteChoreStoreRequestHandler(options: {
     if (
       !isRecord(value) ||
       value.contractVersion !== CONTRACT_VERSION ||
-      (value.tenantId !== undefined && value.tenantId !== tenantId) ||
+      (value.tenantId !== undefined &&
+        (typeof value.tenantId !== 'string' || !/^hat_[a-f0-9]{64}$/.test(value.tenantId))) ||
       !Number.isSafeInteger(value.revision) ||
       Number(value.revision) < 0 ||
       typeof value.updatedAt !== 'string' ||
@@ -422,12 +446,22 @@ export function createViteChoreStoreRequestHandler(options: {
     }
   }
 
+  const durableHash = (value: string): string => createHash('sha256').update(value).digest('hex')
+  const readStoredDocument = (candidatePath: string, fallback: unknown): unknown =>
+    choreDurableStorage.decode(readJson<unknown>(candidatePath, fallback, MAX_DOCUMENT_BYTES), durableHash,
+      (key) => readJson<unknown>(`${filePath}.chunk-${key}`, null, choreDurableStorage.CHUNK_BYTES))
+  const writeStoredDocument = (candidatePath: string, document: PersistedChoreWorkspaceDocument): void => {
+    const stored = choreDurableStorage.encode(document, MAX_DOCUMENT_BYTES, durableHash,
+      (key, chunk) => writeJson(`${filePath}.chunk-${key}`, chunk, choreDurableStorage.CHUNK_BYTES))
+    writeJson(candidatePath, stored, MAX_DOCUMENT_BYTES)
+  }
+
   const readDocumentCandidate = (
     candidatePath: string,
     tenantId: string
   ): PersistedChoreWorkspaceDocument | null => {
     try {
-      return normalizeDocument(readJson<unknown>(candidatePath, null, MAX_DOCUMENT_BYTES), tenantId)
+      return normalizeDocument(readStoredDocument(candidatePath, null), tenantId)
     } catch {
       return null
     }
@@ -437,15 +471,15 @@ export function createViteChoreStoreRequestHandler(options: {
     previous: PersistedChoreWorkspaceDocument,
     next: PersistedChoreWorkspaceDocument
   ): void => {
-    writeJson(lastGoodWorkspacePath, previous, MAX_DOCUMENT_BYTES)
-    writeJson(filePath, next, MAX_DOCUMENT_BYTES)
+    writeStoredDocument(lastGoodWorkspacePath, previous)
+    writeStoredDocument(filePath, next)
   }
 
   const readDocument = (tenantId: string): PersistedChoreWorkspaceDocument => {
     const missing = Symbol('missing-chore-workspace')
     let rawDocument: unknown | typeof missing
     try {
-      rawDocument = readJson<unknown | typeof missing>(filePath, missing, MAX_DOCUMENT_BYTES)
+      rawDocument = readStoredDocument(filePath, missing)
     } catch {
       rawDocument = null
     }
@@ -462,7 +496,7 @@ export function createViteChoreStoreRequestHandler(options: {
     let documentNeedsMigration = Boolean(
       document &&
         isRecord(rawDocument) &&
-        (rawDocument.tenantId === undefined || document.data !== rawDocument.data)
+        (rawDocument.tenantId !== tenantId || document.data !== rawDocument.data)
     )
     if (!document) {
       const backup = readDocumentCandidate(lastGoodWorkspacePath, tenantId)
@@ -476,7 +510,7 @@ export function createViteChoreStoreRequestHandler(options: {
         revision: backup.revision + 1,
         updatedAt: new Date().toISOString(),
       }
-      writeJson(filePath, document, MAX_DOCUMENT_BYTES)
+      writeStoredDocument(filePath, document)
       documentNeedsMigration = false
     }
     const timestamp = new Date().toISOString()
@@ -547,8 +581,8 @@ export function createViteChoreStoreRequestHandler(options: {
   }
 
   return async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
-    const principal = await options.resolvePrincipal(req)
-    if (!principal) {
+    const authenticated = await options.resolvePrincipal(req)
+    if (!authenticated || !authenticated.sessionId) {
       sendJson(res, 401, { error: 'Authentication required' })
       return
     }
@@ -559,7 +593,9 @@ export function createViteChoreStoreRequestHandler(options: {
     }
 
     const route = normalizeRoute(req)
+    let principal = { ...authenticated, tenantId: '' }
     try {
+      principal = { ...authenticated, tenantId: workspaceKey() }
       let managementSecurity: ChoreManagementSecurityDocument | null = null
       let managementSecurityReadable = true
       try {
@@ -621,7 +657,7 @@ export function createViteChoreStoreRequestHandler(options: {
             revision: backup.revision + 1,
             updatedAt: new Date().toISOString(),
           }
-          writeJson(filePath, recovered, MAX_DOCUMENT_BYTES)
+          writeStoredDocument(filePath, recovered)
           replaceEventHistory(recovered.data.activity)
           try {
             unlinkSync(journalPath)
@@ -655,7 +691,7 @@ export function createViteChoreStoreRequestHandler(options: {
           updatedAt: new Date().toISOString(),
           data: emptyChoreWorkspace(),
         }
-        writeJson(filePath, recovered, MAX_DOCUMENT_BYTES)
+        writeStoredDocument(filePath, recovered)
         res.setHeader(CHORE_WORKSPACE_HEADERS.revision, '0')
         sendJson(res, 200, publicDocument(recovered, false))
         return
@@ -1003,7 +1039,7 @@ export function createViteChoreStoreRequestHandler(options: {
           data: nextData,
         }
         if (route === '/reset') {
-          writeJson(filePath, next, MAX_DOCUMENT_BYTES)
+          writeStoredDocument(filePath, next)
           for (const stalePath of [journalPath, eventHistoryPath, lastGoodWorkspacePath]) {
             try {
               unlinkSync(stalePath)

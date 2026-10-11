@@ -16,6 +16,7 @@ import type { AuthAdapter, AuthSession } from '../types';
 
 const AUTH_SESSION_ENDPOINT = '/__navet_auth__/session';
 const AUTH_CREDENTIALS_ENDPOINT = '/__navet_auth__/session/credentials';
+const AUTH_IDENTITY_ENDPOINT = '/__navet_auth__/session/identity';
 const AUTH_AUTHORIZE_ENDPOINT = '/__navet_auth__/authorize';
 const AUTH_BINDING_HEADER = 'X-Navet-OAuth-Binding';
 const AUTH_REVISION_HEADER = 'X-Navet-Auth-Revision';
@@ -139,10 +140,31 @@ function isSessionMetadata(value: unknown): value is StandaloneSessionMetadata {
   );
 }
 
-async function loadSessionMetadata(
+let pendingSessionMetadata: Promise<StandaloneSessionMetadata | null> | null = null;
+
+function loadSessionMetadata(
   timeoutMs = AUTH_SESSION_LOAD_TIMEOUT_MS
 ): Promise<StandaloneSessionMetadata | null> {
-  const response = await fetchWithTimeout(getAuthEndpoint(AUTH_SESSION_ENDPOINT), {}, timeoutMs);
+  if (pendingSessionMetadata) return pendingSessionMetadata;
+  const request = loadSessionMetadataOnce(timeoutMs);
+  pendingSessionMetadata = request;
+  const clear = () => {
+    if (pendingSessionMetadata === request) pendingSessionMetadata = null;
+  };
+  void request.then(clear, clear);
+  return request;
+}
+
+async function loadSessionMetadataOnce(
+  timeoutMs = AUTH_SESSION_LOAD_TIMEOUT_MS
+): Promise<StandaloneSessionMetadata | null> {
+  const response = await fetchWithTimeout(
+    getAuthEndpoint(AUTH_SESSION_ENDPOINT),
+    {
+      headers: latestSessionBinding ? { [AUTH_BINDING_HEADER]: latestSessionBinding } : {},
+    },
+    timeoutMs
+  );
   if (!response) {
     throw new DurableAuthSessionUnavailableError(
       'The Navet authentication service did not respond'
@@ -334,6 +356,29 @@ export async function invalidateStandaloneOAuthSession(): Promise<void> {
   await clearStoredTokens();
 }
 
+export async function recordStandaloneHomeAssistantUser(user: {
+  id: string;
+  name?: string | null;
+}): Promise<void> {
+  const metadata = await loadSessionMetadata();
+  if (!metadata?.authenticated) {
+    return;
+  }
+  const response = await fetch(getAuthEndpoint(AUTH_IDENTITY_ENDPOINT), {
+    method: 'PUT',
+    cache: 'no-store',
+    credentials: 'same-origin',
+    headers: {
+      'Content-Type': 'application/json',
+      [AUTH_BINDING_HEADER]: metadata.sessionId,
+    },
+    body: JSON.stringify({ userId: user.id, userName: user.name ?? null }),
+  });
+  if (!response.ok) {
+    throw new Error(`Unable to store Home Assistant user identity (${response.status})`);
+  }
+}
+
 async function clearConfirmedInvalidStandaloneSession(
   context: StandaloneSessionPersistenceContext
 ): Promise<void> {
@@ -377,7 +422,11 @@ function getOAuthCallbackErrorMessage(): string | null {
     case 'invalid_response':
       return 'Home Assistant returned an invalid sign-in response. Please start a fresh sign-in.';
     case 'temporarily_unavailable':
-      return 'Navet could not reach Home Assistant to finish sign-in. Check that Home Assistant is reachable from this Navet server, then try again.';
+      return 'Home Assistant could not finish sign-in. Open the address you entered, confirm Home Assistant is running, and start sign-in again.';
+    case 'target_unreachable':
+      return 'Navet cannot reach the Home Assistant address you entered. Check the address from the Navet server, including its port and VPN connection, then try again.';
+    case 'authorization_rejected':
+      return 'Home Assistant rejected the sign-in code. Confirm the address is the same one shown on the Home Assistant login page, then start a fresh sign-in.';
     default:
       return code ? 'Home Assistant sign-in failed. Please try again.' : null;
   }

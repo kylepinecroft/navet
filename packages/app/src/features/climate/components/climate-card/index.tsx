@@ -17,8 +17,8 @@ import { ClimateGauge } from './climate-gauge';
 import { ClimateCardLargeLayout, ClimateCardMediumLayout, ClimateCardSmallLayout } from './layouts';
 import { useClimateCardController } from './use-climate-card-controller';
 
-function resolveClimateCardSize(size: ClimateCardProps['size']): 'small' | 'medium' {
-  return size === 'small' ? 'small' : 'medium';
+function resolveClimateCardSize(size: ClimateCardProps['size']): 'small' | 'medium' | 'large' {
+  return size === 'small' || size === 'large' ? size : 'medium';
 }
 
 export const ClimateCard = memo(function ClimateCard({
@@ -63,7 +63,8 @@ export const ClimateCard = memo(function ClimateCard({
     controller.formatTemperature(controller.currentTemp),
     controller.visualMode,
     controller.targetTemp,
-    controller.currentTemp
+    controller.currentTemp,
+    controller.hasTargetTemperature
   );
   const tone =
     !controller.isOn || controller.visualMode === 'idle'
@@ -209,7 +210,7 @@ export const ClimateCard = memo(function ClimateCard({
                   onTargetTempChange={controller.setDisplayTargetTemp}
                   onTargetTempCommit={controller.commitDisplayTargetTemp}
                   variant="docked-card-small"
-                  className="pointer-events-auto absolute right-[-1.9rem] top-1/2 z-[2] -translate-y-1/2"
+                  className="pointer-events-auto absolute right-[-4rem] top-1/2 z-[2] -translate-y-1/2"
                 />
                 <ClimateCardSmallLayout
                   controller={controller}
@@ -299,6 +300,3 @@ export const ClimateCard = memo(function ClimateCard({
     </>
   );
 });
-
-/** @deprecated Use ClimateCard. */
-export const HVACCard = ClimateCard;

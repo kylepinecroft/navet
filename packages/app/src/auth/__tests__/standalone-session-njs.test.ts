@@ -164,6 +164,46 @@ function seedAuth(
 }
 
 describe('production njs standalone OAuth sessions', () => {
+  it('keeps a verified anonymous browser cookie and binding stable across session checks', async () => {
+    const { store } = createStore();
+    const browser = await createBrowserSession(store);
+    const check = createRequest({
+      cookie: browser.cookie,
+      headers: { [AUTH_BINDING_HEADER]: browser.metadata.sessionId },
+    });
+    await store.handle(check.request);
+    expect(check.result.status).toBe(200);
+    expect(JSON.parse(check.result.body).sessionId).toBe(browser.metadata.sessionId);
+    expect(cookieHeader(check.request.headersOut['Set-Cookie'])).toBe(browser.cookie);
+  });
+  it('binds the authenticated Home Assistant user to the browser session', async () => {
+    const { store } = createStore();
+    const browser = await createBrowserSession(store);
+    seedAuth(store, browser, AUTH_A);
+    const identity = createRequest({
+      method: 'PUT',
+      uri: '/__navet_auth__/session/identity',
+      cookie: browser.cookie,
+      headers: {
+        Origin: 'http://navet.example',
+        [AUTH_BINDING_HEADER]: browser.metadata.sessionId,
+      },
+      body: JSON.stringify({ userId: 'ha-user-1', userName: 'Vishal' }),
+    });
+
+    await store.handle(identity.request);
+
+    expect(identity.result.status).toBe(200);
+    expect(JSON.parse(identity.result.body)).toMatchObject({
+      userId: 'ha-user-1',
+      userName: 'Vishal',
+    });
+    expect(store.resolveAuthenticatedPrincipal(identity.request)).toMatchObject({
+      userId: 'ha-user-1',
+      userName: 'Vishal',
+    });
+  });
+
   it('migrates only locally backed legacy cookies and revokes every local legacy duplicate on logout', async () => {
     const legacy = createStore();
     const legacyBrowser = await createBrowserSession(legacy.store);
@@ -544,14 +584,17 @@ describe('production njs standalone OAuth sessions', () => {
     const cookieId = browser.cookie.split('=')[1] ?? '';
     const sessionPath = join(directory, 'sessions', `${cookieId}.json`);
     const readFile = fs.readFileSync.bind(fs);
-    vi.spyOn(fs, 'readFileSync').mockImplementation(((path, ...args) => {
+    vi.spyOn(fs, 'readFileSync').mockImplementation(((
+      ...args: Parameters<typeof fs.readFileSync>
+    ) => {
+      const [path] = args;
       if (String(path) === sessionPath) {
         const error = new Error('temporary I/O failure');
         // @ts-expect-error test-only errno
         error.code = 'EIO';
         throw error;
       }
-      return readFile(path, ...args);
+      return readFile(...args);
     }) as typeof fs.readFileSync);
 
     expect(() => store.readSession(cookieId)).toThrow('temporary I/O failure');
@@ -933,6 +976,38 @@ describe('production njs standalone OAuth sessions', () => {
     expect(store.readSession(browser.cookie.split('=')[1] ?? '')?.auth).toEqual(AUTH_A);
   });
 
+  it('expires a stale Home Assistant cookie after provider disconnect', async () => {
+    const { sessionsDirectory, store } = createStore();
+    const browser = await createBrowserSession(store);
+    const anotherBrowser = await createBrowserSession(store);
+    seedAuth(store, browser, AUTH_A);
+    seedAuth(store, anotherBrowser, AUTH_B);
+    const cookieId = browser.cookie.split('=')[1] ?? '';
+    const anotherCookieId = anotherBrowser.cookie.split('=')[1] ?? '';
+    fs.unlinkSync(join(sessionsDirectory, `${cookieId}.json`));
+
+    const staleLogout = createRequest({
+      method: 'DELETE',
+      cookie: browser.cookie,
+      headers: { Origin: 'http://navet.example' },
+    });
+    await store.handle(staleLogout.request);
+    expect(staleLogout.result.status).toBe(200);
+    expect(responseSetCookies(staleLogout.request.headersOut['Set-Cookie'])).toEqual(
+      expect.arrayContaining([expect.stringContaining('Max-Age=0')])
+    );
+    expect(store.readSession(anotherCookieId)?.auth).toEqual(AUTH_B);
+
+    const crossOrigin = createRequest({
+      method: 'DELETE',
+      cookie: browser.cookie,
+      headers: { Origin: 'https://other.example' },
+    });
+    await store.handle(crossOrigin.request);
+    expect(crossOrigin.result.status).toBe(403);
+    expect(crossOrigin.request.headersOut['Set-Cookie']).toBeUndefined();
+  });
+
   it('accepts a monotonic refresh from an old tab that omits the revision', async () => {
     const { store } = createStore();
     const browser = await createBrowserSession(store);
@@ -1225,6 +1300,7 @@ describe('production njs standalone OAuth sessions', () => {
       expect.objectContaining({ method: 'POST' })
     );
     expect(installationAuthority.commitHomeAssistant).toHaveBeenCalledWith(
+      callback.request,
       upstreamHassUrl,
       expect.any(Function),
       false
@@ -1473,7 +1549,7 @@ describe('production njs standalone OAuth sessions', () => {
     });
   });
 
-  it('keeps standalone OAuth endpoints out of the Ingress-only add-on', () => {
+  it('keeps standalone OAuth endpoints off the protected Ingress listener', () => {
     for (const relativePath of [
       'platform/home-assistant/addons/navet/rootfs/etc/nginx/http.d/default.conf',
       'platform/home-assistant/addons/navet/run.sh',
@@ -1482,5 +1558,13 @@ describe('production njs standalone OAuth sessions', () => {
       expect(source).not.toContain('navet-auth-store.conf');
       expect(source).toContain('navet-profile-store-ingress.conf');
     }
+
+    const directTemplate = readFileSync('docker/nginx.conf', 'utf8');
+    const addOnDockerfile = readFileSync('platform/home-assistant/addons/navet/Dockerfile', 'utf8');
+    expect(directTemplate).toContain('navet-auth-store.conf');
+    expect(directTemplate).toContain('navet-profile-store.conf');
+    expect(addOnDockerfile).toContain(
+      'COPY docker/nginx.conf /etc/navet-nginx/direct.conf.template'
+    );
   });
 });

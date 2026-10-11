@@ -4,8 +4,8 @@ description: Provider setup documentation and current support status.
 editUrl: https://github.com/awesomestvi/navet/edit/main/docs/integrations.md
 ---
 
-Navet keeps shared dashboard behavior provider-neutral while each provider adapter owns its
-connection, authentication, state mapping, and command translation.
+Navet connects to your smart-home providers and brings their supported devices and features into
+one dashboard.
 
 ## Available providers
 
@@ -16,29 +16,35 @@ connection, authentication, state mapping, and command translation.
 - [openHAB](/install/openhab/) uses the base-URL and credential flow. It can also be connected as an
   additional provider from Settings in a running multi-provider installation.
 
-Hubitat and SmartThings are planned providers. Follow the [roadmap](/roadmap/) for current direction;
-do not treat planned integrations as supported installations.
+Follow the [roadmap](/roadmap/) for planned providers.
 
 ## Capability Matrix
 
-This table reflects the runtime feature registrations in the current release. Basic entity cards
-still depend on the entity types a provider exposes and maps successfully.
+This table shows the features available through each provider. Individual controls also depend
+on the capabilities of your devices.
 
 | Capability | Home Assistant | Homey | openHAB |
 |---|---:|---:|---:|
 | Rooms, realtime state, lighting, switches, and sensors | Yes | Yes | Yes |
-| Climate dashboard services | Yes | No | No |
-| Media controls, browse, search, artwork, and grouping | Yes | No | No |
+| Lock state and lock/unlock controls | Yes | Writable lock capabilities | Supported lock items |
+| Cover position and movement controls | Yes | Writable position, open/close, and supported stop commands | Position and movement for supported cover items |
+| Climate dashboard services | Yes | Target temperature and operating modes | Target setpoint |
+| Media playback and volume controls | Yes | Writable speaker capabilities | Playback and volume for supported items |
+| Media browse, search, artwork, and grouping | Yes | No | No |
 | Camera snapshots and live streams | Yes | No | No |
-| Energy configuration, live energy, and history/statistics | Yes | No | No |
+| Energy configuration and statistics | Yes | No | No |
+| Entity sensor history | Yes | Insights logs | No |
 | Calendar and weather data | Yes | No | No |
-| Persistent notifications, updates, and restart actions | Yes | No | No |
-| Automation/task details and habit-created automations | Yes | No | No |
+| Notifications | Yes | Read and hide locally | No |
+| Updates and restart actions | Yes | No | No |
+| Runnable scenes, Flows, and Moods | Yes | Yes | No |
+| Household presence | Yes | View people | No |
+| Automation/task details and triggering | Yes | No | No |
 | Assist text, microphone, and response audio | Yes | No | No |
 | Provider room and entity administration | Yes | No | No |
 
-`No` means that Navet has no provider feature-service registration for that capability today. It
-does not mean the underlying platform itself lacks the feature.
+`No` means the feature is unavailable through that provider in Navet. The platform may support
+it in its own interface.
 
 ### Home Assistant
 
@@ -49,25 +55,32 @@ services marked **Yes** in the matrix above.
 
 ### Homey
 
-Navet currently maps Homey rooms and realtime entities for lights, switches, and sensors. Climate,
-media, cameras, energy, calendars, weather, notifications, Assist, and provider administration are not yet
-registered as Homey feature services in Navet.
+Navet maps Homey rooms, lights, switches, fans, sensors, locks, covers, thermostats, speakers, people, and
+notifications. Locks show their current state and support lock/unlock through writable capabilities.
+Cover cards show available position readings and offer writable percentage or movement controls;
+stop depends on the device's capabilities, and tilt is unavailable.
+Thermostats support target temperature and available operating modes; speaker
+controls follow writable playback, volume, mute, and track capabilities. Runnable Flows,
+Advanced Flows, and Moods are available as shared scene cards. People appear in presence cards,
+and matching Insights logs provide entity history for the last 31 days. Availability depends on
+Homey's version and granted permissions. See the capability matrix above for supported features.
 
 ### openHAB
 
-Navet currently maps openHAB rooms and realtime items for lights, switches, and sensors. Climate,
-media, cameras, energy, calendars, weather, notifications, Assist, and provider administration are not yet
-registered as openHAB feature services in Navet.
+Navet maps openHAB rooms and realtime items for lights, switches, fans, climate setpoints, speaker
+playback and volume, locks, covers, security sensors, batteries, and utility measurements. It does
+not register history, energy-statistics, alarm-panel, media-browser, camera, calendar, weather,
+notification, Assist, task, or provider-administration services.
 
 ### Planned providers
 
-Hubitat and SmartThings have package and registration surfaces only. They are not available as
+Hubitat and SmartThings have catalog metadata only. They are not available as
 runtime providers yet.
 
 ## Multiple Providers
 
 Navet can store more than one implemented provider session in runtimes that expose provider
-management. In **Settings -> System** you can connect or disconnect providers, choose the active
-provider for provider-specific operations, and include connected providers in the normalized
-dashboard collection. Canonical, provider-scoped IDs keep entities from different platforms
+management. In **Settings → System** you can connect or disconnect providers. Shared features use
+the entities you select and route commands to each entity's owning provider. Canonical,
+provider-scoped IDs keep entities from different platforms
 distinct when their native IDs match.

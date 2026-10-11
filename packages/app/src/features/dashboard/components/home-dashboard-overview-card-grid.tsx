@@ -327,6 +327,13 @@ export const CardGrid = memo(function CardGrid({
                 sortable={sortable && !snapPlacement}
                 snapDraggable={allowSnapDrag}
                 cardId={cardId}
+                cardLabel={
+                  !isCustomCard(entry)
+                    ? entry.name
+                    : typeof entry.data?.title === 'string'
+                      ? entry.data.title
+                      : entry.type
+                }
                 sectionId={sectionId}
                 isPreviewHidden={activeDragCard === cardId}
                 className={spanClass}

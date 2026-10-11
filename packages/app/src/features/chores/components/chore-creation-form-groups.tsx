@@ -1,4 +1,8 @@
-import { CardDialogSection } from '@navet/app/components/patterns';
+import {
+  CardDialogSection,
+  SelectableCheckboxList,
+  SelectableCheckboxRow,
+} from '@navet/app/components/patterns';
 import { Input, Select } from '@navet/app/components/primitives';
 import { getThemeSurfaceTokens } from '@navet/app/components/shared/theme/theme-surface-tokens';
 import { navetIconSizeTokens, navetTypographyTokens } from '@navet/app/components/system/tokens';
@@ -7,6 +11,15 @@ import { useI18n, useTheme } from '@navet/app/hooks';
 import type { ChoreAssignmentMode, ChoreParticipant, ChoreSchedule } from '@navet/core/chores';
 import { ChevronDown, SlidersHorizontal } from 'lucide-react';
 import { Children, isValidElement, type ReactNode } from 'react';
+import {
+  ChoreFieldError,
+  isBoundedInteger,
+  isValidDate,
+  isValidDateList,
+  isValidTime,
+  type NumericDraft,
+  numericDraft,
+} from './chore-form-validation';
 import { ChoreIconPicker } from './chore-icon-picker';
 
 export type ChoreCreationRepeat =
@@ -35,14 +48,28 @@ interface ChoreCreationFormGroupsProps {
   rooms: Array<{ canonicalId: string; label: string }>;
   assignmentMode: ChoreAssignmentMode;
   participantId: string;
+  participantIds: string[];
+  onParticipantsChange: (ids: string[]) => void;
+  rotationDayOfWeek: number;
+  onRotationDayOfWeekChange: (value: number) => void;
+  rotationCursor: number;
+  onRotationCursorChange: (value: number) => void;
+  rotationCadence: 'scheduled_day' | 'weekly';
+  onRotationCadenceChange: (value: 'scheduled_day' | 'weekly') => void;
+  rotationStrategy?: 'ordered' | 'fair';
+  onRotationStrategyChange?: (value: 'ordered' | 'fair') => void;
+  standbyParticipantId?: string;
+  onStandbyParticipantChange?: (value: string) => void;
   participants: ChoreParticipant[];
   repeat: ChoreCreationRepeat;
   dueTime: string;
   startDate: string;
   endDate: string;
-  interval: number;
+  interval: NumericDraft;
   excludedDates: string;
   showTemplates?: boolean;
+  activeSection?: ChoreCreationSection;
+  moreOptionsLayout?: 'disclosure' | 'section';
   children?: ReactNode;
   onTitleChange: (value: string) => void;
   onIconChange: (value: string) => void;
@@ -53,7 +80,7 @@ interface ChoreCreationFormGroupsProps {
   onDueTimeChange: (value: string) => void;
   onStartDateChange: (value: string) => void;
   onEndDateChange: (value: string) => void;
-  onIntervalChange: (value: number) => void;
+  onIntervalChange: (value: NumericDraft) => void;
   onExcludedDatesChange: (value: string) => void;
 }
 
@@ -61,17 +88,19 @@ export function ChoreFormGroup({
   title,
   children,
   moreOptions,
+  moreOptionsLayout = 'disclosure',
 }: {
   title: string;
   children: ReactNode;
   moreOptions?: ReactNode;
+  moreOptionsLayout?: 'disclosure' | 'section';
 }) {
   const { t } = useI18n();
   const { theme } = useTheme();
   const surface = getThemeSurfaceTokens(theme);
 
   return (
-    <section>
+    <section className="min-w-0 max-w-full">
       <h3
         className={cn(
           'mb-2 px-1 font-semibold',
@@ -83,13 +112,13 @@ export function ChoreFormGroup({
       </h3>
       <div
         className={cn(
-          'grid gap-4 rounded-[22px] border p-4 sm:grid-cols-2 sm:p-5',
+          'grid min-w-0 max-w-full grid-cols-[minmax(0,1fr)] gap-4 rounded-[22px] border p-4 sm:grid-cols-2 sm:p-5',
           surface.subtleBg,
           surface.borderStrong
         )}
       >
         {children}
-        {moreOptions ? (
+        {moreOptions && moreOptionsLayout === 'disclosure' ? (
           <details className={cn('group border-t pt-2 sm:col-span-2', surface.border)}>
             <summary
               aria-label={`${t('household.choreDialog.moreOptions')}: ${title}`}
@@ -114,6 +143,28 @@ export function ChoreFormGroup({
           </details>
         ) : null}
       </div>
+      {moreOptions && moreOptionsLayout === 'section' ? (
+        <div className="mt-6 min-w-0 max-w-full">
+          <h4
+            className={cn(
+              'mb-2 px-1 font-semibold',
+              navetTypographyTokens.caption,
+              surface.textSecondary
+            )}
+          >
+            {t('household.choreDialog.moreOptions')}
+          </h4>
+          <div
+            className={cn(
+              'grid min-w-0 max-w-full grid-cols-[minmax(0,1fr)] gap-4 rounded-[22px] border p-4 sm:grid-cols-2 sm:p-5',
+              surface.subtleBg,
+              surface.borderStrong
+            )}
+          >
+            {moreOptions}
+          </div>
+        </div>
+      ) : null}
     </section>
   );
 }
@@ -125,6 +176,18 @@ export function ChoreCreationFormGroups({
   rooms,
   assignmentMode,
   participantId,
+  participantIds,
+  onParticipantsChange,
+  rotationCadence,
+  rotationStrategy,
+  onRotationStrategyChange,
+  standbyParticipantId,
+  onStandbyParticipantChange,
+  onRotationCadenceChange,
+  rotationDayOfWeek,
+  onRotationDayOfWeekChange,
+  rotationCursor,
+  onRotationCursorChange,
   participants,
   repeat,
   dueTime,
@@ -133,6 +196,8 @@ export function ChoreCreationFormGroups({
   interval,
   excludedDates,
   showTemplates = true,
+  activeSection,
+  moreOptionsLayout = 'disclosure',
   children,
   onTitleChange,
   onIconChange,
@@ -146,7 +211,26 @@ export function ChoreCreationFormGroups({
   onIntervalChange,
   onExcludedDatesChange,
 }: ChoreCreationFormGroupsProps) {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
+  const rotationPeople = participantIds
+    .map((id) => participants.find((person) => person.id === id))
+    .filter((person): person is ChoreParticipant => Boolean(person));
+  const startingId = participantIds[rotationCursor];
+  const startingPerson = rotationPeople.find((person) => person.id === startingId);
+  const rotationOrder = [
+    ...participantIds.slice(rotationCursor),
+    ...participantIds.slice(0, rotationCursor),
+  ]
+    .map(
+      (id) =>
+        participants.find((person) => person.id === id)?.displayName ??
+        t('dashboard.roomsWorkspace.unavailable')
+    )
+    .join(' → ');
+  const weekdayLabel = (day: number) =>
+    new Intl.DateTimeFormat(locale, { weekday: 'long', timeZone: 'UTC' }).format(
+      new Date(Date.UTC(2026, 0, 4 + day))
+    );
   const { theme } = useTheme();
   const surface = getThemeSurfaceTokens(theme);
   const templates = [
@@ -154,6 +238,28 @@ export function ChoreCreationFormGroups({
     [t('household.demo.plants'), 'Sprout'],
     [t('household.demo.bins'), 'Recycle'],
   ] as const;
+  const intervalMinimum = repeat === 'custom' ? 2 : 1;
+  const intervalValid =
+    repeat !== 'custom' && repeat !== 'after_completion' && repeat !== 'hourly'
+      ? true
+      : isBoundedInteger(interval, intervalMinimum, repeat === 'hourly' ? 8760 : 3650);
+  const dueTimeValid = isValidTime(dueTime);
+  const titleValid = title.trim().length > 0;
+  const personSelectionValid =
+    assignmentMode !== 'person' ||
+    participants.some((participant) => participant.id === participantId);
+  const participantError =
+    participants.length === 0
+      ? t('household.setup.stepPeopleDescription')
+      : !personSelectionValid
+        ? t('household.validation.choosePerson')
+        : null;
+  const startDateValid = isValidDate(startDate);
+  const endDateValid =
+    repeat === 'once' ||
+    endDate === '' ||
+    (isValidDate(endDate) && startDateValid && endDate >= startDate);
+  const excludedDatesValid = repeat === 'once' || isValidDateList(excludedDates);
   const sectionOptions = (section: ChoreCreationSection) => {
     for (const child of Children.toArray(children)) {
       if (
@@ -169,190 +275,420 @@ export function ChoreCreationFormGroups({
 
   return (
     <div className="grid gap-6">
-      <ChoreFormGroup
-        title={t('household.setup.choreGroupDetails')}
-        moreOptions={sectionOptions('details')}
-      >
-        {showTemplates ? (
-          <div className="sm:col-span-2">
-            <p className={cn(navetTypographyTokens.label, surface.textPrimary)}>
-              {t('household.choreDialog.quickStart')}
-            </p>
-            <div className="mt-2 flex flex-wrap gap-2">
-              {templates.map(([templateTitle, templateIcon]) => (
-                <button
-                  key={templateTitle}
-                  type="button"
-                  aria-pressed={title === templateTitle}
-                  className={cn(
-                    'min-h-9 rounded-full border px-3 py-1.5 text-xs font-semibold transition-colors focus-visible:outline-2 focus-visible:outline-offset-2',
-                    surface.borderStrong,
-                    title === templateTitle ? surface.iconBg : surface.hoverBg,
-                    surface.textPrimary
-                  )}
-                  onClick={() => {
-                    onTitleChange(templateTitle);
-                    onIconChange(templateIcon);
-                  }}
-                >
-                  {templateTitle}
-                </button>
-              ))}
-            </div>
-          </div>
-        ) : null}
-        <CardDialogSection className="mb-0" label={t('household.choreDialog.name')}>
-          <Input
-            aria-label={t('household.choreDialog.name')}
-            value={title}
-            placeholder={t('household.choreDialog.namePlaceholder')}
-            onChange={(event) => onTitleChange(event.target.value)}
-          />
-        </CardDialogSection>
-        <CardDialogSection className="mb-0" label={t('household.choreDialog.room')}>
-          <Select
-            aria-label={t('household.choreDialog.room')}
-            value={roomId}
-            onChange={(event) => onRoomChange(event.target.value)}
-          >
-            <option value="">{t('household.choreDialog.noRoom')}</option>
-            {rooms.map((room) => (
-              <option key={room.canonicalId} value={room.canonicalId}>
-                {room.label}
-              </option>
-            ))}
-          </Select>
-        </CardDialogSection>
-        <CardDialogSection
-          className="mb-0 sm:col-span-2"
-          label={t('household.personDialog.avatarModeIcon')}
+      {(!activeSection || activeSection === 'details') && (
+        <ChoreFormGroup
+          title={t('household.setup.choreGroupDetails')}
+          moreOptions={sectionOptions('details')}
+          moreOptionsLayout={moreOptionsLayout}
         >
-          <ChoreIconPicker value={icon} onChange={onIconChange} />
-        </CardDialogSection>
-      </ChoreFormGroup>
-
-      <ChoreFormGroup
-        title={t('household.setup.choreGroupAssignment')}
-        moreOptions={sectionOptions('assignment')}
-      >
-        <CardDialogSection className="mb-0" label={t('household.choreDialog.assignment')}>
-          <Select
-            aria-label={t('household.choreDialog.assignment')}
-            value={assignmentMode}
-            onChange={(event) => onAssignmentModeChange(event.target.value as ChoreAssignmentMode)}
-          >
-            <option value="person">{t('household.assignment.person')}</option>
-            <option value="anyone">{t('household.assignment.anyone')}</option>
-            <option value="everyone">{t('household.assignment.everyone')}</option>
-            <option value="rotation">{t('household.assignment.rotation')}</option>
-          </Select>
-        </CardDialogSection>
-        <CardDialogSection className="mb-0" label={t('household.choreDialog.person')}>
-          <Select
-            aria-label={t('household.choreDialog.person')}
-            value={participantId}
-            disabled={assignmentMode !== 'person'}
-            onChange={(event) => onParticipantChange(event.target.value)}
-          >
-            {participants.map((participant) => (
-              <option key={participant.id} value={participant.id}>
-                {participant.displayName}
-              </option>
-            ))}
-          </Select>
-        </CardDialogSection>
-      </ChoreFormGroup>
-
-      <ChoreFormGroup
-        title={t('household.setup.choreGroupSchedule')}
-        moreOptions={sectionOptions('schedule')}
-      >
-        <CardDialogSection className="mb-0" label={t('household.choreDialog.schedule')}>
-          <Select
-            aria-label={t('household.choreDialog.schedule')}
-            value={repeat}
-            onChange={(event) => onRepeatChange(event.target.value as ChoreCreationRepeat)}
-          >
-            <option value="once">{t('household.schedule.once')}</option>
-            <option value="daily">{t('household.schedule.daily')}</option>
-            <option value="weekdays">{t('household.schedule.weekdays')}</option>
-            <option value="weekends">{t('household.schedule.weekends')}</option>
-            <option value="weekly">{t('household.schedule.weekly')}</option>
-            <option value="biweekly">{t('household.schedule.biweekly')}</option>
-            <option value="triweekly">{t('household.schedule.triweekly')}</option>
-            <option value="fourweekly">{t('household.schedule.fourWeekly')}</option>
-            <option value="monthly">{t('household.schedule.monthly')}</option>
-            <option value="custom">{t('household.schedule.custom')}</option>
-            <option value="after_completion">{t('household.schedule.afterCompletion')}</option>
-          </Select>
-        </CardDialogSection>
-        {repeat === 'custom' ? (
-          <CardDialogSection className="mb-0" label={t('household.choreDialog.repeatEveryDays')}>
+          {showTemplates ? (
+            <div className="sm:col-span-2">
+              <p className={cn(navetTypographyTokens.label, surface.textPrimary)}>
+                {t('household.choreDialog.quickStart')}
+              </p>
+              <div className="mt-2 flex flex-wrap gap-2">
+                {templates.map(([templateTitle, templateIcon]) => (
+                  <button
+                    key={templateTitle}
+                    type="button"
+                    aria-pressed={title === templateTitle}
+                    className={cn(
+                      'min-h-9 rounded-full border px-3 py-1.5 text-xs font-semibold transition-colors focus-visible:outline-2 focus-visible:outline-offset-2',
+                      surface.borderStrong,
+                      title === templateTitle ? surface.iconBg : surface.hoverBg,
+                      surface.textPrimary
+                    )}
+                    onClick={() => {
+                      onTitleChange(templateTitle);
+                      onIconChange(templateIcon);
+                    }}
+                  >
+                    {templateTitle}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ) : null}
+          <CardDialogSection className="mb-0" label={t('household.choreDialog.name')}>
             <Input
-              aria-label={t('household.choreDialog.repeatEveryDays')}
-              min={2}
-              type="number"
-              value={interval}
-              onChange={(event) => onIntervalChange(Math.max(2, Number(event.target.value)))}
+              aria-describedby={titleValid ? undefined : 'chore-name-error'}
+              aria-label={t('household.choreDialog.name')}
+              invalid={!titleValid}
+              maxLength={200}
+              required
+              value={title}
+              placeholder={t('household.choreDialog.namePlaceholder')}
+              onChange={(event) => onTitleChange(event.target.value)}
             />
+            {!titleValid ? (
+              <ChoreFieldError id="chore-name-error">
+                {t('household.validation.nameRequired')}
+              </ChoreFieldError>
+            ) : null}
           </CardDialogSection>
-        ) : null}
-        <CardDialogSection className="mb-0" label={t('household.choreDialog.time')}>
-          <Input
-            aria-label={t('household.choreDialog.time')}
-            type="time"
-            value={dueTime}
-            onChange={(event) => onDueTimeChange(event.target.value)}
-          />
-        </CardDialogSection>
-        <CardDialogSection className="mb-0" label={t('household.choreDialog.startDate')}>
-          <Input
-            aria-label={t('household.choreDialog.startDate')}
-            type="date"
-            value={startDate}
-            onChange={(event) => onStartDateChange(event.target.value)}
-          />
-        </CardDialogSection>
-        {repeat !== 'once' ? (
-          <CardDialogSection className="mb-0" label={t('household.choreDialog.endDate')}>
-            <Input
-              aria-label={t('household.choreDialog.endDate')}
-              type="date"
-              min={startDate}
-              value={endDate}
-              onChange={(event) => onEndDateChange(event.target.value)}
-            />
+          <CardDialogSection className="mb-0" label={t('household.choreDialog.room')}>
+            <Select
+              aria-label={t('household.choreDialog.room')}
+              value={roomId}
+              onChange={(event) => onRoomChange(event.target.value)}
+            >
+              <option value="">{t('household.choreDialog.noRoom')}</option>
+              {rooms.map((room) => (
+                <option key={room.canonicalId} value={room.canonicalId}>
+                  {room.label}
+                </option>
+              ))}
+            </Select>
           </CardDialogSection>
-        ) : null}
-        {repeat === 'after_completion' ? (
-          <CardDialogSection
-            className="mb-0"
-            label={t('household.setup.scheduleAfterCompletionLabel')}
-            helperText={t('household.setup.scheduleAfterCompletionHelper')}
-          >
-            <Input
-              aria-label={t('household.setup.scheduleAfterCompletionLabel')}
-              min={1}
-              type="number"
-              value={interval}
-              onChange={(event) => onIntervalChange(Math.max(1, Number(event.target.value)))}
-            />
-          </CardDialogSection>
-        ) : null}
-        {repeat !== 'once' ? (
           <CardDialogSection
             className="mb-0 sm:col-span-2"
-            label={t('household.choreDialog.excludedDates')}
+            label={t('household.personDialog.avatarModeIcon')}
           >
-            <Input
-              aria-label={t('household.choreDialog.excludedDates')}
-              placeholder="2026-12-24, 2026-12-25"
-              value={excludedDates}
-              onChange={(event) => onExcludedDatesChange(event.target.value)}
-            />
+            <ChoreIconPicker value={icon} onChange={onIconChange} />
           </CardDialogSection>
-        ) : null}
-      </ChoreFormGroup>
+        </ChoreFormGroup>
+      )}
+
+      {(!activeSection || activeSection === 'assignment') && (
+        <ChoreFormGroup
+          title={t('household.setup.choreGroupAssignment')}
+          moreOptions={sectionOptions('assignment')}
+          moreOptionsLayout={moreOptionsLayout}
+        >
+          <CardDialogSection className="mb-0" label={t('household.choreDialog.assignment')}>
+            <Select
+              aria-label={t('household.choreDialog.assignment')}
+              value={assignmentMode}
+              onChange={(event) =>
+                onAssignmentModeChange(event.target.value as ChoreAssignmentMode)
+              }
+            >
+              <option value="person">{t('household.assignment.person')}</option>
+              <option value="anyone">{t('household.assignment.anyone')}</option>
+              <option value="everyone">{t('household.assignment.everyone')}</option>
+              <option value="rotation">{t('household.assignment.rotation')}</option>
+            </Select>
+          </CardDialogSection>
+          {assignmentMode === 'person' ? (
+            <CardDialogSection className="mb-0" label={t('household.choreDialog.person')}>
+              <Select
+                aria-describedby={participantError ? 'chore-participant-error' : undefined}
+                aria-label={t('household.choreDialog.person')}
+                value={participantId}
+                disabled={assignmentMode !== 'person' || participants.length === 0}
+                invalid={!personSelectionValid}
+                onChange={(event) => onParticipantChange(event.target.value)}
+              >
+                {participants.map((participant) => (
+                  <option key={participant.id} value={participant.id}>
+                    {participant.displayName}
+                  </option>
+                ))}
+              </Select>
+              {participantError ? (
+                <ChoreFieldError id="chore-participant-error">{participantError}</ChoreFieldError>
+              ) : null}
+            </CardDialogSection>
+          ) : (
+            <fieldset className={cn('min-w-0 sm:col-span-2', surface.textPrimary)}>
+              <legend className="mb-2 text-sm font-medium">
+                {t('household.choreDialog.participants')}
+              </legend>
+              <SelectableCheckboxList>
+                {participants.map((participant) => (
+                  <li key={participant.id}>
+                    <SelectableCheckboxRow
+                      label={participant.displayName}
+                      labelClassName="break-words"
+                      checked={participantIds.includes(participant.id)}
+                      onCheckedChange={(checked) =>
+                        onParticipantsChange(
+                          (checked
+                            ? [...participantIds, participant.id]
+                            : participantIds.filter((id) => id !== participant.id)
+                          ).filter((id) => participants.some((person) => person.id === id))
+                        )
+                      }
+                    />
+                  </li>
+                ))}
+              </SelectableCheckboxList>
+              {participantIds.length === 0 ||
+              participantIds.some((id) => !participants.some((person) => person.id === id)) ? (
+                <ChoreFieldError id="chore-participants-error">
+                  {t('household.validation.choosePerson')}
+                </ChoreFieldError>
+              ) : null}
+            </fieldset>
+          )}
+          {assignmentMode === 'person' && participants.length > 1 && onStandbyParticipantChange ? (
+            <CardDialogSection className="mb-0" label={t('household.choreDialog.standbyPerson')}>
+              <Select
+                aria-label={t('household.choreDialog.standbyPerson')}
+                value={standbyParticipantId ?? ''}
+                onChange={(event) => onStandbyParticipantChange(event.target.value)}
+              >
+                <option value="">{t('household.choreDialog.noStandby')}</option>
+                {participants
+                  .filter((person) => person.id !== participantId)
+                  .map((person) => (
+                    <option key={person.id} value={person.id}>
+                      {person.displayName}
+                    </option>
+                  ))}
+              </Select>
+            </CardDialogSection>
+          ) : null}
+          {assignmentMode === 'rotation' && onRotationStrategyChange ? (
+            <CardDialogSection className="mb-0" label={t('household.choreDialog.rotationStrategy')}>
+              <Select
+                aria-label={t('household.choreDialog.rotationStrategy')}
+                value={rotationStrategy ?? 'ordered'}
+                onChange={(event) =>
+                  onRotationStrategyChange(event.target.value as 'ordered' | 'fair')
+                }
+              >
+                <option value="ordered">{t('household.choreDialog.rotationOrdered')}</option>
+                <option value="fair">{t('household.choreDialog.rotationFair')}</option>
+              </Select>
+            </CardDialogSection>
+          ) : null}
+          {assignmentMode === 'rotation' ? (
+            <CardDialogSection className="mb-0" label={t('household.choreDialog.rotationCadence')}>
+              <Select
+                aria-label={t('household.choreDialog.rotationCadence')}
+                value={rotationCadence}
+                onChange={(event) =>
+                  onRotationCadenceChange(event.target.value as 'scheduled_day' | 'weekly')
+                }
+              >
+                <option value="scheduled_day">
+                  {t('household.choreDialog.rotationScheduledDay')}
+                </option>
+                <option value="weekly">{t('household.choreDialog.rotationWeekly')}</option>
+              </Select>
+            </CardDialogSection>
+          ) : null}
+          {assignmentMode === 'rotation' && rotationCadence === 'weekly' ? (
+            <CardDialogSection className="mb-0" label={t('household.choreDialog.rotationDay')}>
+              <Select
+                aria-label={t('household.choreDialog.rotationDay')}
+                value={rotationDayOfWeek}
+                onChange={(event) => onRotationDayOfWeekChange(Number(event.target.value))}
+              >
+                {[1, 2, 3, 4, 5, 6, 0].map((day) => (
+                  <option key={day} value={day}>
+                    {weekdayLabel(day)}
+                  </option>
+                ))}
+              </Select>
+            </CardDialogSection>
+          ) : null}
+          {assignmentMode === 'rotation' ? (
+            <>
+              <CardDialogSection
+                className="mb-0"
+                label={t('household.choreDialog.rotationStartsWith')}
+              >
+                <Select
+                  aria-label={t('household.choreDialog.rotationStartsWith')}
+                  value={startingPerson?.id ?? ''}
+                  disabled={rotationPeople.length === 0}
+                  onChange={(event) =>
+                    onRotationCursorChange(participantIds.indexOf(event.target.value))
+                  }
+                >
+                  {!startingPerson ? (
+                    <option value="" disabled>
+                      {t('dashboard.roomsWorkspace.unavailable')}
+                    </option>
+                  ) : null}
+                  {rotationPeople.map((person) => (
+                    <option key={person.id} value={person.id}>
+                      {person.displayName}
+                    </option>
+                  ))}
+                </Select>
+              </CardDialogSection>
+              {rotationPeople.length > 0 ? (
+                <p className={cn('text-sm sm:col-span-2 break-words', surface.textSecondary)}>
+                  {rotationStrategy === 'fair'
+                    ? t('household.choreDialog.rotationPreviewFair', { order: rotationOrder })
+                    : t(
+                        rotationCadence === 'weekly'
+                          ? 'household.choreDialog.rotationPreviewWeekly'
+                          : 'household.choreDialog.rotationPreviewScheduled',
+                        { order: rotationOrder, day: weekdayLabel(rotationDayOfWeek) }
+                      )}
+                </p>
+              ) : null}
+            </>
+          ) : null}
+        </ChoreFormGroup>
+      )}
+
+      {(!activeSection || activeSection === 'schedule') && (
+        <ChoreFormGroup
+          title={t('household.setup.choreGroupSchedule')}
+          moreOptions={sectionOptions('schedule')}
+          moreOptionsLayout={moreOptionsLayout}
+        >
+          <CardDialogSection className="mb-0" label={t('household.choreDialog.schedule')}>
+            <Select
+              aria-label={t('household.choreDialog.schedule')}
+              value={repeat}
+              onChange={(event) => onRepeatChange(event.target.value as ChoreCreationRepeat)}
+            >
+              <option value="once">{t('household.schedule.once')}</option>
+              <option value="daily">{t('household.schedule.daily')}</option>
+              <option value="weekdays">{t('household.schedule.weekdays')}</option>
+              <option value="weekends">{t('household.schedule.weekends')}</option>
+              <option value="weekly">{t('household.schedule.weekly')}</option>
+              <option value="biweekly">{t('household.schedule.biweekly')}</option>
+              <option value="triweekly">{t('household.schedule.triweekly')}</option>
+              <option value="fourweekly">{t('household.schedule.fourWeekly')}</option>
+              <option value="monthly">{t('household.schedule.monthly')}</option>
+              <option value="custom">{t('household.schedule.custom')}</option>
+              <option value="after_completion">{t('household.schedule.afterCompletion')}</option>
+              <option value="hourly">{t('household.schedule.hourly')}</option>
+            </Select>
+          </CardDialogSection>
+          {repeat === 'custom' ? (
+            <CardDialogSection className="mb-0" label={t('household.choreDialog.repeatEveryDays')}>
+              <Input
+                aria-describedby={intervalValid ? undefined : 'chore-repeat-interval-error'}
+                aria-label={t('household.choreDialog.repeatEveryDays')}
+                invalid={!intervalValid}
+                min={2}
+                max={3650}
+                required
+                step={1}
+                type="number"
+                value={interval}
+                onChange={(event) => onIntervalChange(numericDraft(event.target.value))}
+              />
+              {!intervalValid ? (
+                <ChoreFieldError id="chore-repeat-interval-error">
+                  {t('household.validation.wholeNumberRange', { min: 2, max: 3650 })}
+                </ChoreFieldError>
+              ) : null}
+            </CardDialogSection>
+          ) : null}
+          <CardDialogSection className="mb-0" label={t('household.choreDialog.time')}>
+            <Input
+              aria-describedby={dueTimeValid ? undefined : 'chore-due-time-error'}
+              aria-label={t('household.choreDialog.time')}
+              invalid={!dueTimeValid}
+              required
+              type="time"
+              inputClassName="chore-schedule-native-input"
+              value={dueTime}
+              onChange={(event) => onDueTimeChange(event.target.value)}
+            />
+            {!dueTimeValid ? (
+              <ChoreFieldError id="chore-due-time-error">
+                {t('household.validation.validTime')}
+              </ChoreFieldError>
+            ) : null}
+          </CardDialogSection>
+          <CardDialogSection className="mb-0" label={t('household.choreDialog.startDate')}>
+            <Input
+              aria-describedby={startDateValid ? undefined : 'chore-start-date-error'}
+              aria-label={t('household.choreDialog.startDate')}
+              invalid={!startDateValid}
+              required
+              type="date"
+              inputClassName="chore-schedule-native-input"
+              value={startDate}
+              onChange={(event) => onStartDateChange(event.target.value)}
+            />
+            {!startDateValid ? (
+              <ChoreFieldError id="chore-start-date-error">
+                {t('household.validation.validDate')}
+              </ChoreFieldError>
+            ) : null}
+          </CardDialogSection>
+          {repeat !== 'once' ? (
+            <CardDialogSection className="mb-0" label={t('household.choreDialog.endDate')}>
+              <Input
+                aria-describedby={endDateValid ? undefined : 'chore-end-date-error'}
+                aria-label={t('household.choreDialog.endDate')}
+                invalid={!endDateValid}
+                type="date"
+                inputClassName="chore-schedule-native-input"
+                min={startDate}
+                value={endDate}
+                onChange={(event) => onEndDateChange(event.target.value)}
+              />
+              {!endDateValid ? (
+                <ChoreFieldError id="chore-end-date-error">
+                  {t('household.validation.endDate', { date: startDate })}
+                </ChoreFieldError>
+              ) : null}
+            </CardDialogSection>
+          ) : null}
+          {repeat === 'after_completion' ? (
+            <CardDialogSection
+              className="mb-0"
+              label={t('household.setup.scheduleAfterCompletionLabel')}
+              helperText={t('household.setup.scheduleAfterCompletionHelper')}
+            >
+              <Input
+                aria-describedby={intervalValid ? undefined : 'chore-after-completion-error'}
+                aria-label={t('household.setup.scheduleAfterCompletionLabel')}
+                invalid={!intervalValid}
+                min={1}
+                max={3650}
+                required
+                step={1}
+                type="number"
+                value={interval}
+                onChange={(event) => onIntervalChange(numericDraft(event.target.value))}
+              />
+              {!intervalValid ? (
+                <ChoreFieldError id="chore-after-completion-error">
+                  {t('household.validation.wholeNumberRange', { min: 1, max: 3650 })}
+                </ChoreFieldError>
+              ) : null}
+            </CardDialogSection>
+          ) : null}
+          {repeat === 'hourly' ? (
+            <CardDialogSection className="mb-0" label={t('household.choreDialog.intervalHours')}>
+              <Input
+                aria-label={t('household.choreDialog.intervalHours')}
+                invalid={!intervalValid}
+                min={1}
+                max={8760}
+                required
+                step={1}
+                type="number"
+                value={interval}
+                onChange={(event) => onIntervalChange(numericDraft(event.target.value))}
+              />
+            </CardDialogSection>
+          ) : null}
+          {repeat !== 'once' ? (
+            <CardDialogSection
+              className="mb-0 sm:col-span-2"
+              label={t('household.choreDialog.excludedDates')}
+            >
+              <Input
+                aria-describedby={excludedDatesValid ? undefined : 'chore-excluded-dates-error'}
+                aria-label={t('household.choreDialog.excludedDates')}
+                invalid={!excludedDatesValid}
+                placeholder="2026-12-24, 2026-12-25"
+                value={excludedDates}
+                onChange={(event) => onExcludedDatesChange(event.target.value)}
+              />
+              {!excludedDatesValid ? (
+                <ChoreFieldError id="chore-excluded-dates-error">
+                  {t('household.validation.dateList')}
+                </ChoreFieldError>
+              ) : null}
+            </CardDialogSection>
+          ) : null}
+        </ChoreFormGroup>
+      )}
     </div>
   );
 }

@@ -12,7 +12,7 @@ real connection or visibility problem.
 ## 1. Confirm the provider
 
 Open **Settings → System → Providers** and confirm that the owning provider is connected and
-selected. Make it active if the missing feature requires a single active provider.
+selected. Check that the selected entity belongs to a connected provider that supports the feature.
 
 ## 2. Clear navigation and search filters
 
@@ -37,8 +37,8 @@ Card library for a generic entity card.
 
 ## 5. Check provider capability
 
-An entity can exist while an advanced Navet section is unavailable. Homey and openHAB do not
-currently supply all Home Assistant feature services.
+An entity can exist while an advanced Navet section is unavailable. Provider capability coverage
+varies, and not every connected platform currently supplies every advanced feature service.
 
 ## If state is stale
 

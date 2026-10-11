@@ -196,7 +196,7 @@ afterEach(() => {
 });
 
 describe('dashboard profile backend conformance', () => {
-  it('keeps trusted Ingress profile routing off every directly exposed add-on port', () => {
+  it('separates trusted Ingress profiles from the optional direct add-on listener', () => {
     const stableConfig = readFileSync('platform/home-assistant/addons/navet/config.yaml', 'utf8');
     const developmentConfig = readFileSync(
       'platform/home-assistant/addons/navet-dev/config.yaml',
@@ -206,9 +206,12 @@ describe('dashboard profile backend conformance', () => {
     const standaloneSnippet = readFileSync('docker/snippets/navet-profile-store.conf', 'utf8');
     const ingressSnippet = readFileSync('docker/snippets/navet-profile-store-ingress.conf', 'utf8');
 
-    expect(stableConfig).not.toMatch(/^ports:/m);
-    expect(developmentConfig).not.toMatch(/^ports:/m);
+    expect(stableConfig).toMatch(/^ports:\s*\n\s+8080\/tcp:\s+null$/m);
+    expect(developmentConfig).toMatch(/^ports:\s*\n\s+8080\/tcp:\s+null$/m);
     expect(addOnRuntime).toContain('navet-profile-store-ingress.conf');
+    expect(addOnRuntime).toContain('listen 8099;');
+    expect(addOnRuntime).toContain('listen 8080;');
+    expect(addOnRuntime).toContain('/usr/share/nginx/html/direct-config.js');
     expect(addOnRuntime).toContain('allow 172.30.32.2;');
     expect(addOnRuntime).toContain('deny all;');
     expect(
@@ -270,6 +273,31 @@ describe('dashboard profile backend conformance', () => {
         clientId: scope === 'client' ? CLIENT_HEADERS['X-Navet-Client-Id'] : null,
       });
     }
+  });
+
+  it('preserves shared chore enablement and strips device settings and credentials in both runtimes', async () => {
+    const njsFs = createMockFs();
+    profileStore.setProfileStoreFsForTests(njsFs);
+    const directory = mkdtempSync(join(tmpdir(), 'navet-profile-policy-conformance-'));
+    tempDirectories.push(directory);
+    const viteStore = createViteDashboardProfileStore(join(directory, 'profile.json'));
+    const viteHandler = createViteDashboardProfileRequestHandler({
+      store: viteStore,
+      resolvePrincipal: () => PRINCIPAL,
+    });
+    const body = JSON.stringify({
+      ...JSON.parse(PROFILE),
+      settings: { choresEnabled: true, kioskMode: true, accessToken: 'must-not-sync' },
+    });
+    const headers = { ...CLIENT_HEADERS, 'X-Navet-Base-Revision': '0' };
+    const njsWrite = runNjs('PUT', headers, body);
+    const viteWrite = createViteResponse();
+    await viteHandler(createViteRequest('PUT', headers, body), viteWrite.response);
+    expect([njsWrite.status, viteWrite.status]).toEqual([200, 200]);
+    const njsSaved = JSON.parse(njsFs.files.get(PROFILE_PATH) ?? '{}');
+    const viteSaved = JSON.parse(readFileSync(viteStore.getPaths().profile, 'utf8'));
+    expect(njsSaved.settings).toEqual({ choresEnabled: true });
+    expect(viteSaved.settings).toEqual(njsSaved.settings);
   });
 
   it('keeps NJS and Vite security, revision, attribution, stale-write, and reset semantics aligned', async () => {
@@ -458,6 +486,48 @@ describe('dashboard profile backend conformance', () => {
       viteOwnerRead.response
     );
     expect([njsOwnerRead.status, viteOwnerRead.status]).toEqual([200, 200]);
+  });
+
+  it('persists both browser zoom choices in device preferences across backends', async () => {
+    profileStore.setProfileStoreFsForTests(createMockFs());
+    const directory = mkdtempSync(join(tmpdir(), 'navet-browser-zoom-preference-'));
+    tempDirectories.push(directory);
+    const viteStore = createViteDashboardProfileStore(join(directory, 'profile.json'));
+    const viteHandler = createViteDashboardProfileRequestHandler({
+      store: viteStore,
+      resolvePrincipal: () => PRINCIPAL,
+    });
+
+    for (const [index, preventBrowserZoom] of [true, false].entries()) {
+      const headers = {
+        ...CLIENT_HEADERS,
+        'X-Navet-Base-Revision': String(index),
+      };
+      const body = JSON.stringify({
+        schemaVersion: 1,
+        values: { schemaVersion: 1, settings: { preventBrowserZoom } },
+      });
+      const njsWrite = runNjs('PUT', headers, body, true, PRINCIPAL, '/preferences/client');
+      const viteWrite = createViteResponse();
+      await viteHandler(
+        createViteRequest('PUT', headers, body, '/preferences/client'),
+        viteWrite.response
+      );
+      expect([njsWrite.status, viteWrite.status]).toEqual([200, 200]);
+
+      const njsRead = runNjs('GET', CLIENT_HEADERS, '', true, PRINCIPAL, '/preferences/client');
+      const viteRead = createViteResponse();
+      await viteHandler(
+        createViteRequest('GET', CLIENT_HEADERS, '', '/preferences/client'),
+        viteRead.response
+      );
+      expect([njsRead.status, viteRead.status]).toEqual([200, 200]);
+      for (const responseBody of [njsRead.body, viteRead.body]) {
+        expect(JSON.parse(responseBody ?? '{}').values).toMatchObject({
+          settings: { preventBrowserZoom },
+        });
+      }
+    }
   });
 
   it('keeps linked display policies and one-time copies consistent across backends', async () => {
@@ -1730,11 +1800,11 @@ describe('dashboard profile backend conformance', () => {
     expect(viteHistory.map((entry) => entry.metadata.revision)).toEqual([4, 5, 6, 7]);
   });
 
-  it('shares one workspace across same-HA browser sessions and denies a different HA tenant', async () => {
+  it('shares one workspace across same-HA sessions and isolates a different HA tenant', async () => {
     profileStore.setProfileStoreFsForTests(createMockFs());
     const directory = mkdtempSync(join(tmpdir(), 'navet-profile-tenant-conformance-'));
     tempDirectories.push(directory);
-    const viteStore = createViteDashboardProfileStore(join(directory, 'profile.json'));
+    const profileFilePath = join(directory, 'profile.json');
     const secondBrowser: ViteDashboardProfilePrincipal = {
       ...PRINCIPAL,
       sessionId: 'nas_session_two',
@@ -1750,7 +1820,7 @@ describe('dashboard profile backend conformance', () => {
     };
     let vitePrincipal = PRINCIPAL;
     const viteHandler = createViteDashboardProfileRequestHandler({
-      store: viteStore,
+      profileFilePath,
       resolvePrincipal: () => vitePrincipal,
     });
     const writeHeaders = {
@@ -1770,59 +1840,50 @@ describe('dashboard profile backend conformance', () => {
     expect([njsSameTenantRead.status, viteSameTenantRead.status]).toEqual([200, 200]);
 
     vitePrincipal = otherHomeAssistant;
-    const deniedRequests = [
-      { method: 'GET', headers: CLIENT_HEADERS, body: '' },
-      {
-        method: 'PUT',
-        headers: {
-          ...CLIENT_HEADERS,
-          'X-Navet-Base-Revision': '1',
-        },
-        body: PROFILE,
-      },
-      {
-        method: 'DELETE',
-        headers: {
-          ...CLIENT_HEADERS,
-          'X-Navet-Base-Revision': '1',
-        },
-        body: '',
-      },
-    ];
-    for (const request of deniedRequests) {
-      const njsDenied = runNjs(
-        request.method,
-        request.headers,
-        request.body,
-        true,
-        otherHomeAssistant
-      );
-      const viteDenied = createViteResponse();
-      await viteHandler(
-        createViteRequest(request.method, request.headers, request.body),
-        viteDenied.response
-      );
-      expect([njsDenied.status, viteDenied.status]).toEqual([403, 403]);
-      expect([
-        njsDenied.headers['X-Navet-Profile-Error-Code'],
-        viteDenied.header('X-Navet-Profile-Error-Code'),
-      ]).toEqual(['workspace-tenant-mismatch', 'workspace-tenant-mismatch']);
-    }
+    const njsIsolatedRead = runNjs('GET', CLIENT_HEADERS, '', true, otherHomeAssistant);
+    const viteIsolatedRead = createViteResponse();
+    await viteHandler(createViteRequest('GET', CLIENT_HEADERS), viteIsolatedRead.response);
+    expect([njsIsolatedRead.status, viteIsolatedRead.status]).toEqual([204, 204]);
+
+    const isolatedProfile = JSON.stringify({
+      ...JSON.parse(PROFILE),
+      dashboard: { title: 'Demo home' },
+    });
+    const isolatedHeaders = {
+      ...CLIENT_HEADERS,
+      'X-Navet-Base-Revision': '0',
+    };
+    const njsIsolatedWrite = runNjs(
+      'PUT',
+      isolatedHeaders,
+      isolatedProfile,
+      true,
+      otherHomeAssistant
+    );
+    const viteIsolatedWrite = createViteResponse();
+    await viteHandler(
+      createViteRequest('PUT', isolatedHeaders, isolatedProfile),
+      viteIsolatedWrite.response
+    );
+    expect([njsIsolatedWrite.status, viteIsolatedWrite.status]).toEqual([200, 200]);
 
     const njsOwnerRead = runNjs('GET', CLIENT_HEADERS);
     vitePrincipal = PRINCIPAL;
     const viteOwnerRead = createViteResponse();
     await viteHandler(createViteRequest('GET', CLIENT_HEADERS), viteOwnerRead.response);
     expect([njsOwnerRead.status, viteOwnerRead.status]).toEqual([200, 200]);
-    expect(viteStore.getState()).toMatchObject({ revision: 1, status: 'active' });
+    expect(JSON.parse(njsOwnerRead.body ?? '{}')).toMatchObject({
+      dashboard: { title: 'Kitchen' },
+    });
+    expect(JSON.parse(viteOwnerRead.body)).toMatchObject({ dashboard: { title: 'Kitchen' } });
   });
 
-  it('lets only a previously registered browser rebind the workspace and publish its local profile', async () => {
+  it('does not let a client binding from one tenant rebind another tenant workspace', async () => {
     const sharedFs = createMockFs();
     profileStore.setProfileStoreFsForTests(sharedFs);
     const directory = mkdtempSync(join(tmpdir(), 'navet-profile-rebind-conformance-'));
     tempDirectories.push(directory);
-    const viteStore = createViteDashboardProfileStore(join(directory, 'profile.json'));
+    const profileFilePath = join(directory, 'profile.json');
     const otherHomeAssistant: ViteDashboardProfilePrincipal = {
       ...PRINCIPAL,
       tenantId: `hat_${'b'.repeat(64)}`,
@@ -1830,7 +1891,7 @@ describe('dashboard profile backend conformance', () => {
     };
     let vitePrincipal = PRINCIPAL;
     const viteHandler = createViteDashboardProfileRequestHandler({
-      store: viteStore,
+      profileFilePath,
       resolvePrincipal: () => vitePrincipal,
     });
     const initialHeaders = {
@@ -1867,60 +1928,10 @@ describe('dashboard profile backend conformance', () => {
       viteDenied.header('X-Navet-Profile-Error-Code'),
     ]).toEqual(['client-binding-mismatch', 'client-binding-mismatch']);
 
-    const recoveredProfile = JSON.stringify({
-      ...JSON.parse(PROFILE),
-      exportedAt: '2026-07-25T10:00:00.000Z',
-      dashboard: { title: 'Recovered local dashboard' },
-    });
-    const njsRebind = runNjs(
-      'POST',
-      CLIENT_HEADERS,
-      recoveredProfile,
-      true,
-      otherHomeAssistant,
-      '/workspace/rebind'
-    );
-    const viteRebind = createViteResponse();
-    await viteHandler(
-      createViteRequest('POST', CLIENT_HEADERS, recoveredProfile, '/workspace/rebind'),
-      viteRebind.response
-    );
-    expect([njsRebind.status, viteRebind.status]).toEqual([200, 200]);
-    expect([
-      njsRebind.headers['X-Navet-Profile-Revision'],
-      viteRebind.header('X-Navet-Profile-Revision'),
-    ]).toEqual(['2', '2']);
-
-    const njsNewOwnerRead = runNjs('GET', CLIENT_HEADERS, '', true, otherHomeAssistant);
-    const viteNewOwnerRead = createViteResponse();
-    await viteHandler(createViteRequest('GET', CLIENT_HEADERS), viteNewOwnerRead.response);
-    expect([njsNewOwnerRead.status, viteNewOwnerRead.status]).toEqual([200, 200]);
-    expect(JSON.parse(njsNewOwnerRead.body ?? '{}')).toMatchObject({
-      dashboard: { title: 'Recovered local dashboard' },
-    });
-    expect(JSON.parse(viteNewOwnerRead.body)).toMatchObject({
-      dashboard: { title: 'Recovered local dashboard' },
-    });
-    expect(
-      (
-        JSON.parse(sharedFs.readFileSync(PROFILE_HISTORY_PATH)) as Array<{
-          metadata: { revision: number };
-        }>
-      ).map((entry) => entry.metadata.revision)
-    ).toEqual([1, 2]);
-    expect(
-      (
-        JSON.parse(readFileSync(viteStore.getPaths().history, 'utf8')) as Array<{
-          metadata: { revision: number };
-        }>
-      ).map((entry) => entry.metadata.revision)
-    ).toEqual([1, 2]);
-
     const njsOldOwnerRead = runNjs('GET', CLIENT_HEADERS);
     vitePrincipal = PRINCIPAL;
     const viteOldOwnerRead = createViteResponse();
     await viteHandler(createViteRequest('GET', CLIENT_HEADERS), viteOldOwnerRead.response);
-    expect([njsOldOwnerRead.status, viteOldOwnerRead.status]).toEqual([403, 403]);
-    expect(viteStore.getState()).toMatchObject({ revision: 2, status: 'active' });
+    expect([njsOldOwnerRead.status, viteOldOwnerRead.status]).toEqual([200, 200]);
   });
 });

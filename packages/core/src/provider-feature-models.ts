@@ -246,11 +246,6 @@ export interface PlatformAutomationDetails {
   config: Record<string, unknown>;
 }
 
-export interface PlatformAutomationCreateResult {
-  automationId: string;
-  entityId?: string;
-}
-
 export interface PlatformCalendarRequestOptions extends PlatformFeatureRequestOptions {
   startDateTime?: string;
   endDateTime?: string;
@@ -397,6 +392,11 @@ export interface PlatformNotificationDeliveryRequest {
   message: string;
   target?: string;
   data?: Record<string, unknown>;
+}
+
+export interface PlatformNotificationDeliveryTarget {
+  id: string;
+  label: string;
 }
 
 export interface PlatformUpdateNotificationCandidate {

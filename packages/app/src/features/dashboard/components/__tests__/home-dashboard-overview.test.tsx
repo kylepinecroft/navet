@@ -1,6 +1,9 @@
+import { createChoreDemoWorkspace } from '@navet/app/features/chores/chore-demo-fixture';
+import { useChoreWorkspaceStore } from '@navet/app/features/chores/chore-workspace-store';
 import { renderWithProviders } from '@navet/app/test/render';
+import { resetAppStores } from '@navet/app/test/store-reset';
 import type { DeviceWithType } from '@navet/app/types/device.types';
-import { screen } from '@testing-library/react';
+import { fireEvent, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { HomeDashboardOverview } from '../home-dashboard-overview';
 
@@ -10,6 +13,11 @@ const overviewMocks = vi.hoisted(() => ({
   useHomeEnergySummary: vi.fn(() => ({
     gridImportTodayKWh: undefined,
   })),
+  useHomeOverviewCollections: vi.fn(() => ({
+    allCards: new Map(),
+    flowCards: [],
+    sectionCards: [],
+  })),
 }));
 
 vi.mock('@navet/app/hooks', async () => {
@@ -18,10 +26,13 @@ vi.mock('@navet/app/hooks', async () => {
     ...actual,
     useAccentColor: () => '#f97316',
     useI18n: () => ({
-      t: (key: string) =>
+      t: (key: string, values?: Record<string, unknown>) =>
         ({
           'homeSummary.security': 'Security',
           'homeSummary.noAlerts': 'No Alerts',
+          'household.tabs.chores': 'Chores',
+          'household.rooms.overdue': `${String(values?.count ?? 0)} overdue`,
+          'dashboard.summary.openSection': `Open ${String(values?.name ?? '')}`,
         })[key] ?? key,
     }),
     useThemeMode: () => 'glass',
@@ -55,6 +66,32 @@ vi.mock('../../hooks/use-home-energy-summary', () => ({
   useHomeEnergySummary: overviewMocks.useHomeEnergySummary,
 }));
 
+vi.mock('@navet/app/features/chores/use-chore-workspace-sync', () => ({
+  useChoreWorkspaceSync: vi.fn(),
+}));
+
+const choreCopy = {
+  dishwasher: 'Unload dishwasher',
+  toys: 'Toys back home',
+  hallway: 'Shoes and jackets',
+  laundry: 'Fold clean laundry',
+  plants: 'Water the plants',
+  bins: 'Take out recycling',
+  missionTitle: 'Saturday reset',
+  missionDescription: 'Reset the shared spaces.',
+  upcomingMissionTitle: 'Evening tidy up',
+  upcomingMissionDescription: 'A quick reset before bedtime.',
+  rewardTitle: 'Choose a family outing',
+  secondRewardTitle: 'Build a new LEGO set',
+  childDishwasher: 'Dishwasher rescue',
+  childToys: 'Toys back to base',
+  childHallway: 'Clear the launch pad',
+  kitchen: 'Kitchen',
+  bedroom: 'Bedroom',
+  hallwayRoom: 'Hallway',
+  livingRoom: 'Living room',
+};
+
 vi.mock('../home-dashboard-overview-presentation', () => ({
   HomePresentation: () => <div data-testid="home-presentation" />,
 }));
@@ -71,11 +108,7 @@ vi.mock('../home-dashboard-overview.shared', async () => {
       effectiveCols: 4,
       isPortrait: false,
     }),
-    buildHomeOverviewCollections: () => ({
-      allCards: new Map(),
-      flowCards: [],
-      sectionCards: [],
-    }),
+    useHomeOverviewCollections: overviewMocks.useHomeOverviewCollections,
   };
 });
 
@@ -89,10 +122,12 @@ function device(overrides: Partial<DeviceWithType> & Pick<DeviceWithType, 'id' |
 }
 
 describe('HomeDashboardOverview', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
+    await resetAppStores();
     overviewMocks.showHomeSummaryBar = true;
     overviewMocks.choresEnabled = true;
     overviewMocks.useHomeEnergySummary.mockClear();
+    overviewMocks.useHomeOverviewCollections.mockClear();
   });
 
   it('builds the home summary bar from the visible summary map instead of hidden raw devices', () => {
@@ -150,6 +185,50 @@ describe('HomeDashboardOverview', () => {
     expect(screen.queryByText('1 Alert')).not.toBeInTheDocument();
   });
 
+  it('navigates an overdue Chores summary to the tasks section', () => {
+    useChoreWorkspaceStore.getState().setPreviewDocument({
+      data: createChoreDemoWorkspace({ copy: choreCopy }),
+    });
+    const onNavigateSection = vi.fn();
+
+    renderWithProviders(
+      <HomeDashboardOverview
+        deviceMap={new Map()}
+        summaryDeviceMap={new Map()}
+        cardSizes={{}}
+        updateCardSize={vi.fn()}
+        isEditMode={false}
+        hiddenEntityCount={0}
+        allCustomCards={[]}
+        homeLayout={{
+          mode: 'flow',
+          showHero: true,
+          cardIds: [],
+          sections: [],
+          cardSectionAssignments: {},
+          cardLayouts: {},
+          cardGridColumns: 12,
+        }}
+        removeHomeCard={vi.fn()}
+        moveHomeCard={vi.fn()}
+        setHomeLayoutMode={vi.fn()}
+        addHomeSection={vi.fn()}
+        addHomeColumnSection={vi.fn()}
+        addHomeSectionBelow={vi.fn()}
+        moveHomeSection={vi.fn()}
+        moveHomeColumn={vi.fn()}
+        renameHomeSection={vi.fn()}
+        removeHomeSection={vi.fn()}
+        resizeHomeSection={vi.fn()}
+        onNavigateSection={onNavigateSection}
+      />
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Open Chores' }));
+
+    expect(onNavigateSection).toHaveBeenCalledWith('tasks');
+  });
+
   it('keeps only the active presentation or edit tree mounted across mode toggles', async () => {
     const props = {
       deviceMap: new Map(),
@@ -185,16 +264,19 @@ describe('HomeDashboardOverview', () => {
 
     expect(screen.getByTestId('home-presentation')).toBeInTheDocument();
     expect(screen.queryByTestId('home-edit')).not.toBeInTheDocument();
+    expect(overviewMocks.useHomeOverviewCollections).toHaveBeenCalledTimes(1);
 
     rerender(<HomeDashboardOverview {...props} isEditMode />);
 
     expect(await screen.findByTestId('home-edit')).toBeInTheDocument();
     expect(screen.queryByTestId('home-presentation')).not.toBeInTheDocument();
+    expect(overviewMocks.useHomeOverviewCollections).toHaveBeenCalledTimes(1);
 
     rerender(<HomeDashboardOverview {...props} isEditMode={false} />);
 
     expect(screen.getByTestId('home-presentation')).toBeInTheDocument();
     expect(screen.queryByTestId('home-edit')).not.toBeInTheDocument();
+    expect(overviewMocks.useHomeOverviewCollections).toHaveBeenCalledTimes(2);
   });
 
   it('does not mount Home summary data work when the summary bar is disabled', () => {

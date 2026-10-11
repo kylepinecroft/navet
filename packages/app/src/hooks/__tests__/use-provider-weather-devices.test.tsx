@@ -56,6 +56,7 @@ vi.mock('@navet/app/stores/settings-store', () => ({
 }));
 
 vi.mock('../use-integration-store', () => ({
+  useProviderId: (providerId?: string) => providerId ?? 'home_assistant',
   useIntegrationStore: (
     selector: (state: {
       currentProviderId: string;
@@ -85,6 +86,18 @@ vi.mock('../use-provider-feature-support', () => ({
 }));
 
 describe('useProviderWeatherDevices', () => {
+  it('exposes every weather entity as a selectable source', () => {
+    mockEntities = {
+      'weather.home': { state: 'sunny' },
+      'weather.cabin': { state: 'rainy' },
+      'sun.sun': { state: 'above_horizon' },
+    };
+    const { result } = renderHook(() => useProviderWeatherDevices('home_assistant'));
+    expect(result.current.map((device) => device.id)).toEqual([
+      'home_assistant:weather.cabin',
+      'home_assistant:weather.home',
+    ]);
+  });
   beforeEach(() => {
     mockEntities = {
       'weather.home': {

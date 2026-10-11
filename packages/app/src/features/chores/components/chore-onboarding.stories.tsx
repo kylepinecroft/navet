@@ -13,7 +13,7 @@ import {
 } from '@navet/core/chores';
 import type { Meta, StoryObj } from '@storybook/react-vite';
 import { useState } from 'react';
-import { expect, fireEvent, userEvent, waitFor, within } from 'storybook/test';
+import { expect, fireEvent, fn, userEvent, waitFor, within } from 'storybook/test';
 import { ChoreOnboardingDialog, ChoreOnboardingWelcome } from './chore-onboarding';
 
 const WALKTHROUGH_STEP_PAUSE_MS = 1_500;
@@ -22,10 +22,18 @@ function pauseWalkthrough(duration = WALKTHROUGH_STEP_PAUSE_MS) {
   return new Promise<void>((resolve) => window.setTimeout(resolve, duration));
 }
 
-function OnboardingWelcomeStory({ initiallyOpen = false }: { initiallyOpen?: boolean }) {
+function OnboardingWelcomeStory({
+  initiallyOpen = false,
+  initialParticipants = [],
+  onChoreSaved,
+}: {
+  initiallyOpen?: boolean;
+  initialParticipants?: ChoreParticipant[];
+  onChoreSaved?: (definition: ChoreDefinition) => void;
+}) {
   const [open, setOpen] = useState(initiallyOpen);
   const [complete, setComplete] = useState(false);
-  const [participants, setParticipants] = useState<ChoreParticipant[]>([]);
+  const [participants, setParticipants] = useState<ChoreParticipant[]>(initialParticipants);
   const [definitions, setDefinitions] = useState<ChoreDefinition[]>([]);
   const [experience, setExperience] = useState<ChoreExperienceState>(createChoreExperienceState());
   const [managementPinConfigured, setManagementPinConfigured] = useState(false);
@@ -70,6 +78,7 @@ function OnboardingWelcomeStory({ initiallyOpen = false }: { initiallyOpen?: boo
           definition: ChoreDefinition,
           presentation: ChorePresentationMetadata
         ) => {
+          onChoreSaved?.(definition);
           setDefinitions((current) => [...current, definition]);
           setExperience((current) => ({
             ...current,
@@ -149,7 +158,8 @@ export const LiquidGlassDialog: Story = {
     const glow = dialog.querySelector('[data-dialog-content-glow]');
     const footer = dialog.querySelector('[data-chore-onboarding-footer]');
     await expect(dialog).toHaveClass('bg-slate-950/55', 'backdrop-blur-2xl');
-    await expect(footer).toHaveClass('border-t', 'bg-transparent');
+    await expect(footer).toHaveClass('border-t', 'bg-slate-950', 'z-10');
+    await expect(footer).not.toHaveClass('bg-transparent');
     await expect(footer?.className).not.toContain('linear-gradient');
     await expect(footer?.className).not.toContain('shadow');
     await expect(glow).toHaveClass('pointer-events-none');
@@ -259,6 +269,85 @@ export const Mobile: Story = {
   },
 };
 
+const saveOnboardingChore = fn((_definition: ChoreDefinition) => undefined);
+
+export const OnboardingRepeatOptionsSaveTheirCadence: Story = {
+  render: () => (
+    <OnboardingWelcomeStory
+      initiallyOpen
+      initialParticipants={[
+        {
+          id: 'alex',
+          displayName: 'Alex',
+          capabilities: ['complete', 'approve', 'manage'],
+          createdAt: '2026-09-14T08:00:00.000Z',
+          updatedAt: '2026-09-14T08:00:00.000Z',
+        },
+      ]}
+      onChoreSaved={saveOnboardingChore}
+    />
+  ),
+  play: async ({ canvasElement }) => {
+    saveOnboardingChore.mockClear();
+    const dialog = within(canvasElement.ownerDocument.body).getByRole('dialog', {
+      name: 'Set up household chores',
+    });
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Add chore' }));
+    await userEvent.type(within(dialog).getByLabelText('Chore name'), 'Check the pump');
+    await userEvent.selectOptions(within(dialog).getByLabelText('Repeat'), 'hourly');
+    const interval = within(dialog).getByLabelText('Repeat every (hours)');
+    fireEvent.change(interval, { target: { value: '0' } });
+    await expect(within(dialog).getByRole('button', { name: 'Add this chore' })).toBeDisabled();
+    fireEvent.change(interval, { target: { value: '8761' } });
+    await expect(within(dialog).getByRole('button', { name: 'Add this chore' })).toBeDisabled();
+    fireEvent.change(interval, { target: { value: '5000' } });
+    await expect(within(dialog).getByRole('button', { name: 'Add this chore' })).toBeEnabled();
+    fireEvent.change(interval, {
+      target: { value: '6' },
+    });
+    fireEvent.change(within(dialog).getByLabelText('Start date'), {
+      target: { value: '2026-09-14' },
+    });
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Add this chore' }));
+    await expect(saveOnboardingChore).toHaveBeenCalledWith(
+      expect.objectContaining({
+        schedule: expect.objectContaining({
+          frequency: 'hourly',
+          intervalHours: 6,
+          startDate: '2026-09-14',
+        }),
+      })
+    );
+
+    const cases = [
+      ['once', { frequency: 'once', date: '2026-09-14' }],
+      ['daily', { frequency: 'daily', intervalDays: 1 }],
+      ['weekdays', { frequency: 'daily', daysOfWeek: [1, 2, 3, 4, 5] }],
+      ['weekends', { frequency: 'daily', daysOfWeek: [0, 6] }],
+      ['weekly', { frequency: 'weekly', intervalWeeks: 1, daysOfWeek: [1] }],
+      ['biweekly', { frequency: 'weekly', intervalWeeks: 2, daysOfWeek: [1] }],
+      ['triweekly', { frequency: 'weekly', intervalWeeks: 3, daysOfWeek: [1] }],
+      ['fourweekly', { frequency: 'weekly', intervalWeeks: 4, daysOfWeek: [1] }],
+      ['monthly', { frequency: 'monthly', dayOfMonth: 14 }],
+      ['custom', { frequency: 'daily', intervalDays: 2 }],
+      ['after_completion', { frequency: 'after_completion', intervalDays: 1 }],
+    ] as const;
+    for (const [repeat, expected] of cases) {
+      await userEvent.click(within(dialog).getByRole('button', { name: 'Add chore' }));
+      await userEvent.type(within(dialog).getByLabelText('Chore name'), `Check ${repeat}`);
+      await userEvent.selectOptions(within(dialog).getByLabelText('Repeat'), repeat);
+      fireEvent.change(within(dialog).getByLabelText('Start date'), {
+        target: { value: '2026-09-14' },
+      });
+      await userEvent.click(within(dialog).getByRole('button', { name: 'Add this chore' }));
+      const saved = saveOnboardingChore.mock.calls.at(-1)?.[0];
+      if (!saved) throw new Error(`Expected ${repeat} chore to save`);
+      await expect(saved.schedule).toMatchObject(expected);
+    }
+    await expect(saveOnboardingChore).toHaveBeenCalledTimes(cases.length + 1);
+  },
+};
+
 function createCompleteGuidedSetupPlay(paced: boolean): NonNullable<Story['play']> {
   return async ({ canvas, canvasElement }) => {
     const pause = paced ? pauseWalkthrough : async () => undefined;
@@ -290,6 +379,27 @@ function createCompleteGuidedSetupPlay(paced: boolean): NonNullable<Story['play'
     await pause();
     await userEvent.click(within(dialog).getByRole('button', { name: 'Continue to profiles' }));
     await expect(within(dialog).getAllByLabelText('Profile colour')[0]).toBeVisible();
+    await expect(
+      within(dialog).getByText(/Phone notifications use the connected smart-home provider's app/)
+    ).toBeVisible();
+    await userEvent.selectOptions(
+      within(dialog).getByLabelText('Reminder destination'),
+      'provider'
+    );
+    await expect(
+      within(dialog).getByText(
+        "Sends a push notification through the connected smart-home provider's app. Choose the device this person uses."
+      )
+    ).toBeVisible();
+    const notificationTarget = await within(dialog).findByLabelText('Notification device');
+    await expect(notificationTarget).toBeRequired();
+    await expect(
+      within(dialog).getByRole('button', { name: 'Save profiles and continue' })
+    ).toBeDisabled();
+    await userEvent.selectOptions(notificationTarget, 'mobile_app_alex_iphone');
+    await expect(
+      within(dialog).getByRole('button', { name: 'Save profiles and continue' })
+    ).toBeEnabled();
     await pause();
     await userEvent.click(within(dialog).getByRole('button', { name: 'Icon' }));
     const profileSymbol = within(dialog).getByLabelText('UserRound');
@@ -298,6 +408,9 @@ function createCompleteGuidedSetupPlay(paced: boolean): NonNullable<Story['play'
     await userEvent.click(within(dialog).getByRole('button', { name: /Maya$/ }));
     await userEvent.click(within(dialog).getByRole('button', { name: /Alex$/ }));
     await expect(within(dialog).getByLabelText('UserRound')).toBeChecked();
+    await expect(within(dialog).getByLabelText('Notification device')).toHaveValue(
+      'mobile_app_alex_iphone'
+    );
     await pause();
     await userEvent.click(
       within(dialog).getByRole('button', { name: 'Save profiles and continue' })

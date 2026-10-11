@@ -28,8 +28,6 @@ Common causes include:
 3. Confirm the provider address.
 4. Choose **Connect** or repeat the supported sign-in flow.
 
-Do not use a manual long-lived-token flow for Home Assistant.
-
 ## Sign in at home or through a VPN
 
 Standalone Navet keeps the browser-facing Home Assistant address separate from its trusted
@@ -41,49 +39,25 @@ VPN, Tailscale, or external address while away.
 2. Enter that same address in Navet.
 3. Choose **Continue** and finish the Home Assistant sign-in.
 
-The address must lead to the same Home Assistant installation. Navet opens the authorization page
-through the browser address, then verifies the returned OAuth code against its already trusted
-upstream. Once sign-in finishes, Navet also proxies access-token renewal, WebSocket traffic, API
-calls, and provider-managed Home Assistant HTTP resources. The browser does not need a continuing
-route to the trusted LAN address.
+Navet uses the address entered in the login form for both the authorization page and the token
+exchange. That address must be reachable from your browser and from Navet. If `NAVET_HASS_URL`
+is explicitly configured, Navet uses it for the token exchange and API traffic; the browser address
+must reach that same Home Assistant installation.
 
 ### Read the Home Assistant return error
 
-- **Navet could not reach Home Assistant to finish sign-in** means the browser completed the Home
-  Assistant step, but the Navet server could not redeem the response against its trusted upstream.
-  Check the route from the Navet host or container, not only the route from the browser.
-- **Home Assistant returned an invalid sign-in response** means the OAuth response cannot be
-  reused. Return to login and start a fresh sign-in instead of retrying the old browser return.
+- **Navet could not reach Home Assistant to finish sign-in** means Navet could not contact the token
+  endpoint. Check the address from the Navet host or container.
+- **Home Assistant rejected the sign-in code** means the token endpoint rejected the exchange.
+  Start a fresh sign-in. If `NAVET_HASS_URL` is configured, confirm that it and the browser address
+  reach the same installation.
+- **Home Assistant returned an invalid sign-in response** means the response was incomplete or
+  malformed. Start a fresh sign-in rather than reusing the old return URL.
 
-- If the authorization page does not open, troubleshoot the browser's LAN, VPN, DNS, or external
-  route.
-- If Home Assistant accepts the sign-in but returning to Navet fails, verify that the Navet
-  container can reach and trust its configured or previously enrolled upstream.
-- If Navet says operator pairing is required, the installation does not currently have a trusted
-  Home Assistant upstream. On an existing installation, first verify that its original
-  `navet-data` volume is mounted. On a fresh or reset installation, complete the one-time pairing
-  described in [Home Assistant setup](/install/home-assistant/#standalone-docker).
+### Change the Home Assistant address
 
-### Change an unreachable trusted upstream
-
-Use this only when the saved server route has permanently changed, for example when Navet moved
-from a LAN-only address to a Tailscale address for the same Home Assistant installation.
-
-1. Confirm the replacement address returns the same Home Assistant installation and is reachable
-   from the Navet host or container.
-2. Recover the existing installation key. Replace `navet` if your container has another name:
-
-   ```bash
-   docker exec navet cat /data/navet-installation-key
-   ```
-
-3. Append `#navet_pairing=<key>` to the trusted Navet URL and open that complete URL once.
-4. Continue in that same tab, choose **Home Assistant**, enter the replacement address, and finish
-   sign-in. Navet removes the key from the address immediately and updates the trusted upstream
-   only after Home Assistant accepts the sign-in.
-
-Keep the installation key private. If `NAVET_HASS_URL` pins the upstream in Compose, update that
-setting and recreate the container instead; pairing cannot override a configured pin.
+Enter the replacement address in Navet and sign in with Home Assistant. If `NAVET_HASS_URL` is set
+in Compose, update that configuration and recreate the container when the upstream address changes.
 
 ## Stuck on Starting your dashboard
 
@@ -105,7 +79,7 @@ Assistant's LAN address.
   and a trusted upstream reachable from the Navet container. They may be different routes to the
   same Home Assistant installation; routine dashboard use and token renewal use the latter through
   Navet's same-origin proxy.
-- openHAB must be reachable from the browser and use the configured credentials.
+- openHAB must be reachable from the Navet container and accept the configured credentials.
 - Homey OAuth requires the configured client and callback route.
 
 ## Reset only the affected connection

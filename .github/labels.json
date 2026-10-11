@@ -1,0 +1,15 @@
+[
+  { "name": "type: bug", "color": "d73a4a", "description": "User-visible behavior is broken" },
+  { "name": "type: feature", "color": "a2eeef", "description": "New or expanded product behavior" },
+  { "name": "type: ux", "color": "c5def5", "description": "UX, visual design, density, or responsive behavior" },
+  { "name": "type: docs", "color": "0075ca", "description": "Documentation or contributor guidance" },
+  { "name": "impact: ui", "color": "bfdadc", "description": "Changes rendered product or shared UI" },
+  { "name": "impact: provider", "color": "bfd4f2", "description": "Changes provider contracts or adapters" },
+  { "name": "impact: docs", "color": "c2e0c6", "description": "Changes public, architecture, or agent documentation" },
+  { "name": "impact: release", "color": "f9d0c4", "description": "Changes packaging, distribution, or release automation" },
+  { "name": "impact: website", "color": "fef2c0", "description": "Changes the public website or marketing surface" },
+  { "name": "stewardship", "color": "6f42c1", "description": "Documentation and architecture drift review" },
+  { "name": "communication", "color": "d4c5f9", "description": "Human-approved release and community communication draft" },
+  { "name": "navet: research", "color": "d4c5f9", "description": "Request one Navet Nisse research run; cleared after dispatch" },
+  { "name": "navet: implement", "color": "0e8a16", "description": "Request one Navet Nisse implementation run; cleared after dispatch" }
+]

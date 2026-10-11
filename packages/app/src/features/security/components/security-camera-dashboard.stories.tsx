@@ -223,7 +223,7 @@ interface SecurityDashboardStoryProps {
   locks: LockDevice[];
   sensors: SensorDevice[];
   alarms: NavetAlarmEntity[];
-  isOverviewCustomizationOpen?: boolean;
+  isEditMode?: boolean;
 }
 
 function SecurityDashboardStory({
@@ -231,7 +231,7 @@ function SecurityDashboardStory({
   locks,
   sensors,
   alarms,
-  isOverviewCustomizationOpen = false,
+  isEditMode = false,
 }: SecurityDashboardStoryProps) {
   const { theme } = useThemeStore();
   const surface = getThemeSurfaceTokens(theme);
@@ -242,12 +242,10 @@ function SecurityDashboardStory({
       <SecurityCameraDashboard
         model={model}
         alarms={alarms}
-        isEditMode={false}
+        isEditMode={isEditMode}
         cardSizes={{}}
         updateCardSize={noopCardSizeChange}
         surface={surface}
-        isOverviewCustomizationOpen={isOverviewCustomizationOpen}
-        onOverviewCustomizationOpenChange={() => undefined}
       />
     </div>
   );
@@ -268,7 +266,7 @@ const meta = {
     locks,
     sensors: securitySensors,
     alarms: [homeAlarm],
-    isOverviewCustomizationOpen: false,
+    isEditMode: false,
   },
 } satisfies Meta<typeof SecurityDashboardStory>;
 
@@ -282,9 +280,19 @@ export const Default: Story = {
   },
 };
 
-export const CustomizeOverview: Story = {
+export const EditQuickview: Story = {
   args: {
-    isOverviewCustomizationOpen: true,
+    isEditMode: true,
+  },
+};
+
+export const EditCameraMosaic: Story = {
+  args: {
+    cameras: [liveCamera, idleCamera, gardenCamera],
+    locks: [],
+    sensors: [],
+    alarms: [],
+    isEditMode: true,
   },
 };
 
@@ -339,7 +347,7 @@ export const CriticalAlert: Story = {
   play: async ({ canvas }) => {
     const alertPanel = await canvas.findByTestId('security-alerts-panel');
     await expect(alertPanel).toHaveAttribute('data-alert-tone', 'red');
-    await expect(canvas.getByText(/2 critical/i)).toBeVisible();
+    await expect(canvas.getByText(/1 critical/i)).toBeVisible();
   },
 };
 
@@ -353,7 +361,7 @@ export const MixedCriticalAndAttention: Story = {
   play: async ({ canvas }) => {
     const alertPanel = await canvas.findByTestId('security-alerts-panel');
     await expect(alertPanel).toHaveAttribute('data-alert-tone', 'red');
-    await expect(canvas.getByText(/2 critical/i)).toBeVisible();
+    await expect(canvas.getByText(/1 critical/i)).toBeVisible();
     await expect(canvas.getAllByTestId('security-alert-row')).toHaveLength(4);
   },
 };
@@ -368,7 +376,7 @@ export const ManyAlerts: Story = {
   play: async ({ canvas }) => {
     const alertPanel = await canvas.findByTestId('security-alerts-panel');
     await expect(alertPanel).toHaveAttribute('data-alert-tone', 'red');
-    await expect(canvas.getByText(/3 critical/i)).toBeVisible();
+    await expect(canvas.getByText(/1 critical/i)).toBeVisible();
     await expect(canvas.getAllByTestId('security-alert-row')).toHaveLength(11);
   },
 };
@@ -393,7 +401,8 @@ export const UnavailableOnly: Story = {
   play: async ({ canvas }) => {
     const alertPanel = canvas.getByTestId('security-alerts-panel');
     await expect(alertPanel).toHaveAttribute('data-alert-tone', 'neutral');
-    await expect(alertPanel).toHaveTextContent(/2 unavailable/i);
+    await expect(alertPanel).toHaveTextContent(/3 unavailable/i);
+    await expect(canvas.getByRole('button', { name: 'Side Gate: Unavailable' })).toBeVisible();
     await expect(canvas.getByRole('button', { name: 'Side Door: Unavailable' })).toBeVisible();
     await expect(canvas.getByRole('button', { name: 'Utility Window: Unavailable' })).toBeVisible();
   },

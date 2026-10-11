@@ -1,5 +1,89 @@
 # Changelog
 
+## 0.17.1 - 2026-09-17
+
+## Improvements and bug fixes
+
+- Hidden room entities can now be restored with Add Entity without showing entities from other rooms.
+- Improved dashboard syncing during connectivity changes and preserved successful room edits after partial provider failures.
+- Improved media metadata, portrait camera editing, and authorized-device badges across screen sizes.
+
+## 0.17.0 - 2026-09-16
+
+## New features
+
+- Added shared provider management so connected sources work together without a global primary provider.
+- Expanded Homey with locks, covers, thermostats, speakers, flows, moods, people, notifications, Insights history, and app browsing.
+- Expanded openHAB with fans, climate setpoints, speakers, locks, covers, security sensors, batteries, and utility measurements.
+- Added completion-anchored chores that schedule their next occurrence from the latest completion.
+- Added a per-device browser zoom setting to prevent unwanted input zoom.
+
+## Improvements and bug fixes
+
+- Improved multi-provider rooms, source routing, energy readings, battery health, security activity, and dashboard grouping.
+- Kept Undo, Redo, Add Card, and Done visible on narrower edit bars and restored card edit actions.
+- Improved chore setup with guided steps, inline validation, preserved drafts, and clearer repeat schedules.
+- Fixed provider availability feedback and cleared stale sessions after disconnecting.
+
+## 0.16.3 - 2026-09-13
+
+## New features
+
+- Added short-code approval for additional devices, with access management in System settings.
+- Household chores now share one installation workspace across standalone Home Assistant, Homey, and openHAB connections.
+
+## Improvements and bug fixes
+
+- Added searchable entity selection with room filters, sorting, and device-type navigation across dashboards.
+- Energy cards can now be rearranged directly, with controls to hide or restore KPIs.
+- Today's Energy history now shows five-minute intervals.
+- Security quickview now supports pinning and drag-and-drop arrangement, with linked motion events opening their camera.
+- Security activity now shows failed refreshes, the last successful update, and a retry action.
+- Improved portrait camera viewing and distinguished verified live playback from snapshot load age.
+- Added larger theme and wallpaper previews with responsive appearance controls.
+
+## Security
+
+- Provider credentials stay within your Navet installation while approved devices receive individually revocable sessions.
+- Replaced installation pairing keys with short-lived setup codes for first-time connections.
+
+## 0.16.2 - 2026-09-11
+
+## Improvements and bug fixes
+
+- Fixed HACS updates after the integration repository rename and added recovery guidance for affected installations.
+- Hidden entities no longer appear in Home climate and security summaries.
+- Simplified Settings by clarifying dashboards, connected displays, sync history, and device controls, and removing unfinished Local Habits.
+
+## 0.16.1 - 2026-09-10
+
+## Improvements and bug fixes
+
+- Added optional direct access to the Home Assistant add-on while preserving its authenticated Ingress route.
+- Fixed the HACS sidebar panel flickering instead of opening Navet.
+- Simplified Home Assistant add-on setup by removing obsolete provider fields, clarifying options, and replacing technical introduction copy.
+
+## 0.16.0 - 2026-09-09
+
+## New features
+
+- Added a redesigned Energy workspace with flexible ranges, configurable KPIs, comparisons, and device-level usage details.
+- Added Household links to Home Assistant people and companion-app devices for chore reminders.
+- Added search, sorting, and size filters to the custom-card library.
+- Expanded the public demo with working chore actions and climate temperature controls.
+- Added a product tour and setup and dashboard tutorials across the website and documentation.
+
+## Improvements and bug fixes
+
+- Home Assistant address changes now verify the installation before reusing dashboards, keeping different homes isolated.
+- Dashboard updates now synchronize across browser sessions without stale tabs overwriting newer changes.
+- Fixed light controls reverting during provider updates and kept ambient effects out of dashboard editing.
+- Improved media cards with accessible seeking and safe handling when no player is active.
+- Improved compact sensor cards by prioritizing readable values and reserving history graphs for larger sizes.
+- Fixed Household forms accepting invalid schedules or numbers and preserved data during temporary storage failures.
+- Fixed Home Assistant add-on root routes opening the standalone sign-in flow.
+- Hardened authenticated RSS loading against private-network targets, redirects, oversized feeds, and invalid content.
+
 ## 0.15.8 - 2026-09-05
 
 ## Improvements and bug fixes

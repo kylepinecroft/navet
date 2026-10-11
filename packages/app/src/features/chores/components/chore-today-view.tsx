@@ -1,5 +1,6 @@
 import { DashboardEmptyState } from '@navet/app/components/patterns';
 import { Badge, Button } from '@navet/app/components/primitives';
+import { getReadableAccentForeground } from '@navet/app/components/shared/theme/theme-colors';
 import { getThemeSurfaceTokens } from '@navet/app/components/shared/theme/theme-surface-tokens';
 import {
   getThemeFocusRingClassName,
@@ -34,7 +35,9 @@ import {
   getMissionProgressList,
   getRewardProgressList,
   getTodayChoresForParticipant,
+  getUpcomingChores,
 } from '../chore-dashboard-selectors';
+import { useChoreClock } from '../use-chore-clock';
 import { ChoreFocusCard } from './chore-card';
 import { ChoreDashboardGrid } from './chore-dashboard-grid';
 import { HousePulse, MissionCard, RewardGoalCard } from './chore-support-cards';
@@ -88,7 +91,10 @@ function ParticipantAvatar({
       aria-hidden="true"
     >
       {participant?.avatarUrl ? <AvatarImage src={participant.avatarUrl} alt="" /> : null}
-      <AvatarFallback className="bg-transparent text-xs font-semibold text-white">
+      <AvatarFallback
+        className="bg-transparent text-xs font-semibold"
+        style={{ color: getReadableAccentForeground(participant?.color ?? accentColor) }}
+      >
         {participant ? (
           AvatarIcon ? (
             <AvatarIcon aria-hidden="true" className="h-4 w-4" />
@@ -187,15 +193,61 @@ export function ChoreTodayView({
   onAddChore: () => void;
 }) {
   const { t } = useI18n();
+  const { theme } = useTheme();
+  const surface = getThemeSurfaceTokens(theme);
   const [rewardsVisible, setRewardsVisible] = useState(false);
   const breakpointCols = useBreakpointCols();
   const cardsPerRow = Math.max(1, Math.floor(breakpointCols / 2));
-  const now = useMemo(() => new Date(), []);
+  const now = useChoreClock();
   const experience = normalizeChoreExperienceState(data.experience);
+  const alerts = data.outbox
+    .filter((item) => {
+      if (
+        item.destination !== 'in_app' ||
+        !item.occurrenceId ||
+        !item.participantId ||
+        (item.status !== 'pending' && item.status !== 'failed')
+      )
+        return false;
+      const occurrence = data.occurrencesById[item.occurrenceId];
+      return (
+        occurrence &&
+        (!item.occurrenceUpdatedAt || item.occurrenceUpdatedAt === occurrence.updatedAt) &&
+        (occurrence.status === 'available' || occurrence.status === 'awaiting_approval')
+      );
+    })
+    .slice(-5);
+  const runAlertAction = (
+    item: (typeof alerts)[number],
+    type: 'claim' | 'approve' | 'reject' | 'skip'
+  ) => {
+    if (!item.occurrenceId || !item.participantId) return;
+    void execute({
+      type: 'occurrence_action',
+      occurrenceId: item.occurrenceId,
+      expectedOccurrenceUpdatedAt: item.occurrenceUpdatedAt,
+      action:
+        type === 'skip'
+          ? { type, participantId: item.participantId, reason: t('household.alerts.skipReason') }
+          : type === 'reject'
+            ? { type, participantId: item.participantId }
+            : { type, participantId: item.participantId },
+    });
+  };
   const occurrences = useMemo(
     () => getTodayChoresForParticipant(data, selectedParticipantId, now),
     [data, now, selectedParticipantId]
   );
+  const upcoming = useMemo(() => {
+    const seen = new Set<string>();
+    return getUpcomingChores(data, selectedParticipantId, now, 7)
+      .filter((item) => {
+        if (seen.has(item.definitionId)) return false;
+        seen.add(item.definitionId);
+        return true;
+      })
+      .slice(0, cardsPerRow);
+  }, [data, selectedParticipantId, now, cardsPerRow]);
   const active = occurrences.filter(
     (occurrence) => occurrence.status !== 'done' && occurrence.status !== 'skipped'
   );
@@ -213,7 +265,11 @@ export function ChoreTodayView({
   const hasRewardsSection = Boolean(activeMission || rewardGoal);
   const childMode = experience.gamificationMode === 'adventure';
 
-  const renderChore = (occurrence: ChoreOccurrence, size: 'small' | 'medium' = 'medium') => {
+  const renderChore = (
+    occurrence: ChoreOccurrence,
+    size: 'small' | 'medium' = 'medium',
+    preview = false
+  ) => {
     const definition = getDefinition(data, occurrence);
     if (!definition) return null;
     const action = getChoreCardAction(occurrence, definition, selectedParticipantId, execute, t);
@@ -230,7 +286,7 @@ export function ChoreTodayView({
         occurrence={occurrence}
         participantsById={data.participantsById}
         presentation={presentation}
-        action={action}
+        action={preview ? undefined : action}
         childMode={childMode}
         now={now}
       />
@@ -270,6 +326,84 @@ export function ChoreTodayView({
         }
       />
 
+      {alerts.length ? (
+        <section
+          aria-label={t('household.alerts.title')}
+          className={cn('rounded-2xl border p-3', surface.borderStrong, surface.panelMuted)}
+        >
+          <h2 className="mb-2 text-sm font-semibold">{t('household.alerts.title')}</h2>
+          <div className="space-y-2">
+            {alerts.map((item) => {
+              const occurrence = item.occurrenceId
+                ? data.occurrencesById[item.occurrenceId]
+                : undefined;
+              if (!occurrence) return null;
+              const definition = data.definitionsById[occurrence.definitionId];
+              const person = item.participantId
+                ? data.participantsById[item.participantId]
+                : undefined;
+              if (!definition || !person) return null;
+              const canClaim =
+                occurrence.status === 'available' && occurrence.assigneeIds.includes(person.id);
+              const canReview =
+                occurrence.status === 'awaiting_approval' &&
+                definition.approval.approverIds.includes(person.id);
+              const canSkip =
+                occurrence.status === 'available' && person.capabilities.includes('manage');
+              if (!canClaim && !canReview && !canSkip) return null;
+              return (
+                <div
+                  key={item.id}
+                  className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-white/10 p-2 text-sm"
+                >
+                  <span className="min-w-0 truncate">
+                    {definition.title} · {person.displayName}
+                  </span>
+                  <div className="flex flex-wrap gap-1">
+                    {canClaim ? (
+                      <Button
+                        size="compact"
+                        variant="secondary"
+                        onClick={() => runAlertAction(item, 'claim')}
+                      >
+                        {t('household.actions.claim')}
+                      </Button>
+                    ) : null}
+                    {canReview ? (
+                      <>
+                        <Button
+                          size="compact"
+                          variant="secondary"
+                          onClick={() => runAlertAction(item, 'approve')}
+                        >
+                          {t('household.actions.approve')}
+                        </Button>
+                        <Button
+                          size="compact"
+                          variant="secondary"
+                          onClick={() => runAlertAction(item, 'reject')}
+                        >
+                          {t('household.actions.reject')}
+                        </Button>
+                      </>
+                    ) : null}
+                    {canSkip ? (
+                      <Button
+                        size="compact"
+                        variant="secondary"
+                        onClick={() => runAlertAction(item, 'skip')}
+                      >
+                        {t('household.alerts.skip')}
+                      </Button>
+                    ) : null}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </section>
+      ) : null}
+
       {hasRewardsSection && rewardsVisible ? (
         <section id="chores-rewards-section" aria-labelledby="chores-supporting-title">
           <SectionHeading
@@ -291,7 +425,7 @@ export function ChoreTodayView({
             variant="inline"
             icon={CalendarCheck}
             title={t('household.today.emptyTitle')}
-            description={t('household.today.emptyDescription')}
+            description={upcoming.length ? '' : t('household.today.emptyDescription')}
             actionLabel={
               Object.keys(data.definitionsById).length === 0 ? t('household.chores.add') : undefined
             }
@@ -319,6 +453,15 @@ export function ChoreTodayView({
               count={remaining.length}
             />
             <ChoreDashboardGrid>{remaining.map((item) => renderChore(item))}</ChoreDashboardGrid>
+          </section>
+        ) : null}
+
+        {upcoming.length > 0 ? (
+          <section aria-labelledby="chores-upcoming-title">
+            <SectionHeading id="chores-upcoming-title" title={t('household.today.nextSevenDays')} />
+            <ChoreDashboardGrid>
+              {upcoming.map((item) => renderChore(item, 'medium', true))}
+            </ChoreDashboardGrid>
           </section>
         ) : null}
 

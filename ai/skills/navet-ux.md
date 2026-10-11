@@ -1,11 +1,11 @@
 # Navet UX
 
 Read this file before changing dashboard layout, card behavior, section composition, settings,
-dialogs, navigation, or visual hierarchy. Also read the compact
-[`AI-DESIGN-CONTEXT.md`](../../docs/design-system/AI-DESIGN-CONTEXT.md) packet. When the work changes
-how Navet communicates visually or through cards, also use the canonical
-[brand system](../../docs/branding/README.md) and
-[product card grammar](../../docs/branding/CARD_GRAMMAR.md).
+dialogs, navigation, or visual hierarchy. It is self-contained for ordinary UI work. Open
+[`AI-DESIGN-CONTEXT.md`](../../docs/design-system/AI-DESIGN-CONTEXT.md) only when creating or
+replacing a visual recipe. Open the [brand system](../../docs/branding/README.md) or
+[product card grammar](../../docs/branding/CARD_GRAMMAR.md) only when the task changes those
+foundations.
 
 ## Design From Evidence
 
@@ -115,7 +115,7 @@ Review the result against the named reference, not only against the request:
 If a visual review surface is available, inspect it and correct visible hierarchy, overflow,
 alignment, and theme mismatches before calling the work complete.
 
-For small UI-only tweaks, do not run tests by default. Tell the user the most relevant focused
-validation, usually `pnpm test:storybook`, `pnpm check:stories`, or `pnpm test <path>`. For broader
-UI work, follow `docs/agents/commands.md` and use the smallest routeable validation that covers the
-change.
+For small UI-only tweaks, run the closest focused validation, usually a targeted Storybook test,
+`pnpm check:stories`, or `pnpm test <path>`, and inspect the rendered state. For broader or
+responsive UI work, follow `docs/agents/commands.md`, use the smallest routeable validation that
+covers the change, and run `pnpm test:visual-review` when shared layout or overflow can change.

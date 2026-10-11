@@ -559,14 +559,22 @@ export function useClimateCardController({
         : 'text-gray-300';
   const secondaryTextColor = surface.textSecondary;
 
-  const cardInteraction = useEntityCardInteractionController({
+  const canTogglePower =
+    supportedClimateModes === undefined || supportedClimateModes.includes('off');
+  const interaction = useEntityCardInteractionController({
     ariaLabel: `${name} ${t('climate.subtitle').toLowerCase()}`,
-    ariaPressed: isOn,
+    ariaPressed: canTogglePower ? isOn : undefined,
     isEditMode,
-    onToggle: togglePower,
+    onToggle: canTogglePower ? togglePower : undefined,
     onOpenControls: () => setIsSettingsOpen(true),
     onOpenSettings: () => setIsSettingsOpen(true),
   });
+  const cardInteraction = canTogglePower
+    ? interaction
+    : {
+        ...interaction,
+        iconButtonProps: interaction.settingsButtonProps,
+      };
   useEditModeSettingsRequest(id, () => setIsSettingsOpen(true), isEditMode);
 
   const lightOverlay =
@@ -648,6 +656,12 @@ export function useClimateCardController({
             temperatureUnit
           )
         : formatTemperatureValue(value, temperatureUnit),
+    hasTargetTemperature: liveEntity
+      ? resolveClimateTargetTemperature(liveEntity) !== null
+      : providerState
+        ? typeof providerState.temperature === 'number' &&
+          Number.isFinite(providerState.temperature)
+        : true,
     isMedium,
     isOn,
     isSettingsOpen,
@@ -675,12 +689,3 @@ export function useClimateCardController({
     theme,
   };
 }
-
-/** @deprecated Use ClimateSiblingEntity. */
-export type HVACSiblingEntity = ClimateSiblingEntity;
-
-/** @deprecated Use ClimateCardController. */
-export type HVACCardController = ClimateCardController;
-
-/** @deprecated Use useClimateCardController. */
-export const useHVACCardController = useClimateCardController;

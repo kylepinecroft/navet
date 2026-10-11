@@ -1,11 +1,13 @@
 import homeAssistantLogo from '@navet/app/assets/providers/home-assistant.svg';
-import homeyLogo from '@navet/app/assets/providers/homey.svg';
+import homeyLogo from '@navet/app/assets/providers/homey-ui.webp';
 import openhabLogo from '@navet/app/assets/providers/openhab.svg';
 import { useAuthSession } from '@navet/app/auth/AuthProvider';
+import { canConnectFromAuthorizedDevice } from '@navet/app/auth/device-authorization';
 import {
   chooseDiscoveredHomeAssistantUrl,
   fetchHomeAssistantDiscovery,
 } from '@navet/app/auth/homeAssistantDiscovery';
+
 import { getThemeSurfaceTokens } from '@navet/app/components/shared/theme/theme-surface-tokens';
 import { cn } from '@navet/app/components/ui/utils';
 import { getRuntimeConfig } from '@navet/app/config/runtime-config';
@@ -18,7 +20,13 @@ import {
   type IntegrationProviderId,
 } from '@navet/app/types/provider';
 import { getPublicAssetUrl } from '@navet/app/utils/public-assets';
-import { type SVGProps, useEffect, useRef, useState } from 'react';
+import { lazy, Suspense, type SVGProps, useEffect, useRef, useState } from 'react';
+
+const DeviceConnectionPanel = lazy(() =>
+  import('./device-connection-panel').then((module) => ({
+    default: module.DeviceConnectionPanel,
+  }))
+);
 
 type LoginIconProps = SVGProps<SVGSVGElement>;
 
@@ -140,6 +148,9 @@ export function LoginPage({ initialError = '' }: { initialError?: string }) {
   const [isDiscovering, setIsDiscovering] = useState(!initialUrl.current);
   const [discoveredUrl, setDiscoveredUrl] = useState<string | null>(null);
   const [providerId, setProviderId] = useState<IntegrationProviderId | null>(null);
+
+  const [connectingDevice, setConnectingDevice] = useState(false);
+  const [deviceConnectionAvailable, setDeviceConnectionAvailable] = useState(false);
   const [openhabUsername, setOpenhabUsername] = useState('');
   const [openhabPassword, setOpenhabPassword] = useState('');
   const [systemPrefersDark, setSystemPrefersDark] = useState(() =>
@@ -161,6 +172,18 @@ export function LoginPage({ initialError = '' }: { initialError?: string }) {
   const hasSelectedProvider = provider !== null;
   const surface = getThemeSurfaceTokens(theme);
   const logoSrc = getPublicAssetUrl('logo.svg');
+
+  useEffect(() => {
+    const controller = new AbortController();
+    void canConnectFromAuthorizedDevice(controller.signal)
+      .then((available) => {
+        if (available) {
+          setDeviceConnectionAvailable(true);
+        }
+      })
+      .catch(() => undefined);
+    return () => controller.abort();
+  }, []);
 
   useEffect(() => {
     if (initialError) {
@@ -298,23 +321,27 @@ export function LoginPage({ initialError = '' }: { initialError?: string }) {
       ? 'bg-[radial-gradient(circle_at_50%_34%,rgba(249,115,22,0.30)_0%,rgba(249,115,22,0.13)_24%,transparent_46%),linear-gradient(180deg,#050505_0%,#000_100%)]'
       : 'bg-[radial-gradient(circle_at_50%_34%,rgba(249,115,22,0.30)_0%,rgba(249,115,22,0.12)_24%,transparent_46%),linear-gradient(180deg,#060a12_0%,#030712_100%)]';
   const providerSignInLabel = provider?.id === 'homey' ? 'Athom' : provider?.label;
-  const translatedHeadingText = provider
-    ? t('login.connectProviderTitle', { provider: provider.label })
-    : t('login.providerChooser.title');
+  const translatedHeadingText = connectingDevice
+    ? 'Connect this device'
+    : provider
+      ? t('login.connectProviderTitle', { provider: provider.label })
+      : t('login.providerChooser.title');
   const urlFieldLabel = provider
     ? t('login.providerUrlLabel', { provider: provider.label })
     : t('login.urlLabel');
   const urlPlaceholder =
     provider?.id === 'openhab' ? 'http://openhab.local:8080' : t('login.urlPlaceholder');
-  const introText = provider
-    ? provider.id === 'openhab'
-      ? 'Enter your openHAB URL, username, and password to connect directly from Navet.'
-      : provider.loginMode === 'url_session'
-        ? t('login.providerIntro.urlSession', { provider: provider.label })
-        : requiresUrl
-          ? t('login.providerIntro.urlOauth', { provider: provider.label })
-          : t('login.providerIntro.cloudOauth', { provider: provider.label })
-    : t('login.providerChooser.description');
+  const introText = connectingDevice
+    ? 'Use a phone or computer where Navet is already signed in. Your provider credentials stay on the Navet server.'
+    : provider
+      ? provider.id === 'openhab'
+        ? 'Enter your openHAB URL, username, and password to connect directly from Navet.'
+        : provider.loginMode === 'url_session'
+          ? t('login.providerIntro.urlSession', { provider: provider.label })
+          : requiresUrl
+            ? t('login.providerIntro.urlOauth', { provider: provider.label })
+            : t('login.providerIntro.cloudOauth', { provider: provider.label })
+      : t('login.providerChooser.description');
 
   return (
     <main className={`relative min-h-screen overflow-y-auto ${pageBackground}`}>
@@ -348,231 +375,265 @@ export function LoginPage({ initialError = '' }: { initialError?: string }) {
             />
             <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(180deg,rgba(255,255,255,0.09),rgba(255,255,255,0.025)_22%,transparent_58%)]" />
             <div className="relative space-y-5">
-              <div>
-                <ul
-                  className="m-0 flex list-none flex-col gap-2 p-0"
-                  aria-label={t('login.providerChooser.title')}
+              {connectingDevice ? (
+                <Suspense
+                  fallback={
+                    <div className="flex min-h-56 items-center justify-center gap-3" role="status">
+                      <Loader2 className="h-5 w-5 animate-spin text-orange-300" />
+                      <span className="text-sm text-white/68">
+                        {t('deviceAuthorization.preparingApproval')}
+                      </span>
+                    </div>
+                  }
                 >
-                  {selectableProviders.map((candidateId) => {
-                    const candidateContent = PROVIDER_OPTION_CONTENT[candidateId];
-                    const isSelected = candidateId === providerId;
-                    const candidate = INTEGRATION_PROVIDERS[candidateId];
-                    const isCollapsedOption = hasSelectedProvider && !isSelected;
+                  <DeviceConnectionPanel onSignIn={() => setConnectingDevice(false)} />
+                </Suspense>
+              ) : (
+                <>
+                  <div>
+                    <ul
+                      className="m-0 flex list-none flex-col gap-2 p-0"
+                      aria-label={t('login.providerChooser.title')}
+                    >
+                      {selectableProviders.map((candidateId) => {
+                        const candidateContent = PROVIDER_OPTION_CONTENT[candidateId];
+                        const isSelected = candidateId === providerId;
+                        const candidate = INTEGRATION_PROVIDERS[candidateId];
+                        const isCollapsedOption = hasSelectedProvider && !isSelected;
 
-                    return (
-                      <li
-                        key={candidateId}
-                        className={cn('overflow-hidden', isCollapsedOption ? 'hidden' : 'block')}
-                        aria-hidden={isCollapsedOption}
-                      >
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setProviderId(candidateId);
-                            setError('');
-                          }}
-                          aria-label={candidate.label}
-                          disabled={isCollapsedOption}
-                          className={cn(
-                            'group relative flex w-full items-center gap-3 rounded-[20px] border px-4 py-3 text-left transition-[background-color,border-color,box-shadow,transform] duration-300 ease-out',
-                            isSelected
-                              ? selectedProviderClassName
-                              : `border-white/10 ${textColor} hover:border-white/16 hover:bg-white/4`
-                          )}
-                          aria-pressed={isSelected}
-                        >
-                          <span
+                        return (
+                          <li
+                            key={candidateId}
                             className={cn(
-                              'ml-2 flex h-12 w-12 shrink-0 items-center justify-center rounded-full border border-white/12 bg-black/15 text-white/80 transition-[background-color,border-color,transform] duration-300 ease-out'
+                              'overflow-hidden',
+                              isCollapsedOption ? 'hidden' : 'block'
                             )}
+                            aria-hidden={isCollapsedOption}
                           >
-                            {candidateContent.logoSrc ? (
-                              candidateContent.logoSources ? (
-                                <picture>
-                                  {candidateContent.logoSources.map((source) => (
-                                    <source
-                                      key={`${source.type}-${source.srcSet}`}
-                                      srcSet={source.srcSet}
-                                      type={source.type}
-                                    />
-                                  ))}
-                                  <img
-                                    src={candidateContent.logoSrc}
-                                    alt=""
-                                    className="h-7 w-7 object-contain"
-                                  />
-                                </picture>
-                              ) : (
-                                <img
-                                  src={candidateContent.logoSrc}
-                                  alt=""
-                                  className="h-7 w-7 object-contain"
-                                />
-                              )
-                            ) : (
-                              <span className="text-[0.7rem] font-semibold uppercase tracking-[0.14em]">
-                                {candidate.label.slice(0, 2)}
-                              </span>
-                            )}
-                          </span>
-                          <span className="min-w-0 flex-1">
-                            <span className="block text-base font-semibold">{candidate.label}</span>
-                            <span
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setProviderId(candidateId);
+                                setError('');
+                              }}
+                              aria-label={candidate.label}
+                              disabled={isCollapsedOption}
                               className={cn(
-                                'mt-1 block text-sm leading-5',
-                                isSelected ? 'text-white/72' : mutedColor
+                                'group relative flex w-full items-center gap-3 rounded-[20px] border px-4 py-3 text-left transition-[background-color,border-color,box-shadow,transform] duration-300 ease-out',
+                                isSelected
+                                  ? selectedProviderClassName
+                                  : `border-white/10 ${textColor} hover:border-white/16 hover:bg-white/4`
                               )}
+                              aria-pressed={isSelected}
                             >
-                              {t(candidateContent.detailKey)}
-                            </span>
-                          </span>
-                          <span
-                            className={cn(
-                              'flex h-8 w-8 shrink-0 items-center justify-center rounded-full transition-[background-color,color,transform] duration-300 ease-out',
-                              isSelected
-                                ? 'scale-[1.03] bg-orange-500/14 text-orange-300'
-                                : 'bg-white/5 text-white/55 group-hover:bg-white/10 group-hover:text-white/80'
-                            )}
-                            aria-hidden="true"
-                          >
-                            {isSelected ? (
-                              <CheckCircle2 className="h-4 w-4" />
-                            ) : (
-                              <ArrowRight className="h-4 w-4" />
-                            )}
-                          </span>
-                        </button>
-                      </li>
-                    );
-                  })}
-                </ul>
-                {error ? (
-                  <div
-                    role="alert"
-                    className="mt-3 flex items-start gap-3 rounded-2xl border border-red-400/22 bg-red-500/12 p-4"
-                  >
-                    <AlertCircle className="mt-0.5 h-5 w-5 flex-shrink-0 text-red-300" />
-                    <p className="text-sm leading-6 text-red-100">{error}</p>
-                  </div>
-                ) : null}
-              </div>
-              {hasSelectedProvider && provider ? (
-                <div className="space-y-5 pt-5">
-                  {requiresUrl ? (
-                    <>
-                      <div className="space-y-2">
-                        <label htmlFor="url" className={`block text-sm font-medium ${textColor}`}>
-                          {urlFieldLabel}
-                        </label>
-                        <div className="relative">
-                          <Home
-                            className={`pointer-events-none absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 ${mutedColor}`}
-                          />
-                          <input
-                            ref={urlInputRef}
-                            id="url"
-                            type="text"
-                            defaultValue={initialUrl.current}
-                            placeholder={urlPlaceholder}
-                            className={`min-h-11 w-full rounded-xl border py-2.5 pl-10 pr-3 text-sm font-normal outline-none transition-[border-color,box-shadow] focus-visible:border-orange-400/50 focus-visible:ring-2 focus-visible:ring-orange-400/25 ${fieldInputClassName}`}
-                            disabled={isLoading}
-                          />
-                        </div>
+                              <span
+                                className={cn(
+                                  'ml-2 flex h-12 w-12 shrink-0 items-center justify-center rounded-full border border-white/12 bg-black/15 text-white/80 transition-[background-color,border-color,transform] duration-300 ease-out'
+                                )}
+                              >
+                                {candidateContent.logoSrc ? (
+                                  candidateContent.logoSources ? (
+                                    <picture>
+                                      {candidateContent.logoSources.map((source) => (
+                                        <source
+                                          key={`${source.type}-${source.srcSet}`}
+                                          srcSet={source.srcSet}
+                                          type={source.type}
+                                        />
+                                      ))}
+                                      <img
+                                        src={candidateContent.logoSrc}
+                                        alt=""
+                                        className="h-7 w-7 object-contain"
+                                      />
+                                    </picture>
+                                  ) : (
+                                    <img
+                                      src={candidateContent.logoSrc}
+                                      alt=""
+                                      className="h-7 w-7 object-contain"
+                                    />
+                                  )
+                                ) : (
+                                  <span className="text-[0.7rem] font-semibold uppercase tracking-[0.14em]">
+                                    {candidate.label.slice(0, 2)}
+                                  </span>
+                                )}
+                              </span>
+                              <span className="min-w-0 flex-1">
+                                <span className="block text-base font-semibold">
+                                  {candidate.label}
+                                </span>
+                                <span
+                                  className={cn(
+                                    'mt-1 block text-sm leading-5',
+                                    isSelected ? 'text-white/72' : mutedColor
+                                  )}
+                                >
+                                  {t(candidateContent.detailKey)}
+                                </span>
+                              </span>
+                              <span
+                                className={cn(
+                                  'flex h-8 w-8 shrink-0 items-center justify-center rounded-full transition-[background-color,color,transform] duration-300 ease-out',
+                                  isSelected
+                                    ? 'scale-[1.03] bg-orange-500/14 text-orange-300'
+                                    : 'bg-white/5 text-white/55 group-hover:bg-white/10 group-hover:text-white/80'
+                                )}
+                                aria-hidden="true"
+                              >
+                                {isSelected ? (
+                                  <CheckCircle2 className="h-4 w-4" />
+                                ) : (
+                                  <ArrowRight className="h-4 w-4" />
+                                )}
+                              </span>
+                            </button>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                    {!hasSelectedProvider && deviceConnectionAvailable ? (
+                      <button
+                        type="button"
+                        onClick={() => setConnectingDevice(true)}
+                        className={`mt-4 min-h-11 w-full rounded-full border bg-white/5 px-4 text-sm font-medium transition-colors hover:bg-white/10 ${surface.border} ${textColor}`}
+                      >
+                        {t('deviceAuthorization.connectWithAnotherDevice')}
+                      </button>
+                    ) : null}
+                    {error ? (
+                      <div
+                        role="alert"
+                        className="mt-3 flex items-start gap-3 rounded-2xl border border-red-400/22 bg-red-500/12 p-4"
+                      >
+                        <AlertCircle className="mt-0.5 h-5 w-5 flex-shrink-0 text-red-300" />
+                        <p className="text-sm leading-6 text-red-100">{error}</p>
                       </div>
-
-                      {requiresCredentials ? (
+                    ) : null}
+                  </div>
+                  {hasSelectedProvider && provider ? (
+                    <div className="space-y-5 pt-5">
+                      {requiresUrl ? (
                         <>
                           <div className="space-y-2">
                             <label
-                              htmlFor="openhab-username"
+                              htmlFor="url"
                               className={`block text-sm font-medium ${textColor}`}
                             >
-                              openHAB {t('login.username')}
+                              {urlFieldLabel}
                             </label>
-                            <input
-                              id="openhab-username"
-                              type="text"
-                              value={openhabUsername}
-                              onChange={(event) => setOpenhabUsername(event.target.value)}
-                              autoComplete="username"
-                              placeholder={t('login.username')}
-                              className={`min-h-11 w-full rounded-xl border px-3 py-2.5 text-sm font-normal outline-none transition-[border-color,box-shadow] focus-visible:border-orange-400/50 focus-visible:ring-2 focus-visible:ring-orange-400/25 ${fieldInputClassName}`}
-                              disabled={isLoading}
-                            />
+                            <div className="relative">
+                              <Home
+                                className={`pointer-events-none absolute left-3 top-1/2 h-5 w-5 -translate-y-1/2 ${mutedColor}`}
+                              />
+                              <input
+                                ref={urlInputRef}
+                                id="url"
+                                type="text"
+                                defaultValue={initialUrl.current || discoveredUrl || ''}
+                                placeholder={urlPlaceholder}
+                                className={`min-h-11 w-full rounded-xl border py-2.5 pl-10 pr-3 text-sm font-normal outline-none transition-[border-color,box-shadow] focus-visible:border-orange-400/50 focus-visible:ring-2 focus-visible:ring-orange-400/25 ${fieldInputClassName}`}
+                                disabled={isLoading}
+                              />
+                            </div>
                           </div>
 
-                          <div className="space-y-2">
-                            <label
-                              htmlFor="openhab-password"
-                              className={`block text-sm font-medium ${textColor}`}
-                            >
-                              openHAB {t('login.password')}
-                            </label>
-                            <input
-                              id="openhab-password"
-                              type="password"
-                              value={openhabPassword}
-                              onChange={(event) => setOpenhabPassword(event.target.value)}
-                              autoComplete="current-password"
-                              placeholder={t('login.password')}
-                              className={`min-h-11 w-full rounded-xl border px-3 py-2.5 text-sm font-normal outline-none transition-[border-color,box-shadow] focus-visible:border-orange-400/50 focus-visible:ring-2 focus-visible:ring-orange-400/25 ${fieldInputClassName}`}
-                              disabled={isLoading}
-                            />
-                          </div>
+                          {requiresCredentials ? (
+                            <>
+                              <div className="space-y-2">
+                                <label
+                                  htmlFor="openhab-username"
+                                  className={`block text-sm font-medium ${textColor}`}
+                                >
+                                  openHAB {t('login.username')}
+                                </label>
+                                <input
+                                  id="openhab-username"
+                                  type="text"
+                                  value={openhabUsername}
+                                  onChange={(event) => setOpenhabUsername(event.target.value)}
+                                  autoComplete="username"
+                                  placeholder={t('login.username')}
+                                  className={`min-h-11 w-full rounded-xl border px-3 py-2.5 text-sm font-normal outline-none transition-[border-color,box-shadow] focus-visible:border-orange-400/50 focus-visible:ring-2 focus-visible:ring-orange-400/25 ${fieldInputClassName}`}
+                                  disabled={isLoading}
+                                />
+                              </div>
+
+                              <div className="space-y-2">
+                                <label
+                                  htmlFor="openhab-password"
+                                  className={`block text-sm font-medium ${textColor}`}
+                                >
+                                  openHAB {t('login.password')}
+                                </label>
+                                <input
+                                  id="openhab-password"
+                                  type="password"
+                                  value={openhabPassword}
+                                  onChange={(event) => setOpenhabPassword(event.target.value)}
+                                  autoComplete="current-password"
+                                  placeholder={t('login.password')}
+                                  className={`min-h-11 w-full rounded-xl border px-3 py-2.5 text-sm font-normal outline-none transition-[border-color,box-shadow] focus-visible:border-orange-400/50 focus-visible:ring-2 focus-visible:ring-orange-400/25 ${fieldInputClassName}`}
+                                  disabled={isLoading}
+                                />
+                              </div>
+                            </>
+                          ) : null}
                         </>
                       ) : null}
-                    </>
+
+                      <div className="space-y-2">
+                        <div className="h-px bg-white/8" />
+                        <button
+                          type="submit"
+                          disabled={isLoading}
+                          className="mt-4 inline-flex min-h-12 w-full items-center justify-center rounded-full border border-orange-300/20 bg-[linear-gradient(180deg,#fb923c,#f97316)] px-4 py-3 text-white shadow-[0_18px_42px_-24px_rgba(249,115,22,0.88)] transition-transform duration-300 hover:scale-[1.02] active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          {isLoading ? (
+                            <span className="flex items-center justify-center gap-2">
+                              <Loader2 className="h-5 w-5 animate-spin" />
+                              {t('login.connecting')}
+                            </span>
+                          ) : (
+                            t('login.actions.continue')
+                          )}
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setProviderId(null);
+                            setError('');
+                          }}
+                          className="min-h-11 w-full rounded-full border border-white/12 bg-white/6 px-4 text-sm font-medium text-white transition-colors hover:bg-white/10"
+                        >
+                          {t('login.actions.back')}
+                        </button>
+                      </div>
+
+                      <p className={`text-center text-xs leading-5 ${mutedColor}`}>
+                        {!requiresUrl
+                          ? t('login.hint.cloudOauth', {
+                              provider: provider.label,
+                              signInProvider: providerSignInLabel ?? provider.label,
+                            })
+                          : provider.id === 'openhab'
+                            ? 'Navet will connect directly to your openHAB server with the URL and credentials you provide.'
+                            : provider.loginMode === 'url_session'
+                              ? t('login.hint.urlSession', { provider: provider.label })
+                              : !usesOAuthRedirect
+                                ? t('login.connectProviderTitle', { provider: provider.label })
+                                : isDiscovering
+                                  ? t('login.hint.discoverySearching')
+                                  : discoveredUrl
+                                    ? t('login.hint.discoveryFound')
+                                    : t('login.hint.oauthReturn', { provider: provider.label })}
+                      </p>
+                    </div>
                   ) : null}
-
-                  <div className="space-y-2">
-                    <div className="h-px bg-white/8" />
-                    <button
-                      type="submit"
-                      disabled={isLoading}
-                      className="mt-4 inline-flex min-h-12 w-full items-center justify-center rounded-full border border-orange-300/20 bg-[linear-gradient(180deg,#fb923c,#f97316)] px-4 py-3 text-white shadow-[0_18px_42px_-24px_rgba(249,115,22,0.88)] transition-transform duration-300 hover:scale-[1.02] active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50"
-                    >
-                      {isLoading ? (
-                        <span className="flex items-center justify-center gap-2">
-                          <Loader2 className="h-5 w-5 animate-spin" />
-                          {t('login.connecting')}
-                        </span>
-                      ) : (
-                        t('login.actions.continue')
-                      )}
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setProviderId(null);
-                        setError('');
-                      }}
-                      className="min-h-11 w-full rounded-full border border-white/12 bg-white/6 px-4 text-sm font-medium text-white transition-colors hover:bg-white/10"
-                    >
-                      {t('login.actions.back')}
-                    </button>
-                  </div>
-
-                  <p className={`text-center text-xs leading-5 ${mutedColor}`}>
-                    {!requiresUrl
-                      ? t('login.hint.cloudOauth', {
-                          provider: provider.label,
-                          signInProvider: providerSignInLabel ?? provider.label,
-                        })
-                      : provider.id === 'openhab'
-                        ? 'Navet will connect directly to your openHAB server with the URL and credentials you provide.'
-                        : provider.loginMode === 'url_session'
-                          ? t('login.hint.urlSession', { provider: provider.label })
-                          : !usesOAuthRedirect
-                            ? t('login.connectProviderTitle', { provider: provider.label })
-                            : isDiscovering
-                              ? t('login.hint.discoverySearching')
-                              : discoveredUrl
-                                ? t('login.hint.discoveryFound')
-                                : t('login.hint.oauthReturn', { provider: provider.label })}
-                  </p>
-                </div>
-              ) : null}
+                </>
+              )}
             </div>
           </form>
 

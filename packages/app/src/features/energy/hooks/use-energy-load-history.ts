@@ -9,6 +9,7 @@ import {
 import { settingsSelectors } from '@navet/app/stores/selectors';
 import { useSettingsStore } from '@navet/app/stores/settings-store';
 import { detectDeviceTier } from '@navet/app/utils/detect-device-tier';
+import { parseProviderScopedId } from '@navet/app/utils/provider-ids';
 import { subscribeVisibilityAwareAsyncTask } from '@navet/app/utils/visibility-aware-scheduler';
 import { useEffect, useState } from 'react';
 import { resolveDashboardPerformanceProfile } from '../../dashboard/hooks/use-dashboard-performance-mode';
@@ -27,7 +28,7 @@ const RANGE_CACHE_TTL_MS: Record<Exclude<EnergyRange, 'now'>, number> = {
 
 export function resolveOverviewStatisticsRange(range: Exclude<EnergyRange, 'now'>) {
   return {
-    period: range === 'today' ? ('hour' as const) : ('day' as const),
+    period: range === 'today' ? ('5minute' as const) : ('day' as const),
     ttlMs: RANGE_CACHE_TTL_MS[range],
   };
 }
@@ -49,7 +50,7 @@ function getHistoryWindow(range: Exclude<EnergyRange, 'now'>, now = new Date()) 
 function formatRangeBucketLabel(timestampMs: number, range: Exclude<EnergyRange, 'now'>) {
   const date = new Date(timestampMs);
   if (range === 'today') {
-    return `${date.getHours().toString().padStart(2, '0')}:00`;
+    return `${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`;
   }
   if (range === 'week') {
     return date.toLocaleDateString(undefined, { weekday: 'short' });
@@ -72,12 +73,12 @@ export function buildStatisticsHistoryPoints({
     return [
       {
         label: formatRangeBucketLabel(point.startMs, range),
-        value: Math.round(mean),
+        value: mean,
         secondaryValue: +((mean * durationHours) / 1000).toFixed(2),
         timestampMs: point.startMs,
         endTimestampMs: point.endMs,
-        minValue: Math.round(point.min ?? mean),
-        maxValue: Math.round(point.max ?? mean),
+        minValue: point.min ?? mean,
+        maxValue: point.max ?? mean,
       },
     ];
   });
@@ -222,7 +223,11 @@ export function useEnergyLoadHistory(
         const stats = await getCachedEnergyStatistics(
           `history:${resolvedEntityId}`,
           CACHE_TTL_MS,
-          () => getPowerStatisticsHistory(activeMessageClient, resolvedEntityId)
+          () =>
+            getPowerStatisticsHistory(
+              activeMessageClient,
+              parseProviderScopedId(resolvedEntityId)?.nativeId ?? resolvedEntityId
+            )
         );
         if (stats.length === 0) {
           setPoints(buildFallbackPoints(fallbackCurrentLoadW, fallbackSeedKey));
@@ -232,11 +237,11 @@ export function useEnergyLoadHistory(
         setPoints(
           stats.map((entry, index) => ({
             label: formatBucketLabel(entry.start, index, stats.length),
-            value: Math.round(entry.mean),
+            value: entry.mean,
             timestampMs: entry.start,
             endTimestampMs: entry.end,
-            minValue: Math.round(entry.min),
-            maxValue: Math.round(entry.max),
+            minValue: entry.min,
+            maxValue: entry.max,
           }))
         );
       } catch (error) {

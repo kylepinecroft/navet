@@ -2,7 +2,7 @@
 
 This checkout is `kylepinecroft/navet`, a fork of [`awesomestvi/navet`](https://github.com/awesomestvi/navet).
 
-- **Last synced:** upstream `v0.15.8` (PR #3)
+- **Last synced:** upstream `v0.17.6`
 - **Remote:** `upstream` → `https://github.com/awesomestvi/navet.git`
 
 Keep this file current. It is the routing list for new fork features and for upstream merges. Do not turn it into a design doc or a hunk-by-hunk patch archive.
@@ -50,7 +50,7 @@ Record the decision under **Overlap decisions** in the same sync.
 
 ## Overlap decisions
 
-None yet. Add a dated row after each keep-vs-toss choice: overlay feature, upstream counterpart, decision, and what was deleted or kept.
+- **2026-10-04 — Dashboard-local room names.** Upstream `v0.17.6` already renames rooms with `renameRoomWorkspaceRoomV2` and `RoomWorkspaceNameMode` in `packages/app/src/features/dashboard/rooms/room-workspace-v2.ts`. Decision: toss the overlay and use upstream only. Deleted `resetRoomWorkspaceRoomNameV2`, `packages/app/src/features/dashboard/rooms/components/room-bar-customize-dialog.tsx`, the room-bar customize control in `room-nav.tsx`, and locale keys `dashboard.roomsWorkspace.useOriginalName` and `dashboard.roomNav.customizeRooms*`.
 
 ## Features
 
@@ -61,14 +61,6 @@ Sectioned Home cards snap to an explicit layout when `placementLayouts` exist; o
 - **Owned:** `packages/app/src/features/dashboard/utils/card-placement.ts`
 - **Seams:** `home-dashboard-overview-*.tsx`, `home-dashboard-section-row-renderer.tsx`, `use-home-grid-runtime.ts`, `use-home-dashboard-layout.ts`, `use-dashboard-drag-state.ts`, `card-size.ts` (`getCardSizeGridSpan` must coexist with upstream `getDashboardCardGridSpan`)
 - **Tests:** `packages/app/src/features/dashboard/utils/__tests__/card-placement.test.ts`, `home-dashboard-overview-grid.test.tsx`
-
-### Dashboard-local room names
-
-Room renames stay on the dashboard workspace (`nameMode: 'custom'`), with a reset to the provider name.
-
-- **Owned:** `packages/app/src/features/dashboard/rooms/components/room-bar-customize-dialog.tsx`; `resetRoomWorkspaceRoomNameV2` / `nameMode` in `room-workspace-v2.ts`
-- **Seams:** `room-workspace-panels.tsx`, `use-room-workspace-controller.ts`, `room-order-dialog.tsx`, locale `dashboard.roomsWorkspace.useOriginalName`
-- **Tests:** `room-workspace-v2.test.ts`, `use-room-workspace-controller.test.tsx`
 
 ### Per-dashboard summary bar scope
 
@@ -83,7 +75,7 @@ Each dashboard can use a global or local summary bar.
 Custom header greeting and per-entity display names.
 
 - **Owned:** `packages/app/src/utils/display-overrides.ts`
-- **Seams:** `settings-store.ts`, `stores/types.ts`, `stores/selectors.ts`, `settings-dashboard-section.tsx`, `use-header-controller.ts`, `use-devices.ts`, `security-camera-dashboard-model.ts`, `security-section.tsx`, `card-dialog.tsx`, `settings-profile-scope.ts`
+- **Seams:** `settings-store.ts` (`UserSettings` lives here), `stores/selectors.ts`, `settings-dashboard-section.tsx`, `use-header-controller.ts`, `use-devices.ts`, `security-camera-dashboard-model.ts`, `security-section.tsx`, `card-dialog.tsx`, `settings-profile-scope.ts`
 - **Tests:** `display-overrides.test.ts`, `settings-store.test.ts`, `settings-dashboard-section.test.tsx`, `use-header-controller.test.tsx`
 
 ### Dropdown ghost-click and menu animation

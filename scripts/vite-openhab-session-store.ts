@@ -7,6 +7,7 @@ import {
   createInstallationCookieNames,
   type InstallationCookieNames,
 } from './installation-cookie-scope.ts'
+import type { ViteDeviceSessionAuthority } from './vite-device-session-authority.ts'
 
 export const OPENHAB_SESSION_COOKIE_NAME = 'navet_openhab_session'
 const OPENHAB_SESSION_RECORD_MAX_BYTES = 16 * 1024
@@ -72,7 +73,6 @@ export function isAllowedOpenHABHostname(value: unknown): boolean {
   }
   if (
     !hostname ||
-    hostname === 'localhost' ||
     hostname.length > 253 ||
     !/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)*$/.test(
       hostname
@@ -272,6 +272,7 @@ export function createViteOpenHABSessionStore(
     cookieNames?: InstallationCookieNames
     legacySessionPath?: string
     sessionsDirectory?: string
+    deviceSessionAuthority?: ViteDeviceSessionAuthority
   } = {}
 ): ViteProviderSessionStore<ViteStoredOpenHABSession> {
   const cacheDirectory = path.resolve(process.cwd(), '.cache')
@@ -287,5 +288,7 @@ export function createViteOpenHABSessionStore(
     sessionsDirectory:
       options.sessionsDirectory ??
       path.join(cacheDirectory, 'navet-provider-sessions', 'openhab'),
+    deviceSessionAuthority: options.deviceSessionAuthority,
+    providerId: 'openhab',
   })
 }

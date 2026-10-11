@@ -16,6 +16,7 @@ import {
   useEffectiveEffectsQuality,
 } from '@navet/app/components/shared/theme/effective-effects-quality';
 import { getBaseCardRadiusClassName } from '@navet/app/components/system/tokens';
+import type { MediaDialogMediaStackSettings } from '@navet/app/features/media/components/media/media-dialog.types';
 import { useAccentColor, useI18n, useTheme } from '@navet/app/hooks';
 import { useBreakpointCols } from '@navet/app/hooks/use-breakpoint-cols';
 import { settingsSelectors } from '@navet/app/stores/selectors';
@@ -46,6 +47,7 @@ interface DashboardCardItemProps {
   onDeleteCard?: (cardId: string) => void;
   onUpdateCard?: (cardId: string, data: Record<string, unknown>) => void;
   onRemoveFromLayout?: (cardId: string) => void;
+  removeFromLayoutLabel?: string;
   onRemoveEntity?: (entityId: string) => void;
   allowEntityRemoval?: boolean;
   allowExtraLargeSizes?: boolean;
@@ -54,6 +56,7 @@ interface DashboardCardItemProps {
   optimizeOffscreenPaint?: boolean;
   headerSubtitleOverride?: string;
   presentationVariant?: 'media-stack';
+  mediaStackSettings?: MediaDialogMediaStackSettings;
 }
 
 const DashboardCardItemDraggable = lazy(async () => {
@@ -72,6 +75,7 @@ export const DashboardCardItem = memo(function DashboardCardItem({
   onDeleteCard,
   onUpdateCard,
   onRemoveFromLayout,
+  removeFromLayoutLabel,
   onRemoveEntity,
   allowEntityRemoval = false,
   allowExtraLargeSizes = zone === 'hero' || zone === undefined,
@@ -80,6 +84,7 @@ export const DashboardCardItem = memo(function DashboardCardItem({
   optimizeOffscreenPaint = false,
   headerSubtitleOverride,
   presentationVariant,
+  mediaStackSettings,
 }: DashboardCardItemProps) {
   const { t } = useI18n();
   const { theme } = useTheme();
@@ -174,6 +179,19 @@ export const DashboardCardItem = memo(function DashboardCardItem({
       isEditMode,
       headerSubtitleOverride,
       presentationVariant,
+      mediaStackSettings,
+      onRemoveCard: onRemoveFromLayout
+        ? () => onRemoveFromLayout(id)
+        : allowEntityRemoval && onRemoveEntity
+          ? () => onRemoveEntity(id)
+          : undefined,
+      removeCardLabel: onRemoveFromLayout
+        ? (removeFromLayoutLabel ?? t('dashboard.edit.removeFromHome'))
+        : t(
+            usesHideAction
+              ? 'dashboard.roomsWorkspace.hideDevice'
+              : 'dashboard.roomsWorkspace.removeDevice'
+          ),
     })
   ) : card ? (
     <WidgetCard
@@ -226,6 +244,7 @@ export const DashboardCardItem = memo(function DashboardCardItem({
                 onDeleteCard,
                 onRemoveEntity,
                 onRemoveFromLayout,
+                removeFromLayoutLabel,
                 removeAriaLabel,
                 RemoveActionIcon,
                 resolvedSize,
@@ -268,6 +287,7 @@ export const DashboardCardItem = memo(function DashboardCardItem({
               onDeleteCard,
               onRemoveEntity,
               onRemoveFromLayout,
+              removeFromLayoutLabel,
               removeAriaLabel,
               RemoveActionIcon,
               resolvedSize,
@@ -279,7 +299,13 @@ export const DashboardCardItem = memo(function DashboardCardItem({
         )
       ) : null}
       {isLocked && !isEditMode ? <LockedCardBadge label={t('dashboard.edit.lockedCard')} /> : null}
-      {lockedCardContent}
+      {isEditMode ? (
+        <div inert className="pointer-events-none h-full w-full">
+          {renderedCard}
+        </div>
+      ) : (
+        lockedCardContent
+      )}
     </>
   );
 
@@ -349,6 +375,33 @@ function EditModeCardBackdrop({ size }: { size: CardSize }) {
       className={`pointer-events-none absolute inset-0 z-300 ${getBaseCardRadiusClassName(size)} bg-[radial-gradient(circle_at_top_left,rgba(0,0,0,0.52),transparent_54%),radial-gradient(circle_at_top_right,rgba(0,0,0,0.56),transparent_50%),linear-gradient(to_bottom,rgba(0,0,0,0.28),rgba(0,0,0,0.12)_30%,rgba(0,0,0,0.16)_56%,rgba(0,0,0,0.52))]`}
       aria-hidden="true"
     />
+  );
+}
+
+export function DashboardCardEditBackdrop({ size }: { size: CardSize }) {
+  return <EditModeCardBackdrop size={size} />;
+}
+
+export function DashboardCardEditDock({
+  cardSize,
+  children,
+}: {
+  cardSize: CardSize;
+  children: ReactNode;
+}) {
+  const accentColor = useAccentColor();
+  const { theme } = useTheme();
+  const effectsQuality = useEffectiveEffectsQuality();
+
+  return (
+    <EditModeActionDock
+      cardSize={cardSize}
+      accentColor={accentColor}
+      effectsQuality={effectsQuality}
+      theme={theme}
+    >
+      {children}
+    </EditModeActionDock>
   );
 }
 
@@ -499,6 +552,7 @@ function renderEditModeDockActions({
   onDeleteCard,
   onRemoveEntity,
   onRemoveFromLayout,
+  removeFromLayoutLabel,
   removeAriaLabel,
   RemoveActionIcon,
   resolvedSize,
@@ -522,6 +576,7 @@ function renderEditModeDockActions({
   onDeleteCard?: (cardId: string) => void;
   onRemoveEntity?: (entityId: string) => void;
   onRemoveFromLayout?: (cardId: string) => void;
+  removeFromLayoutLabel?: string;
   removeAriaLabel: string;
   RemoveActionIcon: typeof EyeOff;
   resolvedSize: CardSize;
@@ -552,7 +607,7 @@ function renderEditModeDockActions({
           variant="warning"
           data-dashboard-edit-action="remove-layout"
           data-card-id={cardId}
-          aria-label={t('dashboard.edit.removeFromHome')}
+          aria-label={removeFromLayoutLabel ?? t('dashboard.edit.removeFromHome')}
         />
       ) : null}
       {!onRemoveFromLayout && card && onDeleteCard ? (
@@ -718,7 +773,7 @@ function getAllowedSizes(
       return ['extra-small', 'small'];
     case 'climate':
     case 'hvac':
-      return ['small', 'medium'];
+      return ['small', 'medium', 'large'];
     case 'calendars':
       return ['small', 'medium', 'large'];
     case 'weather':
@@ -910,6 +965,7 @@ function areDashboardCardItemPropsEqual(
     previous.onDeleteCard === next.onDeleteCard &&
     previous.onUpdateCard === next.onUpdateCard &&
     previous.onRemoveFromLayout === next.onRemoveFromLayout &&
+    previous.removeFromLayoutLabel === next.removeFromLayoutLabel &&
     previous.onRemoveEntity === next.onRemoveEntity &&
     previous.allowEntityRemoval === next.allowEntityRemoval &&
     previous.allowExtraLargeSizes === next.allowExtraLargeSizes &&
@@ -917,6 +973,7 @@ function areDashboardCardItemPropsEqual(
     previous.densePerformanceMode === next.densePerformanceMode &&
     previous.optimizeOffscreenPaint === next.optimizeOffscreenPaint &&
     previous.headerSubtitleOverride === next.headerSubtitleOverride &&
-    previous.presentationVariant === next.presentationVariant
+    previous.presentationVariant === next.presentationVariant &&
+    previous.mediaStackSettings === next.mediaStackSettings
   );
 }

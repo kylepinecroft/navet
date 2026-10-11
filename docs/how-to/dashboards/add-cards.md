@@ -7,29 +7,44 @@ editUrl: https://github.com/awesomestvi/navet/edit/main/docs/how-to/dashboards/a
 The Add Card library combines provider-backed entities with Navet-owned widgets. It excludes cards
 already present in the target area where duplicates would not be useful.
 
-![The Add Card phone cover sheet with All cards, Custom card, search, filters, and available entities.](/docs/how-to/dashboards/add-card-library.webp)
+![The phone Add Card sheet showing All cards, Custom cards, search, filters, and sample devices.](/docs/how-to/dashboards/add-card-library.webp)
+
+Watch the [Add Card demonstration on YouTube](https://youtu.be/8xis2yjmul8?t=32), or follow the
+[full dashboard tutorial](/guide/dashboards/customize-home/#watch-the-dashboard-tutorial).
 
 ## Open Add Card
 
 1. Open the target dashboard and room.
 2. Enter edit mode.
-3. Choose **Add card**.
+3. Choose **Add Card**.
+
+Home has its own layout. After choosing **Start with all entities** during onboarding, room
+dashboards can contain automatically generated cards while Home is still empty. Add the cards you
+want to Home through this library.
 
 ## Find what you need
 
 - Use **All cards** for devices and other normalized provider entities.
-- Use **Custom card** for Navet content such as notes, RSS, photos, actions, maps, battery summaries,
+- Use **Custom cards** for Navet content such as notes, RSS, photos, actions, maps, battery summaries,
   UPS status, and energy summaries.
 - Search by the visible device or room name.
 - Use an explicit native identifier when you need to find one exact provider entity.
+- In **Custom cards**, search by card name, sort the results, or filter by supported card size.
 
-![The Add Card phone cover sheet filtered to a matching Kitchen entity.](/docs/how-to/dashboards/add-card-search.webp)
+![The phone Add Card sheet filtered to the Kitchen island light.](/docs/how-to/dashboards/add-card-search.webp)
 
-On phones, Add Card opens as a full-height cover sheet with its own close action. On larger
+![The Custom cards tab showing Navet note and information card templates.](/docs/how-to/dashboards/add-card-custom.webp)
+
+On phones, Add Card opens as a tall sheet with its own close action. On larger
 screens, the same library keeps the navigation and results visible side by side.
 
 Generic entity cards are available when Navet recognizes an entity but has no richer dedicated
 card for it.
+
+Where a dashboard offers **Add entity**, it uses the same searchable library, room filter,
+sorting, and device-type navigation as Home. The list contains entities eligible for that
+dashboard; adding an entity keeps the dashboard’s existing behavior. Custom-card authoring
+remains available through **Add Card**.
 
 ## Configure the card
 
@@ -41,6 +56,10 @@ Depending on the card type, choose:
 - Widget-specific content, source, or action.
 
 Choose the add or save action. Navet places the card in the target area.
+
+Cover cards default to **Small**; climate and speaker cards default to **Medium**.
+In edit mode, use the card's size control to choose
+**Small**, **Medium**, or **Large**. Navet remembers the size you choose.
 
 ![A newly added card highlighted on Home.](/docs/how-to/dashboards/add-card-result.webp)
 

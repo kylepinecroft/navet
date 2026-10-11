@@ -1,4 +1,4 @@
-import { Button, Input, ModalSurface } from '@navet/app/components/primitives';
+import { Badge, Button, Input, ModalSurface } from '@navet/app/components/primitives';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -74,6 +74,20 @@ export function DashboardManager({ styles }: DashboardManagerProps) {
           ],
     [currentClient, profileClients]
   );
+  const clientsByDashboardId = useMemo(() => {
+    const grouped = new Map<string, typeof clients>();
+    for (const client of clients) {
+      const explicitDashboardId = collection.dashboardIdByClientId[client.id];
+      const dashboardId =
+        explicitDashboardId && collection.dashboardsById[explicitDashboardId]
+          ? explicitDashboardId
+          : collection.defaultDashboardId;
+      const assignedClients = grouped.get(dashboardId) ?? [];
+      assignedClients.push(client);
+      grouped.set(dashboardId, assignedClients);
+    }
+    return grouped;
+  }, [clients, collection]);
   const [createOpen, setCreateOpen] = useState(false);
   const [editingDashboardId, setEditingDashboardId] = useState<DashboardId | null>(null);
   const [editingName, setEditingName] = useState('');
@@ -118,13 +132,16 @@ export function DashboardManager({ styles }: DashboardManagerProps) {
             if (!dashboard) {
               return null;
             }
-            const assignmentCount = Object.values(collection.dashboardIdByClientId).filter(
-              (assignedId) => assignedId === dashboard.id
-            ).length;
+            const assignedClients = clientsByDashboardId.get(dashboard.id) ?? [];
+            const assignmentCount = assignedClients.length;
             const isEditing = editingDashboardId === dashboard.id;
 
             return (
-              <div key={dashboard.id} className="p-3.5 md:p-4">
+              <div
+                key={dashboard.id}
+                data-testid={`dashboard-manager-${dashboard.id}`}
+                className="p-3.5 md:p-4"
+              >
                 <div className="flex min-w-0 items-center gap-3">
                   <div
                     className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-[14px] border ${styles.borderColor} ${styles.softBg}`}
@@ -165,11 +182,9 @@ export function DashboardManager({ styles }: DashboardManagerProps) {
                             {dashboard.name}
                           </p>
                           {collection.defaultDashboardId === dashboard.id ? (
-                            <span
-                              className={`rounded-full border px-2 py-0.5 text-[10px] font-medium ${styles.borderColor} ${styles.subtleColor}`}
-                            >
+                            <Badge tone="neutral" size="small" className="text-[10px]">
                               {t('dashboard.multiple.manager.default')}
-                            </span>
+                            </Badge>
                           ) : null}
                         </div>
                         <p className={`mt-1 text-xs ${styles.subtleColor}`}>
@@ -200,15 +215,18 @@ export function DashboardManager({ styles }: DashboardManagerProps) {
                   {!isEditing ? (
                     <DropdownMenu modal={false}>
                       <DropdownMenuTrigger asChild>
-                        <button
+                        <Button
                           type="button"
-                          aria-label={t('dashboard.multiple.manager.actions', {
+                          size="small"
+                          variant="ghost"
+                          iconOnly
+                          label={t('dashboard.multiple.manager.actions', {
                             name: dashboard.name,
                           })}
-                          className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-[16px] transition-colors ${styles.hoverBg} ${styles.mutedColor}`}
+                          className="shrink-0"
                         >
                           <MoreHorizontal className="h-4.5 w-4.5" />
-                        </button>
+                        </Button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end" sideOffset={8} className="w-56">
                         <DropdownMenuItem onSelect={() => openDashboardPreview(dashboard.id)}>
@@ -311,8 +329,9 @@ export function DashboardManager({ styles }: DashboardManagerProps) {
         <div className="space-y-2">
           {clients.length > 0 && assigningDashboard ? (
             clients.map((client) => {
-              const isAssigned =
-                collection.dashboardIdByClientId[client.id] === assigningDashboard.id;
+              const explicitDashboardId = collection.dashboardIdByClientId[client.id];
+              const effectiveDashboardId = explicitDashboardId ?? collection.defaultDashboardId;
+              const isAssigned = effectiveDashboardId === assigningDashboard.id;
               return (
                 <button
                   key={client.id}
@@ -320,6 +339,13 @@ export function DashboardManager({ styles }: DashboardManagerProps) {
                   aria-pressed={isAssigned}
                   onClick={() => {
                     if (isAssigned) {
+                      if (
+                        explicitDashboardId === assigningDashboard.id &&
+                        assigningDashboard.id !== collection.defaultDashboardId
+                      ) {
+                        clearDashboardAssignment(client.id);
+                      }
+                    } else if (assigningDashboard.id === collection.defaultDashboardId) {
                       clearDashboardAssignment(client.id);
                     } else {
                       assignDashboard(client.id, assigningDashboard.id);
@@ -328,10 +354,13 @@ export function DashboardManager({ styles }: DashboardManagerProps) {
                   className={`flex min-h-12 w-full items-center gap-3 rounded-[16px] border px-3 py-2 text-left transition-colors ${styles.borderColor} ${styles.softBg} ${styles.hoverBg}`}
                 >
                   <span className={`min-w-0 flex-1 truncate text-sm ${styles.textColor}`}>
-                    {client.id === currentClient.id
-                      ? t('dashboard.multiple.create.thisDevice')
-                      : client.name}
+                    {client.name}
                   </span>
+                  {client.id === currentClient.id ? (
+                    <span className={`shrink-0 text-xs ${styles.subtleColor}`}>
+                      {t('dashboard.multiple.create.thisDevice')}
+                    </span>
+                  ) : null}
                   {isAssigned ? <Check className={`h-4 w-4 shrink-0 ${styles.textColor}`} /> : null}
                 </button>
               );

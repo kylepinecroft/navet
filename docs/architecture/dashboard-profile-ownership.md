@@ -82,35 +82,35 @@ The production Nginx runtime uses one event-driven worker because the local prof
 its revision check and atomic file replacement synchronously. This keeps concurrent browser writes
 serialized without reducing the number of WebSocket or HTTP connections the worker can serve.
 
-The workspace is also bound to the Home Assistant tenant that enrolled it. The server normalizes
-the trusted Home Assistant upstream, including a non-root base path, and hashes that value into an
-opaque tenant ID; the raw URL is not stored in profile documents or returned to clients. Browser
-sessions using the same trusted upstream share the workspace, even when their browser-facing OAuth
-routes differ. A session bound to another upstream receives `403` before any profile, history,
-preference, or client data is read.
+The workspace is also bound to the Home Assistant tenant that enrolled it. The server stores an
+opaque tenant ID in the credential session; the raw URL is not stored in profile documents or
+returned to clients. Each tenant has isolated profile, history, preference, and client files. The
+legacy unsuffixed files remain assigned to their enrolled tenant so upgrades preserve existing
+dashboard data.
 
-A connection URL is not a canonical Home Assistant installation identity. Standalone OAuth keeps
-one trusted upstream as the tenant identity while allowing a browser to open the authorization
-page through another route, such as a LAN hostname, VPN address, or external hostname. The browser
-route becomes usable only when its authorization code is accepted by the trusted upstream, so
-those routes share one tenant without allowing them to replace installation authority.
+A connection URL is not a canonical Home Assistant installation identity. Changing it starts a
+fresh OAuth grant at the candidate route. Navet then presents only that candidate token to the
+previously trusted route. Acceptance proves that the routes reach the same Home Assistant and
+preserves the tenant ID. Rejection or an unreachable old route keeps the candidate under a tenant
+ID derived from its normalized route, preventing an unverified server from reading another home's
+workspace.
 
-The profile workspace binds on first authenticated use, but standalone provider authentication now
-has a separate installation-authority gate. A fresh standalone Docker installation generates a
-256-bit operator key under `/data`; the browser receives it only through an operator-opened URL
-fragment, removes that fragment synchronously, and holds the key only in memory. The initial Home
-Assistant upstream, unknown openHAB targets, and the first Homey account require that key unless
-the operator configured an exact provider URL pin. Once Home Assistant authority exists, an alternate
-browser-facing route may start OAuth without the key, but Navet exchanges the returned code only
-with the trusted upstream. Authority is persisted only after provider authentication or credential
-verification succeeds. Existing authenticated records are migration evidence only when their
-normalized target is unanimous; Homey records must be a single record or share a non-empty common
-installation-ID intersection.
+The profile workspace binds on first authenticated use. Home Assistant itself authenticates every
+standalone connection, so entering a new address proceeds directly to its OAuth login. A different
+installation receives an isolated tenant workspace. `NAVET_HASS_URL` optionally pins the upstream
+used for token exchange and API traffic.
 
 ## Reconciliation
 
 Every active tab keeps the last server revision and profile generation that it observed as its
 in-memory merge base. A generation change invalidates that ancestry.
+
+Browser lifecycle timing and command sequencing are shared by the non-React dashboard sync
+runtime. Profile and preference modules retain their separate reconciliation policies, while the
+runtime owns named timers, visibility and connectivity events, disposal, and latest-only refresh
+lanes. A queued newer refresh replaces an obsolete queued refresh instead of overlapping remote
+I/O.
+
 Merge bases are not persisted to shared browser storage: another tab must never advance a tab's
 ancestry behind its back. A reload or duplicated tab therefore starts without a merge base. It
 uses the explicit conflict flow only when its configured local profile cannot be proven clean;
@@ -193,20 +193,17 @@ still require the access controls described below.
 
 - Standalone Docker and development use a per-browser opaque `HttpOnly` cookie. The OAuth state,
   callback, refresh token, access token, and proxy requests are bound to that one server session.
-- Standalone provider enrollment is additionally bound to the installation pairing key, an
-  operator URL pin, or already-persisted provider authority. Home Assistant may use a different
-  browser-facing OAuth route only when the resulting code is redeemed against that trusted
-  authority. The pairing header is stripped from every upstream HTTP and WebSocket proxy request.
+- Standalone Home Assistant enrollment uses OAuth. An optional `NAVET_HASS_URL` pin sets the
+  upstream for token exchange and API traffic; the browser authorization address must reach the
+  same installation. Homey uses OAuth, and openHAB uses its base URL and credentials.
 - Home Assistant add-on Ingress may use the official `X-Remote-User-*` identity headers only in the
-  explicit Ingress handler. This trusted, Ingress-only runtime bypasses standalone pairing.
+  explicit Ingress handler.
 - The Home Assistant custom panel has no Navet profile-store endpoint. Its dashboard collection and
   client assignment remain local-only until a provider-owned server persistence seam exists.
 
 The normal standalone profile route never trusts Ingress headers and never accepts anonymous
 profile access.
 
-Installation pairing prevents an unauthenticated caller from choosing a fresh installation's
-provider target. It does not make Navet an Internet-facing identity proxy. Keep provider-native
-authentication enabled, preserve `/data`, use HTTPS, and place externally reachable standalone
-deployments behind appropriate network or reverse-proxy access control. openHAB credential
+Keep provider-native authentication enabled, preserve `/data`, use HTTPS, and place externally
+reachable standalone deployments behind appropriate network or reverse-proxy access control. openHAB credential
 verification is rate-limited per direct source, but that throttle remains defense-in-depth.

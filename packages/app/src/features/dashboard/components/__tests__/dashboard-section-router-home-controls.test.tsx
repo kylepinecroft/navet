@@ -2,19 +2,23 @@ import { ALL_ROOMS_ID } from '@navet/app/constants/rooms';
 import { createChoreDemoWorkspace } from '@navet/app/features/chores/chore-demo-fixture';
 import { useChoreWorkspaceStore } from '@navet/app/features/chores/chore-workspace-store';
 import type { DashboardController } from '@navet/app/features/dashboard/hooks/use-dashboard-controller';
+import { useRoomWorkspaceStore } from '@navet/app/features/dashboard/rooms/room-workspace-store';
+import { parseRoomWorkspaceV2 } from '@navet/app/features/dashboard/rooms/room-workspace-v2';
+import { integrationStore } from '@navet/app/stores/integration-store';
 import { useSettingsStore } from '@navet/app/stores/settings-store';
 import { renderWithProviders } from '@navet/app/test/render';
 import { resetAppStores } from '@navet/app/test/store-reset';
 import type { DeviceWithType } from '@navet/app/types/device.types';
-import { screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, screen, waitFor } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { useEffect } from 'react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DashboardSectionRouter, shouldSubscribeTaskRoutines } from '../dashboard-section-router';
 
 const roomNavMock = vi.fn();
 const dashboardLayoutMock = vi.fn();
 const deviceGridPropsMock = vi.fn();
+const homeDashboardPropsMock = vi.fn();
 let deviceGridMountCount = 0;
 
 const choreCopy = {
@@ -39,6 +43,25 @@ const choreCopy = {
   livingRoom: 'Living room',
 };
 
+function createGroupedRoomWorkspace() {
+  const workspace = parseRoomWorkspaceV2({
+    version: 2,
+    groups: [{ id: 'group_kitchen', displayName: 'Downstairs', order: 0 }],
+    rooms: [
+      {
+        id: 'room_kitchen',
+        displayName: 'Kitchen',
+        origin: 'navet',
+        sourceRefs: [],
+        metadata: { order: 0, visibility: 'visible', groupId: 'group_kitchen' },
+      },
+    ],
+    reviewIssues: [],
+  });
+  if (!workspace) throw new Error('Room workspace fixture did not parse');
+  return workspace;
+}
+
 vi.mock('@navet/app/components/layout/room-nav', () => ({
   RoomNav: (props: unknown) => {
     roomNavMock(props);
@@ -54,7 +77,10 @@ vi.mock('@navet/app/features/dashboard/shell', () => ({
 }));
 
 vi.mock('../home-dashboard-overview', () => ({
-  HomeDashboardOverview: () => <main>Home dashboard</main>,
+  HomeDashboardOverview: (props: unknown) => {
+    homeDashboardPropsMock(props);
+    return <div>Home dashboard</div>;
+  },
 }));
 
 vi.mock('@navet/app/features/chores/components/household-section', () => ({
@@ -72,16 +98,21 @@ vi.mock('../../device-grid', () => ({
       deviceGridMountCount += 1;
     }, []);
 
-    return <main>Room grid</main>;
+    return <div>Room grid</div>;
   },
 }));
 
 describe('DashboardSectionRouter home controls', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   beforeEach(async () => {
     await resetAppStores();
     roomNavMock.mockClear();
     dashboardLayoutMock.mockClear();
     deviceGridPropsMock.mockClear();
+    homeDashboardPropsMock.mockClear();
     deviceGridMountCount = 0;
   });
 
@@ -105,10 +136,80 @@ describe('DashboardSectionRouter home controls', () => {
     expect(layoutProps.mobileEditActions).toBeUndefined();
   });
 
+  it('does not rerender another section when provider room management changes', () => {
+    const controller = createController();
+    controller.activeSection = 'climate';
+
+    renderWithProviders(<DashboardSectionRouter controller={controller} />);
+    const renderCount = dashboardLayoutMock.mock.calls.length;
+
+    act(() => {
+      integrationStore.setState({ manageableRoomsByProviderId: { home_assistant: [] } });
+    });
+
+    expect(dashboardLayoutMock).toHaveBeenCalledTimes(renderCount);
+  });
+
+  it('updates Home room controls when provider rooms change', () => {
+    renderWithProviders(<DashboardSectionRouter controller={createController()} />);
+
+    act(() => {
+      integrationStore.setState({
+        manageableRoomsByProviderId: {
+          home_assistant: [
+            {
+              id: 'home_assistant:kitchen',
+              name: 'Kitchen',
+              providerId: 'home_assistant',
+              canAssign: true,
+              canDelete: true,
+              canOrder: true,
+            },
+          ],
+        },
+      });
+    });
+
+    expect(dashboardLayoutMock.mock.calls.at(-1)?.[0]).toMatchObject({
+      mobileEditActions: {
+        reorderRooms: {
+          manageableRooms: [{ id: 'home_assistant:kitchen', name: 'Kitchen' }],
+        },
+      },
+    });
+  });
+
   it('suppresses duplicated edit actions for a room-scoped home view', async () => {
     const controller = createController();
     controller.isEditMode = true;
     controller.activeRoom = 'Kitchen';
+    controller.addableEntityIds = ['sensor.kitchen_temperature', 'sensor.hallway_temperature'];
+    controller.availableDeviceMap = new Map([
+      [
+        'sensor.kitchen_temperature',
+        {
+          id: 'sensor.kitchen_temperature',
+          name: 'Kitchen temperature',
+          room: 'Kitchen',
+          size: 'small',
+          value: '21',
+          unit: '°C',
+          type: 'sensors',
+        } satisfies DeviceWithType,
+      ],
+      [
+        'sensor.hallway_temperature',
+        {
+          id: 'sensor.hallway_temperature',
+          name: 'Hallway temperature',
+          room: 'Hallway',
+          size: 'small',
+          value: '20',
+          unit: '°C',
+          type: 'sensors',
+        } satisfies DeviceWithType,
+      ],
+    ]);
 
     renderWithProviders(<DashboardSectionRouter controller={controller} />);
 
@@ -117,8 +218,8 @@ describe('DashboardSectionRouter home controls', () => {
       mobileEditActions?: Record<string, unknown>;
     };
 
-    expect(roomNavProps.onAddEntity).toBe(controller.onOpenAddCardDialog);
-    expect(roomNavProps.addEntityLabel).toBe('Add Card');
+    expect(roomNavProps.onAddEntity).toBe(controller.onOpenAddEntityDialog);
+    expect(roomNavProps.addEntityLabel).toBe('Add Entity');
     expect(roomNavProps.suppressEditActions).toBe(true);
     expect(layoutProps.mobileEditActions).toBeUndefined();
   });
@@ -157,7 +258,45 @@ describe('DashboardSectionRouter home controls', () => {
     });
   });
 
-  it('adds pending chores to their room grid', () => {
+  it('builds home summary badges from visible devices while preserving hidden home cards', () => {
+    const controller = createController();
+    const visibleClimate = {
+      id: 'climate.living_room',
+      name: 'Living Room Thermostat',
+      room: 'Living Room',
+      size: 'small',
+      temperature: 21,
+      currentTemperature: 20,
+      mode: 'heat',
+      type: 'climate',
+    } satisfies DeviceWithType;
+    const hiddenTemperature = {
+      id: 'sensor.zigbee_cpu_temperature',
+      name: 'Zigbee CPU Temperature',
+      room: 'Living Room',
+      size: 'small',
+      unit: '°C',
+      value: '52',
+      deviceClass: 'temperature',
+      type: 'sensors',
+    } satisfies DeviceWithType;
+    controller.deviceMap = new Map([[visibleClimate.id, visibleClimate]]);
+    controller.availableDeviceMap = new Map<string, DeviceWithType>([
+      [visibleClimate.id, visibleClimate],
+      [hiddenTemperature.id, hiddenTemperature],
+    ]);
+
+    renderWithProviders(<DashboardSectionRouter controller={controller} />);
+
+    expect(homeDashboardPropsMock.mock.calls.at(-1)?.[0]).toMatchObject({
+      deviceMap: controller.availableDeviceMap,
+      summaryDeviceMap: controller.deviceMap,
+    });
+  });
+
+  it('keeps pending chores out of the ordered room grid', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(2026, 8, 9, 11));
     useChoreWorkspaceStore.getState().setPreviewDocument({
       data: createChoreDemoWorkspace({ copy: choreCopy }),
     });
@@ -166,15 +305,11 @@ describe('DashboardSectionRouter home controls', () => {
 
     renderWithProviders(<DashboardSectionRouter controller={controller} />);
 
-    expect(deviceGridPropsMock.mock.calls.at(-1)?.[0]).toMatchObject({
-      supplementalCards: [
-        expect.objectContaining({ id: 'room-chore-today-dishwasher', size: 'medium' }),
-      ],
-    });
+    expect(deviceGridPropsMock.mock.calls.at(-1)?.[0]).not.toHaveProperty('supplementalCards');
     expect(screen.getByText(/1 overdue/)).toBeInTheDocument();
   });
 
-  it('hides room chore summaries and cards when chores are disabled', () => {
+  it('hides room chore summaries when chores are disabled', () => {
     useChoreWorkspaceStore.getState().setPreviewDocument({
       data: createChoreDemoWorkspace({ copy: choreCopy }),
     });
@@ -184,10 +319,115 @@ describe('DashboardSectionRouter home controls', () => {
 
     renderWithProviders(<DashboardSectionRouter controller={controller} />);
 
-    expect(deviceGridPropsMock.mock.calls.at(-1)?.[0]).toMatchObject({
-      supplementalCards: [],
-    });
+    expect(deviceGridPropsMock.mock.calls.at(-1)?.[0]).not.toHaveProperty('supplementalCards');
+    expect(screen.queryByRole('button', { name: 'Open Chores' })).not.toBeInTheDocument();
     expect(screen.queryByText(/1 remaining/)).not.toBeInTheDocument();
+  });
+
+  it('navigates room chores to Household and preserves the grid after completion', () => {
+    const data = createChoreDemoWorkspace({ copy: choreCopy });
+    useChoreWorkspaceStore.getState().setPreviewDocument({ data });
+    const controller = createController();
+    controller.activeRoom = 'Kitchen';
+    controller.orderedCardIds = ['light.kitchen', 'light.dining'];
+
+    renderWithProviders(<DashboardSectionRouter controller={controller} />);
+    const gridProps = deviceGridPropsMock.mock.calls.at(-1)?.[0];
+    fireEvent.click(screen.getByRole('button', { name: 'Open Chores' }));
+
+    expect(controller.setActiveSection).toHaveBeenCalledWith('tasks');
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    act(() => {
+      useChoreWorkspaceStore.getState().setPreviewDocument({
+        data: {
+          ...data,
+          occurrencesById: {
+            ...data.occurrencesById,
+            'today-dishwasher': { ...data.occurrencesById['today-dishwasher'], status: 'done' },
+          },
+        },
+      });
+    });
+    expect(screen.getByText('All done today')).toBeInTheDocument();
+    expect(deviceGridPropsMock.mock.calls.at(-1)?.[0]).toEqual(gridProps);
+    expect(deviceGridMountCount).toBe(1);
+  });
+
+  it('keeps the chore control available with no room chores and summaries hidden', () => {
+    useChoreWorkspaceStore.getState().setPreviewDocument({
+      data: createChoreDemoWorkspace({ copy: choreCopy }),
+    });
+    useSettingsStore.getState().updateSettings({ showHomeSummaryBar: false });
+    const controller = createController();
+    controller.activeRoom = 'Study';
+
+    renderWithProviders(<DashboardSectionRouter controller={controller} />);
+
+    expect(screen.getByRole('button', { name: 'Open Chores' })).toBeInTheDocument();
+    expect(screen.getByText('All done today')).toBeInTheDocument();
+  });
+
+  it('does not rerender another section when the chore workspace changes', () => {
+    const controller = createController();
+    controller.activeSection = 'climate';
+
+    renderWithProviders(<DashboardSectionRouter controller={controller} />);
+    dashboardLayoutMock.mockClear();
+
+    act(() => {
+      useChoreWorkspaceStore.getState().setPreviewDocument({
+        data: createChoreDemoWorkspace({ copy: choreCopy }),
+      });
+    });
+
+    expect(dashboardLayoutMock).not.toHaveBeenCalled();
+  });
+
+  it('ignores room workspace changes outside Home and reads the latest groups on return', () => {
+    const controller = createController();
+    controller.activeSection = 'climate';
+    const { rerender } = renderWithProviders(<DashboardSectionRouter controller={controller} />);
+    dashboardLayoutMock.mockClear();
+
+    const workspace = createGroupedRoomWorkspace();
+    act(() => useRoomWorkspaceStore.setState({ workspace }));
+
+    expect(dashboardLayoutMock).not.toHaveBeenCalled();
+
+    rerender(<DashboardSectionRouter controller={{ ...controller, activeSection: 'home' }} />);
+
+    expect(roomNavMock.mock.calls.at(-1)?.[0]).toMatchObject({
+      roomGroups: [{ id: 'group_kitchen', name: 'Downstairs', rooms: ['Kitchen'] }],
+    });
+
+    act(() =>
+      useRoomWorkspaceStore.setState({
+        workspace: {
+          ...workspace,
+          groups: [{ ...workspace.groups[0], displayName: 'Shared rooms' }],
+        },
+      })
+    );
+
+    expect(roomNavMock.mock.calls.at(-1)?.[0]).toMatchObject({
+      roomGroups: [{ id: 'group_kitchen', name: 'Shared rooms', rooms: ['Kitchen'] }],
+    });
+  });
+
+  it('keeps kiosk room groups current outside Home', () => {
+    useSettingsStore.getState().updateSettings({ kioskMode: true });
+    const controller = createController();
+    controller.activeSection = 'climate';
+    renderWithProviders(<DashboardSectionRouter controller={controller} />);
+    dashboardLayoutMock.mockClear();
+
+    act(() => useRoomWorkspaceStore.setState({ workspace: createGroupedRoomWorkspace() }));
+
+    expect(dashboardLayoutMock.mock.calls.at(-1)?.[0]).toMatchObject({
+      mobileRoomNavigation: {
+        groups: [{ id: 'group_kitchen', name: 'Downstairs', rooms: ['Kitchen'] }],
+      },
+    });
   });
 
   it('keeps the tasks workspace available when chores are disabled', async () => {
@@ -199,6 +439,7 @@ describe('DashboardSectionRouter home controls', () => {
 
     expect(await screen.findByText('Tasks dashboard')).toBeInTheDocument();
     expect(screen.queryByText('Household dashboard')).not.toBeInTheDocument();
+    expect(screen.getAllByRole('main')).toHaveLength(1);
   });
 
   it('does not expose dashboard customize actions in the household workspace', async () => {
@@ -208,10 +449,34 @@ describe('DashboardSectionRouter home controls', () => {
     renderWithProviders(<DashboardSectionRouter controller={controller} />);
 
     expect(await screen.findByText('Household dashboard')).toBeInTheDocument();
+    expect(screen.getAllByRole('main')).toHaveLength(1);
     const layoutProps = dashboardLayoutMock.mock.calls[0]?.[0] as {
       mobileEditActions?: Record<string, unknown>;
     };
     expect(layoutProps.mobileEditActions).toBeUndefined();
+  });
+
+  it('completes navigation from the home Chores summary to the household workspace', async () => {
+    const controller = createController();
+    const { rerender } = renderWithProviders(<DashboardSectionRouter controller={controller} />);
+    const homeProps = homeDashboardPropsMock.mock.calls.at(-1)?.[0] as {
+      onNavigateSection: (section: 'tasks') => void;
+    };
+
+    act(() => homeProps.onNavigateSection('tasks'));
+
+    expect(controller.setActiveSection).toHaveBeenCalledWith('tasks');
+
+    rerender(
+      <DashboardSectionRouter
+        controller={{
+          ...controller,
+          activeSection: 'tasks',
+        }}
+      />
+    );
+
+    await screen.findByText('Household dashboard');
   });
 
   it('rerenders when independently consumed controller inputs change', async () => {
@@ -302,8 +567,19 @@ describe('DashboardSectionRouter home controls', () => {
     };
 
     expect(layoutProps.mobileEditActions).toBeUndefined();
-    expect(screen.getByRole('button', { name: 'KPIs' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Layout' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'KPIs' })).not.toBeInTheDocument();
+    expect(screen.getAllByRole('main')).toHaveLength(1);
+    expect(screen.queryByRole('button', { name: 'Layout' })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Hide KPIs' }));
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Show KPIs' })).toBeInTheDocument()
+    );
+    expect(localStorage.getItem('navet-energy-kpis-hidden')).toBe('true');
+    fireEvent.click(screen.getByRole('button', { name: 'Show KPIs' }));
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Hide KPIs' })).toBeInTheDocument()
+    );
+    expect(localStorage.getItem('navet-energy-kpis-hidden')).toBe('false');
   });
 
   it('suppresses duplicated edit actions for security without manage rooms', async () => {

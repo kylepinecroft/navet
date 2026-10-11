@@ -1,8 +1,8 @@
 import homeAssistantLogo from '@navet/app/assets/providers/home-assistant.svg';
-import homeyLogo from '@navet/app/assets/providers/homey.svg';
+import homeyLogo from '@navet/app/assets/providers/homey-ui.webp';
 import openhabLogo from '@navet/app/assets/providers/openhab.svg';
 import { Badge, Button, Input, ModalSurface } from '@navet/app/components/primitives';
-import { themeColorValues } from '@navet/app/components/shared/theme/theme-colors';
+import { getThemeSurfaceTokens, navetTypographyTokens } from '@navet/app/components/system/tokens';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -13,17 +13,28 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@navet/app/components/ui/alert-dialog';
-import { useI18n } from '@navet/app/hooks';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@navet/app/components/ui/dropdown-menu';
+import { cn } from '@navet/app/components/ui/utils';
+import { useI18n, useTheme } from '@navet/app/hooks';
+import {
+  supportsAdditionalSmartHomeProviders,
+  supportsDeviceAuthorization,
+} from '@navet/app/runtime/app-mode';
 import type { IntegrationProviderId } from '@navet/app/types/provider';
 import {
-  BookOpen,
   ChevronDown,
   ChevronUp,
   ExternalLink,
   Home,
   Link2,
-  LocateFixed,
   LogOut,
+  MoreHorizontal,
   RotateCcw,
   Server,
   Settings2,
@@ -31,26 +42,20 @@ import {
 } from 'lucide-react';
 import { useState } from 'react';
 import type { SettingsSectionController } from '../hooks/use-settings-section-controller';
-import { SettingsDashboardClients } from './settings-dashboard-clients';
+import { SettingsAuthorizedDevices } from './settings-authorized-devices';
+import { SettingsDeviceSettings } from './settings-device-settings';
 import { SettingsItem, SettingsSectionGroup, SettingsSectionShell } from './settings-section-shell';
 
 interface SettingsSystemSectionProps {
   controller: SettingsSectionController;
 }
 
-const PROVIDER_SUPPORT_URLS: Record<IntegrationProviderId, string> = {
-  home_assistant: 'https://docs.navet.app/integrations/#home-assistant',
-  homey: 'https://docs.navet.app/integrations/#homey',
-  openhab: 'https://docs.navet.app/integrations/#openhab',
-  hubitat: 'https://docs.navet.app/integrations/#planned-providers',
-  smartthings: 'https://docs.navet.app/integrations/#planned-providers',
-};
-
 type ProviderCardStatus =
   | 'connected'
   | 'connecting'
   | 'reconnecting'
   | 'signed-in'
+  | 'offline'
   | 'disconnected'
   | 'planned';
 
@@ -85,6 +90,8 @@ function getProviderStatusLabel(t: ReturnType<typeof useI18n>['t'], status: Prov
       return t('settings.system.providers.status.reconnecting');
     case 'signed-in':
       return t('settings.system.providers.status.signed-in');
+    case 'offline':
+      return t('settings.system.clients.status.offline');
     case 'disconnected':
       return t('settings.system.providers.status.disconnected');
     case 'planned':
@@ -105,10 +112,10 @@ function ProviderLogoMark({ provider }: { provider: ProviderCard }) {
 
   return (
     <div
-      className={`relative flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-2xl border border-white/10 bg-[radial-gradient(circle_at_30%_25%,rgba(255,255,255,0.18),transparent_58%),linear-gradient(180deg,rgba(255,255,255,0.08),rgba(255,255,255,0.03))] ring-1 ${accentClassName}`}
+      className={`relative flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-[14px] border border-white/10 bg-[radial-gradient(circle_at_30%_25%,rgba(255,255,255,0.18),transparent_58%),linear-gradient(180deg,rgba(255,255,255,0.08),rgba(255,255,255,0.03))] ring-1 ${accentClassName}`}
     >
       {logoSrc ? (
-        <img src={logoSrc} alt="" width={28} height={28} className="h-7 w-7 object-contain" />
+        <img src={logoSrc} alt="" width={24} height={24} className="h-6 w-6 object-contain" />
       ) : (
         <span className="text-xs font-semibold tracking-[0.2em] text-white/90">
           {getProviderInitials(provider)}
@@ -171,20 +178,16 @@ function ProviderCardView({
   provider,
   styles,
   openConnectDialog,
-  showActiveControls,
-  setActiveProvider,
   handleConnectProvider,
-  handleDisconnectProvider,
+  onRequestDisconnect,
   t,
   configUrl,
 }: {
   provider: ProviderCard;
   styles: SettingsSectionController['styles'];
   openConnectDialog: (providerId: IntegrationProviderId) => void;
-  showActiveControls: boolean;
-  setActiveProvider: SettingsSectionController['setActiveProvider'];
   handleConnectProvider: SettingsSectionController['handleConnectProvider'];
-  handleDisconnectProvider: SettingsSectionController['handleDisconnectProvider'];
+  onRequestDisconnect: (providerId: IntegrationProviderId) => void;
   t: ReturnType<typeof useI18n>['t'];
   configUrl: string | null;
 }) {
@@ -193,34 +196,29 @@ function ProviderCardView({
   const displayUrl =
     provider.baseUrl ??
     (provider.id === 'home_assistant' && provider.isConnected ? configUrl : null);
+  const canEditUrl = provider.id === 'home_assistant' && provider.isConnected;
+  const hasProviderMenu = Boolean(openUrl || canEditUrl || provider.canDisconnect);
+  const hasNonDestructiveMenuAction = Boolean(openUrl || canEditUrl);
+  const canConnectHomey = provider.id === 'homey' && !provider.isConnected;
+  const canConnectWithUrl = usesUrlConnect && !provider.isConnected;
 
   return (
     <div
-      className={`rounded-[22px] border p-4 md:p-5 ${styles.insetBorderColor} ${styles.insetBg}`}
+      className={`min-w-0 rounded-[22px] border p-4 ${styles.insetBorderColor} ${styles.insetBg}`}
     >
       <div className="min-w-0">
         <div className="min-w-0">
           <div className="flex items-start gap-3">
             <ProviderLogoMark provider={provider} />
-            <div className="min-w-0">
+            <div className="min-w-0 flex-1">
               <div className="flex flex-wrap items-center gap-2">
                 <p className={`truncate text-sm font-medium ${styles.textColor}`}>
                   {provider.label}
                 </p>
                 {provider.status === 'connected' ? (
-                  <>
-                    <span
-                      className="shrink-0 text-[11px] font-medium leading-[14px]"
-                      style={{ color: themeColorValues.green }}
-                    >
-                      {t('settings.system.providers.status.connected')}
-                    </span>
-                    {showActiveControls && provider.isActive ? (
-                      <Badge tone="accent" className="text-[10px]">
-                        {t('settings.system.providers.active')}
-                      </Badge>
-                    ) : null}
-                  </>
+                  <Badge tone="success" size="small" className="text-[10px]">
+                    {t('settings.system.providers.status.connected')}
+                  </Badge>
                 ) : provider.status !== 'disconnected' ? (
                   <ProviderStatusBadge label={getProviderStatusLabel(t, provider.status)} />
                 ) : null}
@@ -231,92 +229,93 @@ function ProviderCardView({
               >
                 {displayUrl ?? t('settings.system.providers.notConnected')}
               </p>
-              {provider.error ? (
+              {provider.status === 'offline' ? (
+                <p className="mt-2 text-sm leading-relaxed text-amber-300">
+                  {t('settings.system.providers.homeyOffline')}
+                </p>
+              ) : provider.error ? (
                 <p className="mt-2 text-sm leading-relaxed text-red-400">{provider.error}</p>
               ) : null}
             </div>
+            {hasProviderMenu ? (
+              <DropdownMenu modal={false}>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    type="button"
+                    size="small"
+                    variant="ghost"
+                    iconOnly
+                    label={`${t('common.moreActions')}: ${provider.label}`}
+                    className="self-center"
+                  >
+                    <MoreHorizontal className="h-4.5 w-4.5" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-52">
+                  {openUrl ? (
+                    <DropdownMenuItem asChild>
+                      <a href={openUrl} target="_blank" rel="noopener noreferrer">
+                        <ExternalLink className="h-4 w-4" />
+                        {t('common.open')}
+                      </a>
+                    </DropdownMenuItem>
+                  ) : null}
+                  {canEditUrl ? (
+                    <DropdownMenuItem onSelect={() => openConnectDialog(provider.id)}>
+                      <Link2 className="h-4 w-4" />
+                      {t('common.editItem', { item: t('settings.system.providers.url') })}
+                    </DropdownMenuItem>
+                  ) : null}
+                  {provider.canDisconnect ? (
+                    <>
+                      {hasNonDestructiveMenuAction ? <DropdownMenuSeparator /> : null}
+                      <DropdownMenuItem
+                        variant="destructive"
+                        onSelect={() => onRequestDisconnect(provider.id)}
+                      >
+                        <Unplug className="h-4 w-4" />
+                        {t('settings.system.providers.disconnect')}
+                      </DropdownMenuItem>
+                    </>
+                  ) : null}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            ) : null}
           </div>
+        </div>
 
-          <a
-            href={PROVIDER_SUPPORT_URLS[provider.id]}
-            target="_blank"
-            rel="noopener noreferrer"
-            className={`mt-3 inline-flex h-9 items-center gap-2 rounded-full px-1 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 motion-reduce:transition-none ${styles.mutedColor} ${styles.hoverBg} ${styles.ringClass}`}
+        {canConnectHomey || canConnectWithUrl ? (
+          <div
+            className="mt-3 flex w-full flex-wrap items-center gap-2"
+            data-provider-actions={provider.id}
           >
-            <BookOpen className="h-4 w-4" aria-hidden="true" />
-            <span>{t('settings.system.providers.supportedEntities')}</span>
-            <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
-          </a>
-        </div>
+            {canConnectHomey ? (
+              <Button
+                type="button"
+                variant="secondary"
+                size="small"
+                leading={<Link2 className="h-4 w-4" />}
+                className="min-w-32 flex-1 rounded-full"
+                onClick={() => void handleConnectProvider('homey')}
+              >
+                {t('settings.system.providers.connect')}
+              </Button>
+            ) : null}
 
-        <div
-          className="mt-3 flex w-full flex-wrap items-center gap-2"
-          data-provider-actions={provider.id}
-        >
-          {openUrl ? (
-            <a
-              href={openUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className={`inline-flex h-9 min-w-32 flex-1 items-center justify-center gap-2 whitespace-nowrap rounded-full border px-3.5 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 motion-reduce:transition-none sm:flex-none ${styles.borderColor} ${styles.softBg} ${styles.hoverBg} ${styles.textColor} ${styles.ringClass}`}
-            >
-              <ExternalLink className="h-4 w-4" />
-              <span>{t('common.open')}</span>
-            </a>
-          ) : null}
-
-          {showActiveControls && provider.isConnected && !provider.isActive ? (
-            <Button
-              type="button"
-              variant="secondary"
-              size="small"
-              leading={<LocateFixed className="h-4 w-4" />}
-              className="min-w-32 flex-1 rounded-full sm:flex-none"
-              onClick={() => setActiveProvider(provider.id)}
-            >
-              {t('settings.system.providers.makeActive')}
-            </Button>
-          ) : null}
-
-          {provider.id === 'homey' && !provider.isConnected ? (
-            <Button
-              type="button"
-              variant="secondary"
-              size="small"
-              leading={<Link2 className="h-4 w-4" />}
-              className="min-w-32 flex-1 rounded-full sm:flex-none"
-              onClick={() => void handleConnectProvider('homey')}
-            >
-              {t('settings.system.providers.connect')}
-            </Button>
-          ) : null}
-
-          {usesUrlConnect && !provider.isConnected ? (
-            <Button
-              type="button"
-              variant="secondary"
-              size="small"
-              leading={<Link2 className="h-4 w-4" />}
-              className="min-w-32 flex-1 rounded-full sm:flex-none"
-              onClick={() => openConnectDialog(provider.id)}
-            >
-              {t('settings.system.providers.connect')}
-            </Button>
-          ) : null}
-
-          {provider.canDisconnect ? (
-            <Button
-              type="button"
-              variant="destructive"
-              size="small"
-              leading={<Unplug className="h-4 w-4" />}
-              className="min-w-32 flex-1 rounded-full sm:flex-none"
-              onClick={() => void handleDisconnectProvider(provider.id)}
-            >
-              {t('settings.system.providers.disconnect')}
-            </Button>
-          ) : null}
-        </div>
+            {canConnectWithUrl ? (
+              <Button
+                type="button"
+                variant="secondary"
+                size="small"
+                leading={<Link2 className="h-4 w-4" />}
+                className="min-w-32 flex-1 rounded-full"
+                onClick={() => openConnectDialog(provider.id)}
+              >
+                {t('settings.system.providers.connect')}
+              </Button>
+            ) : null}
+          </div>
+        ) : null}
       </div>
     </div>
   );
@@ -324,6 +323,8 @@ function ProviderCardView({
 
 export function SettingsSystemSection({ controller }: SettingsSystemSectionProps) {
   const { t } = useI18n();
+  const { theme } = useTheme();
+  const dialogSurface = getThemeSurfaceTokens(theme);
   const [providerUrls, setProviderUrls] = useState<Record<string, string>>({
     home_assistant: '',
     openhab: '',
@@ -336,6 +337,12 @@ export function SettingsSystemSection({ controller }: SettingsSystemSectionProps
   });
   const [connectDialogProviderId, setConnectDialogProviderId] =
     useState<IntegrationProviderId | null>(null);
+  const [isConnecting, setIsConnecting] = useState(false);
+  const [disconnectProviderId, setDisconnectProviderId] = useState<IntegrationProviderId | null>(
+    null
+  );
+  const [isDisconnecting, setIsDisconnecting] = useState(false);
+  const [connectionError, setConnectionError] = useState<string | null>(null);
   const [showProviderManagement, setShowProviderManagement] = useState(() =>
     controller.providerCards.every((provider) => !provider.isConnected)
   );
@@ -347,24 +354,43 @@ export function SettingsSystemSection({ controller }: SettingsSystemSectionProps
     handleLogout,
     handleResetLocalSettings,
     providerCards: allProviderCards,
-    setActiveProvider,
     showLogoutConfirm,
     setShowLogoutConfirm,
     styles,
   } = controller;
+  const showAdditionalProviders = supportsAdditionalSmartHomeProviders();
   const providerCards = allProviderCards.filter(
-    (provider) => provider.implementationStatus === 'implemented'
+    (provider) =>
+      provider.implementationStatus === 'implemented' &&
+      (showAdditionalProviders || provider.id === 'home_assistant')
   );
   const connectedProviders = providerCards.filter((provider) => provider.isConnected);
-  const showActiveControls = connectedProviders.length > 1;
+  const disconnectDialogProvider = connectedProviders.find(
+    (provider) => provider.id === disconnectProviderId
+  );
   const managedProviders = providerCards.filter((provider) => !provider.isConnected);
   const connectDialogProvider =
     connectDialogProviderId === null
       ? null
       : (providerCards.find((provider) => provider.id === connectDialogProviderId) ?? null);
-  const closeConnectDialog = () => setConnectDialogProviderId(null);
-  const openConnectDialog = (providerId: IntegrationProviderId) =>
+  const closeConnectDialog = () => {
+    if (!isConnecting) setConnectDialogProviderId(null);
+  };
+  const openConnectDialog = (providerId: IntegrationProviderId) => {
+    setConnectionError(null);
+    const provider = providerCards.find((candidate) => candidate.id === providerId);
+    if (provider) {
+      setProviderUrls((current) => ({
+        ...current,
+        [providerId]:
+          current[providerId] ||
+          provider.baseUrl ||
+          (providerId === 'home_assistant' ? config?.url : '') ||
+          '',
+      }));
+    }
     setConnectDialogProviderId(providerId);
+  };
 
   return (
     <SettingsSectionShell
@@ -380,6 +406,15 @@ export function SettingsSystemSection({ controller }: SettingsSystemSectionProps
         title={t('settings.system.group.smartHome')}
         styles={styles}
       >
+        {supportsDeviceAuthorization() && (
+          <SettingsItem
+            title={t('settings.system.authorizedDevices.title')}
+            description={t('settings.system.authorizedDevices.description')}
+            styles={styles}
+          >
+            <SettingsAuthorizedDevices styles={styles} />
+          </SettingsItem>
+        )}
         <SettingsItem
           title={t('settings.system.providers.title')}
           description={t('settings.system.providers.description')}
@@ -394,10 +429,8 @@ export function SettingsSystemSection({ controller }: SettingsSystemSectionProps
                     provider={provider}
                     styles={styles}
                     openConnectDialog={openConnectDialog}
-                    showActiveControls={showActiveControls}
-                    setActiveProvider={setActiveProvider}
                     handleConnectProvider={handleConnectProvider}
-                    handleDisconnectProvider={handleDisconnectProvider}
+                    onRequestDisconnect={setDisconnectProviderId}
                     t={t}
                     configUrl={config?.url ?? null}
                   />
@@ -423,10 +456,8 @@ export function SettingsSystemSection({ controller }: SettingsSystemSectionProps
                     provider={provider}
                     styles={styles}
                     openConnectDialog={openConnectDialog}
-                    showActiveControls={showActiveControls}
-                    setActiveProvider={setActiveProvider}
                     handleConnectProvider={handleConnectProvider}
-                    handleDisconnectProvider={handleDisconnectProvider}
+                    onRequestDisconnect={setDisconnectProviderId}
                     t={t}
                     configUrl={config?.url ?? null}
                   />
@@ -453,27 +484,55 @@ export function SettingsSystemSection({ controller }: SettingsSystemSectionProps
           bodyClassName="overflow-hidden rounded-[28px]"
         >
           <form
-            className="space-y-5 bg-[linear-gradient(180deg,rgba(10,16,26,0.96),rgba(6,10,18,0.98))] p-6"
-            onSubmit={(event) => {
+            className="space-y-5 p-5 sm:p-6"
+            aria-busy={isConnecting}
+            onSubmit={async (event) => {
               event.preventDefault();
-              void handleConnectProvider(
-                connectDialogProvider.id,
-                (providerUrls[connectDialogProvider.id] ?? '').trim(),
-                connectDialogProvider.id === 'openhab'
-                  ? (providerUsernames[connectDialogProvider.id] ?? '').trim()
-                  : undefined,
-                connectDialogProvider.id === 'openhab'
-                  ? (providerPasswords[connectDialogProvider.id] ?? '')
-                  : undefined
-              );
-              closeConnectDialog();
+              if (isConnecting) return;
+              setIsConnecting(true);
+              setConnectionError(null);
+              try {
+                const error = await handleConnectProvider(
+                  connectDialogProvider.id,
+                  (providerUrls[connectDialogProvider.id] ?? '').trim(),
+                  connectDialogProvider.id === 'openhab'
+                    ? (providerUsernames[connectDialogProvider.id] ?? '').trim()
+                    : undefined,
+                  connectDialogProvider.id === 'openhab'
+                    ? (providerPasswords[connectDialogProvider.id] ?? '')
+                    : undefined
+                );
+                if (error) {
+                  setConnectionError(error);
+                } else {
+                  setProviderPasswords((current) => ({
+                    ...current,
+                    [connectDialogProvider.id]: '',
+                  }));
+                  setConnectDialogProviderId(null);
+                }
+              } catch (error) {
+                setConnectionError(
+                  error instanceof Error
+                    ? error.message
+                    : t('settings.feedback.providerConnectFailed')
+                );
+              } finally {
+                setIsConnecting(false);
+              }
             }}
           >
             <div>
-              <p className="text-base font-semibold text-white">
+              <p className={cn(navetTypographyTokens.sectionHeading, dialogSurface.textPrimary)}>
                 {t('login.connectProviderTitle', { provider: connectDialogProvider.label })}
               </p>
-              <p className="mt-1 text-sm leading-relaxed text-white/65">
+              <p
+                className={cn(
+                  'mt-1 leading-relaxed',
+                  navetTypographyTokens.label,
+                  dialogSurface.textSecondary
+                )}
+              >
                 {connectDialogProvider.id === 'openhab'
                   ? t('settings.system.providers.credentialsHelp')
                   : t('settings.system.providers.urlHelp')}
@@ -482,12 +541,16 @@ export function SettingsSystemSection({ controller }: SettingsSystemSectionProps
 
             <div className="space-y-3">
               <div className="space-y-1.5">
-                <label htmlFor="provider-connect-url" className="text-xs font-medium text-white/55">
+                <label
+                  htmlFor="provider-connect-url"
+                  className={cn('text-xs font-medium', dialogSurface.textSecondary)}
+                >
                   {t('settings.system.providers.url')}
                 </label>
                 <Input
                   id="provider-connect-url"
                   name="provider-url"
+                  disabled={isConnecting}
                   type="url"
                   autoComplete="off"
                   value={providerUrls[connectDialogProvider.id] ?? ''}
@@ -498,8 +561,8 @@ export function SettingsSystemSection({ controller }: SettingsSystemSectionProps
                     }))
                   }
                   placeholder={getProviderUrlPlaceholder(connectDialogProvider, t)}
-                  leading={<Home className="h-4 w-4 text-white/45" />}
-                  inputClassName="text-white"
+                  leading={<Home className={cn('h-4 w-4', dialogSurface.textMuted)} />}
+                  inputClassName={dialogSurface.textPrimary}
                 />
               </div>
 
@@ -508,13 +571,14 @@ export function SettingsSystemSection({ controller }: SettingsSystemSectionProps
                   <div className="space-y-1.5">
                     <label
                       htmlFor="provider-connect-username"
-                      className="text-xs font-medium text-white/55"
+                      className={cn('text-xs font-medium', dialogSurface.textSecondary)}
                     >
                       {t('settings.system.providers.username')}
                     </label>
                     <Input
                       id="provider-connect-username"
                       name="provider-username"
+                      disabled={isConnecting}
                       autoComplete="username"
                       spellCheck={false}
                       value={providerUsernames[connectDialogProvider.id] ?? ''}
@@ -525,19 +589,20 @@ export function SettingsSystemSection({ controller }: SettingsSystemSectionProps
                         }))
                       }
                       placeholder={t('settings.system.providers.openhabUsernamePlaceholder')}
-                      inputClassName="text-white"
+                      inputClassName={dialogSurface.textPrimary}
                     />
                   </div>
                   <div className="space-y-1.5">
                     <label
                       htmlFor="provider-connect-password"
-                      className="text-xs font-medium text-white/55"
+                      className={cn('text-xs font-medium', dialogSurface.textSecondary)}
                     >
                       {t('settings.system.providers.password')}
                     </label>
                     <Input
                       id="provider-connect-password"
                       name="provider-password"
+                      disabled={isConnecting}
                       type="password"
                       autoComplete="current-password"
                       value={providerPasswords[connectDialogProvider.id] ?? ''}
@@ -548,12 +613,18 @@ export function SettingsSystemSection({ controller }: SettingsSystemSectionProps
                         }))
                       }
                       placeholder={t('settings.system.providers.openhabPasswordPlaceholder')}
-                      inputClassName="text-white"
+                      inputClassName={dialogSurface.textPrimary}
                     />
                   </div>
                 </>
               ) : null}
             </div>
+
+            {connectionError ? (
+              <p role="alert" className="text-sm text-red-400">
+                {connectionError}
+              </p>
+            ) : null}
 
             <div className="flex items-center justify-end gap-2">
               <Button
@@ -562,22 +633,65 @@ export function SettingsSystemSection({ controller }: SettingsSystemSectionProps
                 size="small"
                 className="rounded-full"
                 onClick={closeConnectDialog}
+                disabled={isConnecting}
               >
                 {t('common.cancel')}
               </Button>
               <Button
                 type="submit"
+                loading={isConnecting}
                 variant="secondary"
                 size="small"
                 leading={<Link2 className="h-4 w-4" />}
                 className="rounded-full"
               >
-                {t('settings.system.providers.connect')}
+                {isConnecting ? t('login.connecting') : t('settings.system.providers.connect')}
               </Button>
             </div>
           </form>
         </ModalSurface>
       ) : null}
+
+      <AlertDialog
+        open={Boolean(disconnectDialogProvider)}
+        onOpenChange={(open) => {
+          if (!open && !isDisconnecting) setDisconnectProviderId(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {t('settings.system.providers.disconnectTitle', {
+                provider: disconnectDialogProvider?.label ?? '',
+              })}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {t('settings.system.providers.disconnectDescription', {
+                provider: disconnectDialogProvider?.label ?? '',
+              })}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isDisconnecting}>{t('common.cancel')}</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={isDisconnecting || !disconnectDialogProvider}
+              onClick={async (event) => {
+                event.preventDefault();
+                if (isDisconnecting || !disconnectDialogProvider) return;
+                setIsDisconnecting(true);
+                try {
+                  await handleDisconnectProvider(disconnectDialogProvider.id);
+                  setDisconnectProviderId(null);
+                } finally {
+                  setIsDisconnecting(false);
+                }
+              }}
+            >
+              {t('settings.system.providers.disconnect')}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <SettingsSectionGroup
         id="system-devices-sync"
@@ -585,11 +699,11 @@ export function SettingsSystemSection({ controller }: SettingsSystemSectionProps
         styles={styles}
       >
         <SettingsItem
-          title={t('settings.system.clients.title')}
-          description={t('settings.system.clients.description')}
+          title={t('settings.system.clients.displaySync.title')}
+          description={t('settings.system.clients.displaySync.description')}
           styles={styles}
         >
-          <SettingsDashboardClients styles={styles} />
+          <SettingsDeviceSettings styles={styles} />
         </SettingsItem>
       </SettingsSectionGroup>
 
@@ -618,14 +732,16 @@ export function SettingsSystemSection({ controller }: SettingsSystemSectionProps
           description={t('settings.system.logout.description')}
           styles={styles}
         >
-          <button
+          <Button
             type="button"
+            size="small"
+            variant="destructive"
             onClick={handleLogout}
-            className={`inline-flex h-9 items-center gap-2 rounded-full border border-red-500/20 bg-red-500/8 px-3.5 text-sm font-medium text-red-500 transition-colors hover:bg-red-500/12 focus-visible:outline-none focus-visible:ring-2 motion-reduce:transition-none ${styles.ringClass}`}
+            leading={<LogOut className="h-4 w-4" />}
+            className="rounded-full"
           >
-            <LogOut className="h-4 w-4" />
-            <span>{t('settings.project.logout')}</span>
-          </button>
+            {t('settings.project.logout')}
+          </Button>
 
           <AlertDialog open={showLogoutConfirm} onOpenChange={setShowLogoutConfirm}>
             <AlertDialogContent>
@@ -650,5 +766,9 @@ export function SettingsSystemSection({ controller }: SettingsSystemSectionProps
 }
 
 function ProviderStatusBadge({ label }: { label: string }) {
-  return <Badge tone="neutral">{label}</Badge>;
+  return (
+    <Badge tone="neutral" size="small">
+      {label}
+    </Badge>
+  );
 }

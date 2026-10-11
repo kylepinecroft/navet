@@ -1,11 +1,50 @@
 ---
 title: Your first 15 minutes with Navet
-description: Learn the main navigation, check your rooms, and make your first dashboard change.
+description: Complete first-run setup, learn the main navigation, and make your first dashboard change.
 editUrl: https://github.com/awesomestvi/navet/edit/main/docs/how-to/quick-start/first-15-minutes.md
+next:
+  link: /guide/dashboards/customize-home/
+  label: Customize Home
 ---
 
-This guide starts after Navet has connected to a provider. In about 15 minutes you will confirm that
-your home loaded, learn the main navigation, and make one useful change to Home.
+This guide starts after Navet has connected to a provider. Complete the first-run choices, check
+that your home loaded, and make one useful change to Home. If your dashboard is already open,
+continue with **Check that your home loaded** below.
+
+Prefer a walkthrough? [Watch the setup guide](/getting-started/#watch-the-setup-guide) for
+login, onboarding, and your first Home card.
+
+## Complete the startup wizard
+
+When Navet has loaded provider entities and dashboard onboarding is incomplete, it asks
+**How should Navet start your dashboard?** Choose a starting point:
+
+- **Start with all entities** makes the loaded entities visible as the starting point. Available
+  room cards and controls still depend on what Navet supports for your provider and devices.
+  This does not automatically fill the separate Home layout: a new Home can still show
+  **Home is ready for a first-glance setup** until you add cards to it.
+- **Start with a blank dashboard** hides the loaded entities and clears the Home layout and
+  custom cards. Add the controls you want afterward through **Customize → Add card**.
+- **Import a config file** opens a file chooser for a previously exported Navet `.yaml` or `.yml`
+  configuration. A valid file is applied immediately when selected.
+  This route restores the saved configuration directly rather than taking you through the language
+  and appearance steps. Back up any current configuration before importing over it.
+
+For **all entities** or **blank**, complete setup:
+
+1. Choose the interface language, **12-hour** or **24-hour** time, and **Celsius** or **Fahrenheit**.
+   These preferences update as you select them. Choose **Next**.
+2. Choose **Liquid Glass**, **Dark**, **Light**, or **Black**, then a built-in or custom accent.
+   Optionally select a built-in wallpaper. Use **Back** to revisit the preceding step.
+3. Choose **Continue to my dashboard** to apply the appearance choices.
+4. Let the welcome reveal finish, then choose **Enter my dashboard**.
+
+The startup appearance step offers manual themes and built-in wallpapers. After setup,
+**Settings → Appearance** also provides **Auto** appearance, wallpaper upload/replacement, and
+wallpaper removal. Change language and formats later under **Settings → Localization**.
+
+If you are trying the public demo, it opens a prepared dashboard instead of this startup wizard.
+Use a connected installation for the complete setup and editing steps in this guide.
 
 ![The current Navet Home dashboard with section navigation, room navigation, status summary, and responsive cards.](/docs/how-to/quick-start/first-15-minutes-overview.webp)
 
@@ -14,7 +53,8 @@ your home loaded, learn the main navigation, and make one useful change to Home.
 Open **Home** and look at the room navigation.
 
 - Your provider rooms should appear by name.
-- **All rooms** shows the complete Home overview.
+- **Home** in the room navigation returns to the overview. With multiple dashboards, the
+  overview control can show the active dashboard's name.
 - Choosing a room narrows the dashboard to that room.
 - Cards show the controls supported by each device.
 
@@ -44,8 +84,9 @@ size, or other card-specific options.
 
 1. Return to **Home**.
 2. Choose **Customize**.
-3. Move one card or change its size.
-4. Use **Undo** if the result is not useful.
+3. If Home is empty, choose **Add Card**, find a familiar entity, and choose its **Add** button.
+   Close the library to return to the layout.
+4. Move a card or change its size. Use **Undo** if the result is not useful.
 5. Choose **Done** to leave edit mode.
 
 ![Home edit mode with the full command bar, including layout, undo, redo, Add card, and Done controls.](/docs/how-to/dashboards/customize-home-edit-mode.webp)
@@ -62,4 +103,6 @@ device in your provider unless a dialog explicitly says that the provider will a
 
 ## Expected result
 
-You can move between rooms and sections, open a device, and make a reversible change to Home.
+You have completed the startup choices, can move between rooms and sections, and can make a
+reversible change to Home. To revisit setup, follow
+[Restart onboarding](/guide/dashboards/restore-entities/#restart-onboarding).

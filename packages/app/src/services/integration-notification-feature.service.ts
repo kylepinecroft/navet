@@ -24,13 +24,14 @@ export const integrationNotificationFeatureService: ProviderNotificationFeatureS
     return await service.subscribePersistentNotifications(callback, options);
   },
   dismissPersistentNotification: async (notificationId) => {
-    const { service } = resolveCurrentProviderService({
+    const { service, nativeEntityId } = resolveProviderFeatureService({
+      entityId: notificationId,
       feature: 'notifications',
       getService: (registration) => registration.notificationFeatureService,
       unsupportedMessage: 'Notifications are not supported for the current integration yet',
       missingMessage: 'Notifications are not implemented yet for the current integration',
     });
-    await service.dismissPersistentNotification(notificationId);
+    await service.dismissPersistentNotification(nativeEntityId ?? notificationId);
   },
   installUpdate: (entityId) => {
     const { nativeEntityId, service } = resolveProviderFeatureService({
@@ -53,6 +54,15 @@ export const integrationNotificationFeatureService: ProviderNotificationFeatureS
       missingMessage: 'Notifications are not implemented yet for the current integration',
     });
     await service.restartSystem();
+  },
+  getDeliveryTargets: async (options) => {
+    const { service } = resolveCurrentProviderService({
+      feature: 'notifications',
+      getService: (registration) => registration.notificationFeatureService,
+      unsupportedMessage: 'Notifications are not supported for the current integration yet',
+      missingMessage: 'Notifications are not implemented yet for the current integration',
+    });
+    return service.getDeliveryTargets ? await service.getDeliveryTargets(options) : [];
   },
   sendNotification: async (request) => {
     const { service } = resolveCurrentProviderService({

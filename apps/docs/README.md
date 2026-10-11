@@ -5,7 +5,7 @@ Starlight.
 
 ## Content model
 
-Public pages stay in their canonical repository locations instead of being copied into the app.
+Public pages are loaded from their canonical repository locations.
 `src/content.config.ts` contains the explicit allowlist and public route for each Markdown file.
 Files under `ai/` and internal maintainer, release, testing, and audit paths are not published unless
 they are deliberately added to that map.
@@ -15,11 +15,25 @@ an exact GitHub `editUrl`.
 
 ## Discovery pages
 
-- `/changelog/` renders `CHANGELOG.md` at build time through
-  `src/components/ChangelogFeed.astro`. Keep writing release notes in the root changelog; there is
-  no second public changelog to update.
+- `/changelog/` loads current stable entries directly from the GitHub Releases API and follows them
+  with the historical `CHANGELOG.md` archive through `src/components/ChangelogFeed.astro`. GitHub
+  Releases are the canonical source for published release notes.
 - `/resources/` is curated in `src/components/ResourcesHub.astro`. Add real showcases, guides, and
-  videos there as they are published; do not add placeholder links or duplicate guide content.
+  videos there as they are published. Planned walkthroughs may appear as non-interactive entries
+  clearly marked **Planned**, without invented dates, durations, or placeholder links. Do not
+  duplicate guide content.
+
+## Writing and navigation
+
+- Overview pages help readers choose a next step; keep detailed instructions in the task guide.
+- Begin each guide with its outcome and prerequisites. Use numbered lists for ordered steps,
+  exact interface labels for actions, and a short expected result.
+- Keep paragraphs focused and headings in sentence case. Explain provider limits where they
+  affect the task; link to the compatibility matrix for the complete comparison.
+- Put common tasks directly in the sidebar. Keep technical references separate from getting started.
+- Set an explicit `next` link when the learning path differs from sidebar order.
+- Preserve public routes and heading anchors when editing; update incoming links when an anchor changes.
+- Keep one Starlight `Search` instance in the shared header. Its search index mount uses a fixed ID.
 
 ## Local commands
 
@@ -44,3 +58,5 @@ Create a separate Pages project for the documentation site with:
 
 The output is fully static and includes Pagefind search data and a sitemap. Cloudflare should not
 run a second framework preset or HTML minifier over the generated output.
+The build also emits `_redirects` rules that keep duplicate screenshot URLs serving identical
+images after their extra copies are removed from `dist`.

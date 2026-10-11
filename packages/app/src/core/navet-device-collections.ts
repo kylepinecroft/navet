@@ -1,5 +1,6 @@
 import type { DeviceCollection } from '@navet/app/types/device.types';
 import type { NavetEntity } from '@navet/core/types';
+import { getClimateSensorGroup } from './climate-sensor-group';
 
 export function createEmptyDeviceCollection(): DeviceCollection {
   return {
@@ -57,13 +58,17 @@ function readStringArray(value: unknown): string[] | undefined {
 
 function toBaseDevice(entity: NavetEntity, state: EntityStateRecord) {
   const underlyingDeviceId = readDeviceId(state);
+  const defaultSize =
+    entity.type === 'climate' || entity.type === 'hvac' || entity.type === 'media_player'
+      ? 'medium'
+      : 'small';
 
   return {
     id: entity.canonicalId,
     name: entity.name,
     room: entity.room ?? 'Unknown',
     roomId: entity.roomId,
-    size: readString(state.size, 'small') as
+    size: readString(state.size, defaultSize) as
       | 'small'
       | 'medium'
       | 'large'
@@ -164,6 +169,9 @@ export function hasStableDeviceCollectionMembership(
     previous.name === next.name &&
     readDeviceId(previousState) === readDeviceId(nextState) &&
     previousState.entityCategory === nextState.entityCategory &&
+    (getClimateSensorGroup(previousState.deviceClass) !== null) ===
+      (getClimateSensorGroup(nextState.deviceClass) !== null) &&
+    previousState.retainSensorCard === nextState.retainSensorCard &&
     previousState.securityKind === nextState.securityKind
   );
 }
@@ -406,6 +414,8 @@ export function mapNavetEntitiesToDeviceCollection(entities: NavetEntity[]): Dev
             groupMembers: readStringArray(state.groupMembers),
             sourceDeviceId:
               typeof state.sourceDeviceId === 'string' ? state.sourceDeviceId : undefined,
+            sourceDeviceName:
+              typeof state.sourceDeviceName === 'string' ? state.sourceDeviceName : undefined,
             status:
               typeof state.status === 'string'
                 ? (state.status as DeviceCollection['sensors'][number]['status'])
@@ -444,7 +454,14 @@ export function mapNavetEntitiesToDeviceCollection(entities: NavetEntity[]): Dev
           });
           break;
         }
-        if (deviceId && indexes.deviceIdsWithPrimaryCards.has(deviceId)) {
+        if (
+          deviceId &&
+          indexes.deviceIdsWithPrimaryCards.has(deviceId) &&
+          state.retainSensorCard !== true &&
+          (entity.type !== 'sensor' ||
+            isSuppressedEntityCategory(state) ||
+            getClimateSensorGroup(state.deviceClass) === null)
+        ) {
           break;
         }
         collection.sensors.push({
@@ -469,6 +486,8 @@ export function mapNavetEntitiesToDeviceCollection(entities: NavetEntity[]): Dev
           groupMembers: readStringArray(state.groupMembers),
           sourceDeviceId:
             typeof state.sourceDeviceId === 'string' ? state.sourceDeviceId : undefined,
+          sourceDeviceName:
+            typeof state.sourceDeviceName === 'string' ? state.sourceDeviceName : undefined,
           status:
             typeof state.status === 'string'
               ? (state.status as DeviceCollection['sensors'][number]['status'])
@@ -587,6 +606,7 @@ export function mapNavetEntitiesToDeviceCollection(entities: NavetEntity[]): Dev
           sourceList: readStringArray(state.sourceList),
           entityPicture: typeof state.entityPicture === 'string' ? state.entityPicture : undefined,
           state: value === 'playing' || value === 'paused' || value === 'idle' ? value : 'off',
+          isPoweredOn: state.isPoweredOn === true,
           volume: readNumber(state.volume, 0),
           isMuted: state.isMuted === true,
           elapsedSeconds:

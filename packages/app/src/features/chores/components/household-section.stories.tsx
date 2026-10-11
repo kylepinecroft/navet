@@ -9,6 +9,8 @@ import { applyChoreWorkspaceAction } from '@navet/core/chores';
 import type { Meta, StoryObj } from '@storybook/react-vite';
 import { act, useEffect, useState } from 'react';
 import { expect, userEvent, waitFor, within } from 'storybook/test';
+import { AllChoresView } from './chore-management-views';
+import { ChoreTodayView } from './chore-today-view';
 import { HouseholdSection } from './household-section';
 
 const DEMO_COPY = {
@@ -43,10 +45,113 @@ function HouseholdStory({ mode = 'default' }: { mode?: ChoreDemoFixtureMode }) {
   return <HouseholdSection syncEnabled={false} />;
 }
 
+function HouseholdRewardRequestsStory() {
+  useEffect(() => {
+    const data = createChoreDemoWorkspace({ copy: DEMO_COPY });
+    const experience = normalizeChoreExperienceState(data.experience);
+    experience.earnedPointsByParticipant = { maya: 250 };
+    experience.rewardRequestsById = {
+      'request-1': {
+        id: 'request-1',
+        rewardId: 'maya-saving-goal',
+        rewardTitle: 'Build a new LEGO set',
+        cost: 200,
+        participantId: 'maya',
+        status: 'requested',
+        requestedAt: '2026-08-15T08:00:00.000Z',
+        updatedAt: '2026-08-15T08:00:00.000Z',
+      },
+      'request-2': {
+        id: 'request-2',
+        rewardId: 'family-outing',
+        rewardTitle: 'Choose our next family outing',
+        cost: 120,
+        participantId: 'maya',
+        status: 'fulfilled',
+        requestedAt: '2026-08-14T08:00:00.000Z',
+        updatedAt: '2026-08-15T08:00:00.000Z',
+        managerParticipantId: 'alex',
+      },
+    };
+    useChoreWorkspaceStore.getState().setPreviewDocument({ data: { ...data, experience } });
+    return () => useChoreWorkspaceStore.getState().reset();
+  }, []);
+  return <HouseholdSection syncEnabled={false} />;
+}
+
+function HouseholdProgressionStory() {
+  useEffect(() => {
+    const data = createChoreDemoWorkspace({ copy: DEMO_COPY });
+    const experience = normalizeChoreExperienceState(data.experience);
+    experience.badgesById = {
+      'weekly-helper': {
+        id: 'weekly-helper',
+        title: 'Weekly helper',
+        metric: 'count',
+        target: 3,
+        cycle: 'weekly',
+        awardPoints: 10,
+      },
+    };
+    experience.achievementsById = {
+      'maya-dishes': {
+        id: 'maya-dishes',
+        title: 'Dishwasher expert',
+        metric: 'selected_chore',
+        target: 5,
+        definitionIds: ['dishwasher'],
+        participantId: 'maya',
+        cycle: 'once',
+      },
+    };
+    useChoreWorkspaceStore.getState().setPreviewDocument({ data: { ...data, experience } });
+    return () => useChoreWorkspaceStore.getState().reset();
+  }, []);
+  return <HouseholdSection syncEnabled={false} />;
+}
+
+function HouseholdVacationReviewStory() {
+  useEffect(() => {
+    const data = createChoreDemoWorkspace({ copy: DEMO_COPY });
+    const now = Date.now();
+    const maya = data.participantsById.maya;
+    if (!maya) throw new Error('Expected Maya in the demo household');
+    maya.pausedAt = new Date(now - 5 * 86_400_000).toISOString();
+    maya.resumeAt = new Date(now + 2 * 86_400_000).toISOString();
+    const candidate = Object.values(data.occurrencesById).find(
+      (occurrence) => occurrence.status === 'available'
+    );
+    if (!candidate) throw new Error('Expected an available chore');
+    candidate.assigneeIds = ['maya'];
+    candidate.scheduledAt = new Date(now - 86_400_000).toISOString();
+    candidate.dueAt = new Date(now - 82_800_000).toISOString();
+    useChoreWorkspaceStore.getState().setPreviewDocument({ data });
+    return () => useChoreWorkspaceStore.getState().reset();
+  }, []);
+  return <HouseholdSection syncEnabled={false} />;
+}
+
 function HouseholdCustomIntervalStory() {
   useEffect(() => {
     const data = createChoreDemoWorkspace({ copy: DEMO_COPY });
     const plants = data.definitionsById.plants;
+    for (const [id, intervalDays] of [
+      ['toys', 1],
+      ['bins', 10],
+    ] as const) {
+      const definition = data.definitionsById[id];
+      if (!definition) throw new Error(`Missing chore fixture: ${id}`);
+      definition.schedule = {
+        frequency: 'after_completion',
+        startDate:
+          definition.schedule.frequency === 'once'
+            ? definition.schedule.date
+            : definition.schedule.startDate,
+        time: definition.schedule.time,
+        timeZone: definition.schedule.timeZone,
+        intervalDays,
+      };
+    }
     useChoreWorkspaceStore.getState().setPreviewDocument({
       data: plants
         ? {
@@ -137,6 +242,21 @@ function HouseholdRecoveryStory() {
       },
       revision: null,
       status: 'unavailable',
+    });
+    return () => useChoreWorkspaceStore.getState().reset();
+  }, []);
+  return <HouseholdSection syncEnabled={false} />;
+}
+
+function HouseholdInvalidDataStory() {
+  useEffect(() => {
+    useChoreWorkspaceStore.setState({
+      data: null,
+      error:
+        'Navet received chore data it could not safely read. Your household data was left unchanged.',
+      recovery: null,
+      revision: null,
+      status: 'error',
     });
     return () => useChoreWorkspaceStore.getState().reset();
   }, []);
@@ -289,7 +409,7 @@ export const IpadProLandscape: Story = {
     docs: {
       description: {
         story:
-          'Primary tablet and wall-display state keeps missions and rewards out of the chore flow until the household opens them from House pulse.',
+          'Primary tablet and wall-display state keeps missions and rewards out of the chore flow until the household opens them from Chores today.',
       },
     },
   },
@@ -356,7 +476,7 @@ export const IpadMiniLandscape: Story = {
     docs: {
       description: {
         story:
-          'Short landscape tablets move Add chore and assignment into House pulse, remove the redundant Today introduction, and keep the metrics in one compact row so the first actionable chore stays above the fold.',
+          'Short landscape tablets move Add chore and assignment into Chores today, remove the redundant Today introduction, and keep the metrics in one compact row so the first actionable chore stays above the fold.',
       },
     },
   },
@@ -391,7 +511,7 @@ export const IpadProPortrait: Story = {
     docs: {
       description: {
         story:
-          'Portrait tablets use the compact House pulse composition so each metric and the rewards action remains readable and touchable.',
+          'Portrait tablets use the compact Chores today composition so each metric and the rewards action remains readable and touchable.',
       },
     },
   },
@@ -511,9 +631,15 @@ export const DamagedWorkspaceRecovery: Story = {
     },
   },
   play: async ({ canvas, canvasElement, userEvent }) => {
-    await expect(canvas.getByText('Chores need attention')).toBeInTheDocument();
-    await expect(canvas.getByRole('button', { name: 'Repair chores' })).toBeInTheDocument();
-    await userEvent.click(canvas.getByRole('button', { name: 'Start over' }));
+    const recovery = canvas.getByText('Chores need attention').closest('[class*="rounded-[24px]"]');
+    await expect(recovery).not.toBeNull();
+    const recoverySurface = within(recovery as HTMLElement);
+    await expect(recoverySurface.queryByText('What happened')).toBeNull();
+    await expect(recoverySurface.getByRole('button', { name: 'Try again' })).toBeInTheDocument();
+    await expect(
+      recoverySurface.getByRole('button', { name: 'Repair chores' })
+    ).toBeInTheDocument();
+    await userEvent.click(recoverySurface.getByRole('button', { name: 'Start over' }));
     await expect(
       within(canvasElement.ownerDocument.body).getByRole('alertdialog', {
         name: 'Start chores over?',
@@ -522,10 +648,24 @@ export const DamagedWorkspaceRecovery: Story = {
   },
 };
 
+export const InvalidWorkspaceMessage: Story = {
+  render: () => <HouseholdInvalidDataStory />,
+  play: async ({ canvas }) => {
+    await expect(canvas.getByText('Chores could not sync')).toBeInTheDocument();
+    await expect(
+      canvas.getByText(
+        'Navet received chore data it could not safely read. Your household data was left unchanged.'
+      )
+    ).toBeInTheDocument();
+    await expect(canvas.queryByText('Chores are unavailable here')).toBeNull();
+    await expect(canvas.getByRole('button', { name: 'Try again' })).toBeInTheDocument();
+  },
+};
+
 export const HouseSettled: Story = {
   args: { mode: 'complete' },
   play: async ({ canvas }) => {
-    await canvas.findByText('The house is settled');
+    await canvas.findByText('All done for today');
     await expect(
       within(canvas.getByRole('region', { name: 'Today' })).getByText(
         'Everything due today is complete.'
@@ -704,6 +844,16 @@ export const ChoreLibrary: Story = {
       .closest('[data-chore-base-card]');
     await expect(plantsCard).not.toBeNull();
     await expect(within(plantsCard as HTMLElement).getByText('Every 10 days')).toBeVisible();
+    for (const [title, label] of [
+      ['Toys back home', '1 day after completion'],
+      ['Take out recycling', '10 days after completion'],
+    ]) {
+      const heading = panel.getByRole('heading', { name: title });
+      await expect(heading.previousElementSibling).toHaveTextContent(label);
+      await expect(
+        within(heading.closest('[data-chore-base-card]') as HTMLElement).getByText(label)
+      ).toBeVisible();
+    }
     const moreActions = within(dishwasherCard as HTMLElement).getByRole('button', {
       name: 'More actions',
     });
@@ -797,6 +947,20 @@ export const RewardManagement: Story = {
   },
 };
 
+export const RewardRequests: Story = {
+  render: () => <HouseholdRewardRequestsStory />,
+  globals: { viewport: { value: 'mobile1' } },
+  play: async ({ canvas, userEvent }) => {
+    await canvas.findByRole('region', { name: 'Today' });
+    await userEvent.click(canvas.getByRole('button', { name: 'Rewards' }));
+    const panel = within(canvas.getByRole('region', { name: 'Rewards' }));
+    await expect(panel.getByRole('heading', { name: 'Reward requests' })).toBeVisible();
+    await expect(panel.getByText(/Awaiting review/)).toBeVisible();
+    await expect(panel.getByText(/Fulfilled/)).toBeVisible();
+    await expect(panel.getByRole('button', { name: 'Approve' })).toBeVisible();
+  },
+};
+
 export const ProgressManagement: Story = {
   render: () => <HouseholdPointsStory />,
   globals: { viewport: { value: 'desktop1440p', isRotated: false } },
@@ -848,7 +1012,7 @@ export const ProgressManagement: Story = {
     });
     await expect(saveAddition).toBeEnabled();
     const addedBalancePreview = within(addDialog).getByText('New balance: 55');
-    await expect(addedBalancePreview).toBeVisible();
+    await expect(addedBalancePreview).toBeInTheDocument();
     await userEvent.click(saveAddition);
     await waitFor(() => expect(body.queryByText('Add points for Maya')).not.toBeInTheDocument());
     await expect(personCardScope.getByText('55')).toBeVisible();
@@ -863,7 +1027,7 @@ export const ProgressManagement: Story = {
       'Corrected total'
     );
     const balancePreview = within(removeDialog).getByText('New balance: -5');
-    await expect(balancePreview).toBeVisible();
+    await expect(balancePreview).toBeInTheDocument();
     await expect(balancePreview).toHaveAttribute('data-point-balance-preview', 'true');
     await userEvent.click(within(removeDialog).getByRole('button', { name: 'Remove points' }));
     await waitFor(() => expect(body.queryByText('Remove points for Maya')).not.toBeInTheDocument());
@@ -895,6 +1059,18 @@ export const ProgressManagement: Story = {
 export const ProgressPointsMobile: Story = {
   ...ProgressManagement,
   globals: { viewport: { value: 'mobile1', isRotated: false } },
+};
+
+export const BadgesAndAchievements: Story = {
+  render: () => <HouseholdProgressionStory />,
+  play: async ({ canvas, userEvent }) => {
+    await canvas.findByRole('region', { name: 'Today' });
+    await userEvent.click(canvas.getByRole('button', { name: 'Progress' }));
+    const panel = within(canvas.getByRole('region', { name: 'Progress' }));
+    await expect(panel.getByText('Weekly helper')).toBeVisible();
+    await expect(panel.getByText('Dishwasher expert')).toBeVisible();
+    await expect(panel.getByRole('button', { name: 'Add badge' })).toBeVisible();
+  },
 };
 
 export const EmptyPointHistory: Story = {
@@ -966,6 +1142,24 @@ export const SettingsAndRecovery: Story = {
     await expect(
       within(recoveryPanel).queryByRole('combobox', { name: 'Motivation style' })
     ).toBeNull();
+  },
+};
+
+export const VacationDueDateReview: Story = {
+  render: () => <HouseholdVacationReviewStory />,
+  play: async ({ canvas, canvasElement, userEvent }) => {
+    await canvas.findByRole('region', { name: 'Today' });
+    await userEvent.click(canvas.getByRole('button', { name: 'Settings' }));
+    const settings = within(canvas.getByRole('region', { name: 'Settings' }));
+    await userEvent.click(settings.getByRole('button', { name: 'People' }));
+    await userEvent.click(settings.getByRole('button', { name: 'Review due dates' }));
+    const dialog = within(
+      within(canvasElement.ownerDocument.body).getByRole('dialog', { name: 'Review due dates' })
+    );
+    await expect(
+      dialog.getByText(/Selected chores move to consecutive days/, { selector: 'span' })
+    ).toBeInTheDocument();
+    await expect(dialog.getByRole('button', { name: 'Move selected chores' })).toBeEnabled();
   },
 };
 
@@ -1060,5 +1254,92 @@ export const ManagementPinSettings: Story = {
     await waitFor(() =>
       expect(within(dialog).getByLabelText('Confirm new management PIN')).toBeVisible()
     );
+  },
+};
+
+function UpcomingChoresStory({ library = false, days = 3 }: { library?: boolean; days?: number }) {
+  const data = createChoreDemoWorkspace({ copy: DEMO_COPY, mode: 'off' });
+  const next = new Date();
+  next.setDate(next.getDate() + days);
+  next.setHours(16, 30, 0, 0);
+  const occurrence = data.occurrencesById['today-dishwasher'];
+  data.participantsById.maya.color = '#f97316';
+  data.definitionsById.dishwasher.description = 'Put the clean dishes back in their cupboards.';
+  data.occurrencesById = {
+    future: {
+      ...occurrence,
+      id: 'future',
+      scheduledAt: next.toISOString(),
+      dueAt: next.toISOString(),
+      status: 'available',
+    },
+  };
+  if (library)
+    return (
+      <AllChoresView
+        data={data}
+        onAdd={() => {}}
+        onEdit={() => {}}
+        onDuplicate={() => {}}
+        onToggleEnabled={() => {}}
+        onArchive={() => {}}
+        onDelete={() => {}}
+        onRestore={() => {}}
+      />
+    );
+  return (
+    <ChoreTodayView
+      data={data}
+      participants={Object.values(data.participantsById)}
+      selectedParticipantId="all"
+      onSelectedParticipantChange={() => {}}
+      execute={async () => true}
+      onAddChore={() => {}}
+    />
+  );
+}
+
+export const EmptyTodayWithUpcomingChore: Story = {
+  render: () => <UpcomingChoresStory />,
+  play: async ({ canvas }) => {
+    await expect(canvas.getByText('Next 7 days')).toBeVisible();
+    const upcoming = within(canvas.getByRole('region', { name: 'Next 7 days' }));
+    await expect(upcoming.getByText('Unload dishwasher')).toBeVisible();
+    const next = new Date();
+    next.setDate(next.getDate() + 3);
+    await expect(
+      upcoming.getByText(
+        new RegExp(
+          next.toLocaleDateString('en', {
+            month: 'short',
+            day: 'numeric',
+          })
+        )
+      )
+    ).toBeVisible();
+    await expect(upcoming.queryByRole('button', { name: 'Mark done' })).not.toBeInTheDocument();
+  },
+};
+
+export const UpcomingChoreMobile: Story = {
+  ...EmptyTodayWithUpcomingChore,
+  globals: { viewport: { value: 'mobile1', isRotated: false } },
+};
+
+export const LibraryNextScheduledDate: Story = {
+  render: () => <UpcomingChoresStory library days={12} />,
+  play: async ({ canvas }) => {
+    const next = canvas.getByText(/^Next: /);
+    await expect(next).toBeVisible();
+    await expect(next.closest('.navet-entity-card-header')).toBeInTheDocument();
+  },
+};
+
+export const LaterChoresStayOutOfToday: Story = {
+  render: () => <UpcomingChoresStory days={12} />,
+  play: async ({ canvas }) => {
+    await expect(canvas.getByText('Nothing needs doing today')).toBeVisible();
+    await expect(canvas.queryByText('Next 7 days')).not.toBeInTheDocument();
+    await expect(canvas.queryByText('Unload dishwasher')).not.toBeInTheDocument();
   },
 };

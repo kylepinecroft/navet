@@ -74,6 +74,15 @@ export const MARKETING_CURRENT_SUPPORT = {
   ],
 } as const;
 
+export const MARKETING_HOUSEHOLD_CHORES = {
+  title: 'One home. One list. Everyone knows what’s next.',
+  description:
+    'Plan recurring chores, share the work, and see what’s done. Assign people, rotate responsibilities, and keep everyday tasks together in Navet.',
+  capabilities: ['Recurring chores', 'Assignments & approvals', 'Optional points & rewards'],
+  nativeNote:
+    'Built into Navet, independent of your smart-home provider. RSS feeds, photos, and notes are built in too—no provider integration needed.',
+} as const;
+
 export const MARKETING_PRIVACY = {
   eyebrow: 'PRIVACY',
   title: 'Local by default.',
@@ -94,8 +103,7 @@ export const MARKETING_ROADMAP = {
   ],
   next: [
     'Multiple dashboards, views, and more flexible panel and stack layouts',
-    'Standalone history, statistics, conditional, filter, floor-plan, logbook, gauge, timer, and list cards',
-    'Navet Music Engine for provider-neutral music browsing, queues, and supported speaker playback',
+    'Conditional card visibility and standalone history, statistics, filter, floor-plan, logbook, gauge, timer, and list cards',
     'Per-user dashboards and profile editing',
   ],
   later: [
@@ -103,4 +111,9 @@ export const MARKETING_ROADMAP = {
     'Hubitat support when product demand justifies it',
     'SmartThings support when product demand justifies it',
   ],
+} as const;
+
+export const MARKETING_TEASER_CONTENT = {
+  videoTitle: 'Navet — Your Smart Home, in One Place | 1-Minute Tour',
+  cta: 'Watch the 1-minute tour',
 } as const;

@@ -4,15 +4,14 @@ description: Connect a standalone Navet installation to openHAB.
 editUrl: https://github.com/awesomestvi/navet/edit/main/docs/OPENHAB.md
 ---
 
-Use this guide when you want Navet to connect to openHAB as the primary provider in standalone
+Use this guide to connect Navet to openHAB in standalone
 mode. The same URL and credential flow can add openHAB from **Settings -> System** in another
 Navet runtime that exposes provider management.
 
 ## Overview
 
-Navet's same-origin server proxy connects to the openHAB server URL you provide. The current flow
-is URL-based and uses username and password authentication without returning the saved credentials
-to browser JavaScript.
+Enter your openHAB server address, username, and password in Navet. Navet stores the credentials
+on its server and uses them to connect to openHAB.
 
 ## When To Choose This Path
 
@@ -41,6 +40,10 @@ Valid examples:
 
 - `http://openhab.local:8080`
 - `https://openhab.example.com`
+
+For local development, `http://localhost:8080` is supported when Navet and openHAB run on the
+same host. In Docker, `localhost` refers to the Navet container; use a hostname or LAN address
+that the container can reach instead.
 
 Do not enter paths such as:
 
@@ -78,22 +81,14 @@ Then run:
 docker compose up -d
 ```
 
-For a fresh installation, inspect `docker compose logs navet` and open Navet once with the printed
-`#navet_pairing=<64-character-key>` fragment. Navet removes the fragment immediately and keeps the
-key only in browser memory until the enrollment request is accepted. Reloading before you connect
-requires reopening the pairing URL. The key can be recovered later with:
-
-```bash
-docker exec navet cat /data/navet-installation-key
-```
-
-As an alternative, `NAVET_OPENHAB_URL` hard-pins one exact normalized openHAB base URL. A pin
-cannot be overridden by another URL, even with the pairing key.
+Open Navet and connect using your openHAB URL, username, and password.
+`NAVET_OPENHAB_URL` optionally restricts this installation to one exact normalized openHAB base URL.
 
 ### 3. Sign in
 
 1. Open Navet.
-2. Choose `openHAB` on the provider screen.
+2. Choose `openHAB` on the provider screen, or choose **Connect** under openHAB in
+   **Settings -> System** when adding it to an existing dashboard.
 3. Enter the openHAB base URL.
 4. Enter your openHAB username and password.
 5. Continue into the dashboard.
@@ -101,22 +96,46 @@ cannot be overridden by another URL, even with the pairing key.
 ## What To Expect
 
 - Navet's server-side proxy connects to the openHAB URL you provide.
-- a fresh, unpinned target requires the installation pairing fragment; Navet never returns the key
-  in HTTP content or forwards it to openHAB
-- There is no separate cloud redirect step.
+- Your openHAB credentials authorize the connection.
 - Navet stores the username and password in that browser's server-side provider session and
   authenticates allowlisted REST and WebSocket requests with Basic auth.
 - Navet loads item state from the openHAB REST API and listens for updates over the openHAB
   WebSocket API at `/ws`.
 - Local HTTP targets must use a private-network address, single-label hostname, or `.local`
   hostname. Public DNS targets require HTTPS.
-- The current openHAB runtime contributes rooms, realtime entities, lighting, switches, and
-  sensors. Climate, media, cameras, energy, calendar, weather, notifications, tasks, history,
-  security, and provider-administration feature services are not registered for openHAB yet.
+- openHAB contributes rooms, lights, switches, fans, covers, locks, speakers, climate setpoints,
+  and sensors to the shared dashboards. Measurements retain their units and decimal precision.
 - openHAB can stay connected alongside Home Assistant or Homey in standalone Navet; selected
   providers are combined in shared dashboard collections.
 - repeated credential verification is throttled per direct client source. A `429` response includes
   `Retry-After`; wait for that interval before trying again.
+
+## Devices And Measurements
+
+Navet uses openHAB item types, semantic tags, categories, and location groups to identify devices
+and place them in rooms. Semantic equipment groups associate controls with their measurements.
+Related item names such as `RadiatorTarget` and `RadiatorTemperature`, or `Speaker_State` and
+`Speaker_Volume`, also associate controls when equipment metadata is unavailable.
+
+- **Lighting and switches:** Switch, Dimmer, and Color items provide the appropriate controls.
+  Color lights support brightness and hue/saturation. Related power, energy, voltage, and current
+  measurements appear on switch cards and remain available to the dashboards.
+- **Climate:** Temperature items tagged `Setpoint` provide a target-temperature control. A related
+  temperature measurement supplies the current reading. Fan-category Dimmer items provide speed
+  controls. Temperature, humidity, pressure, air quality, and outdoor measurements appear as sensors.
+- **Security:** Contact items and Switch items tagged `Status` supply opening, motion, occupancy,
+  leak, and safety readings. Lock items provide lock/unlock controls, and battery measurements
+  appear in the shared battery overview. Roller shutter items provide movement and position controls.
+- **Media:** Sound-volume-category String items provide playback state and play/pause controls.
+  A related sound-volume-category Dimmer supplies the speaker volume control.
+- **Energy and utilities:** Power and energy readings contribute device measurements. Water and gas
+  meters retain their volume units; cumulative readings are not presented as today's consumption
+  without history. Wind, rainfall, illuminance, and DateTime items remain available as sensors.
+
+Read-only items provide readings without writable controls. An undefined item state is shown as
+unknown rather than a clear safety reading. openHAB does not currently provide Navet with camera,
+calendar, weather-forecast, notification, task, media-browser, alarm-panel, energy-statistics,
+history, or provider-administration services.
 
 ## API Security Requirements
 
@@ -124,8 +143,6 @@ cannot be overridden by another URL, even with the pairing key.
   both REST and WebSocket access.
 - openHAB REST Basic auth must be enabled under `Settings -> API Security`
   (`org.openhab.restauth`) for username/password login to work.
-- If you have not enabled that setting yet, turn it on before trying to connect Navet.
-- API token login is not exposed in the UI today.
 - Keep openHAB's own authentication enabled and use upstream network or reverse-proxy access
   control when Navet is reachable outside a trusted LAN. Navet's bounded login throttle is
   defense-in-depth, not a replacement for provider access control.
@@ -151,6 +168,5 @@ cannot be overridden by another URL, even with the pairing key.
   or `https://`.
 - If Navet reports an openHAB authentication failure, verify the username and password in openHAB
   and confirm Basic auth or API Security is enabled in `Settings -> API Security`.
-- If Navet returns `403` with an operator-pairing message, reopen the startup pairing fragment or
-  configure the exact `NAVET_OPENHAB_URL` pin. If it returns `429`, wait for the `Retry-After`
-  interval instead of retrying immediately.
+- If a configured `NAVET_OPENHAB_URL` differs from your URL, update that configuration or use the
+  configured address. If Navet returns `429`, wait for the `Retry-After` interval before retrying.

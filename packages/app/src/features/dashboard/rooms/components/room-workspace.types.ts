@@ -51,7 +51,6 @@ export interface RoomWorkspaceRoomViewModel {
   statusTone?: RoomWorkspaceStatusTone;
   isVisible: boolean;
   isFavorite: boolean;
-  canResetName?: boolean;
   canDelete?: boolean;
   canMerge?: boolean;
   canSplit?: boolean;
@@ -143,7 +142,6 @@ export interface RoomWorkspaceLabels {
   back: string;
   retry: string;
   roomNameLabel: string;
-  useOriginalName: string;
   roomNamePlaceholder: string;
   groupLabel: string;
   ungroupedGroup: string;
@@ -195,7 +193,6 @@ export interface RoomWorkspaceActions {
   onChooseGroupAppearance?: (groupId: string) => void;
   onRequestGroupDeletion?: (groupId: string) => void;
   onRoomNameChange?: (roomId: string, name: string) => void;
-  onResetRoomName?: (roomId: string) => void;
   onRoomGroupChange?: (roomId: string, groupId: string | null) => void;
   onRoomVisibilityChange?: (roomId: string, visible: boolean) => void;
   onRoomFavoriteChange?: (roomId: string, favorite: boolean) => void;

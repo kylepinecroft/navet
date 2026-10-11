@@ -1,0 +1,28 @@
+name: Accept Agent Intake
+
+on:
+  issue_comment:
+    types:
+      - created
+
+concurrency:
+  group: agent-intake-${{ github.repository }}-${{ github.event.issue.number }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  accept:
+    name: Accept maintainer command or requested answer
+    if: github.event.issue.pull_request == null
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Authorize and acknowledge issue comment
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const { acceptAgentComment } = await import(`${process.env.GITHUB_WORKSPACE}/scripts/agent-dispatch-intake.mjs`);
+            await acceptAgentComment({ github, context, core });

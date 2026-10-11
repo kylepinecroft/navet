@@ -1,4 +1,6 @@
-import { Button, Input, InteractivePill } from '@navet/app/components/primitives';
+import { Button } from '@navet/app/components/primitives/button';
+import { Input } from '@navet/app/components/primitives/input';
+import { InteractivePill } from '@navet/app/components/primitives/interactive-pill';
 import { EntityRoomSelector } from '@navet/app/components/shared/entity-room-selector';
 import { navetTypographyTokens } from '@navet/app/components/system/tokens';
 import { cn } from '@navet/app/components/ui/utils';
@@ -11,6 +13,7 @@ import {
   isSyntheticDisplayOverrideId,
 } from '@navet/app/utils/display-overrides';
 import { getProviderEntityTypeLabel } from '@navet/app/utils/provider-entity-label';
+import { getProviderNativeId } from '@navet/app/utils/provider-ids';
 import * as Dialog from '@radix-ui/react-dialog';
 import { Check, type LucideIcon, X } from 'lucide-react';
 import {
@@ -25,6 +28,9 @@ import {
 import { toast } from 'sonner';
 
 interface CardDialogHeaderProps {
+  presentation?: 'default' | 'compact';
+  titleEditing?: boolean;
+  onTitleEditingChange?: (editing: boolean) => void;
   title: string;
   description?: string;
   entityId?: string;
@@ -87,6 +93,9 @@ interface CardDialogDoneFooterProps {
 }
 
 export const CardDialogHeader = memo(function CardDialogHeader({
+  presentation = 'default',
+  titleEditing,
+  onTitleEditingChange,
   title,
   description,
   entityId,
@@ -108,7 +117,12 @@ export const CardDialogHeader = memo(function CardDialogHeader({
 }: CardDialogHeaderProps) {
   const { t } = useI18n();
   const inputRef = useRef<HTMLInputElement>(null);
-  const [isEditingTitle, setIsEditingTitle] = useState(false);
+  const [internalTitleEditing, setInternalTitleEditing] = useState(false);
+  const isEditingTitle = titleEditing ?? internalTitleEditing;
+  const setIsEditingTitle = (editing: boolean) => {
+    setInternalTitleEditing(editing);
+    onTitleEditingChange?.(editing);
+  };
   const [displayTitle, setDisplayTitle] = useState(title);
   const [draftTitle, setDraftTitle] = useState(title);
   const [isSavingTitle, setIsSavingTitle] = useState(false);
@@ -150,7 +164,7 @@ export const CardDialogHeader = memo(function CardDialogHeader({
       />
     ) : null;
   const editLabel = t('entityNameEditor.edit', { name: '' }).trim();
-  const resolvedEyebrow = eyebrow ?? roomSelector;
+  const resolvedEyebrow = eyebrow ?? (presentation === 'compact' ? null : roomSelector);
   const titleClassName = theme === 'light' ? 'text-slate-950' : 'text-white';
   const descriptionClassName = theme === 'light' ? 'text-slate-700' : 'text-white/82';
   const descriptionSeparatorClassName = theme === 'light' ? 'text-slate-400' : 'text-white/40';
@@ -245,18 +259,31 @@ export const CardDialogHeader = memo(function CardDialogHeader({
   return (
     <div className={cn('mb-4 flex items-start justify-between gap-4 max-sm:pr-14', className)}>
       <div className="min-w-0">
-        {resolvedEyebrow}
-        <div
-          className={cn(
-            'flex min-w-0 items-center',
-            isEditingTitle ? 'gap-4' : 'gap-2',
-            resolvedEyebrow ? 'mt-1' : undefined
-          )}
-        >
+        {presentation === 'compact' ? (
+          <div
+            className={cn(
+              'flex min-w-0 items-center gap-1.5 text-xs font-medium',
+              descriptionClassName
+            )}
+          >
+            {resolvedEyebrow}
+            {resolvedEyebrow && resolvedDescription ? <span aria-hidden="true">·</span> : null}
+            {resolvedDescription ? (
+              <Dialog.Description asChild>
+                <span className="shrink-0" style={descriptionStyle}>
+                  {resolvedDescription}
+                </span>
+              </Dialog.Description>
+            ) : null}
+          </div>
+        ) : (
+          resolvedEyebrow
+        )}
+        <div className={cn('flex min-w-0 items-center', isEditingTitle ? 'gap-4' : 'gap-2')}>
           <Dialog.Title asChild>
-            <div
+            <h2
               className={cn(
-                'text-lg font-semibold',
+                navetTypographyTokens.sectionHeading,
                 'min-w-0',
                 titleClassName,
                 isEditingTitle ? 'flex-1' : 'truncate'
@@ -289,7 +316,7 @@ export const CardDialogHeader = memo(function CardDialogHeader({
               ) : (
                 displayTitle
               )}
-            </div>
+            </h2>
           </Dialog.Title>
           {canEditTitle ? (
             isEditingTitle ? (
@@ -324,12 +351,13 @@ export const CardDialogHeader = memo(function CardDialogHeader({
             ) : null
           ) : null}
         </div>
-        {resolvedDescription || (canEditTitle && !isEditingTitle) ? (
+        {presentation !== 'compact' &&
+        (resolvedDescription || (canEditTitle && !isEditingTitle)) ? (
           <Dialog.Description asChild>
             <div
               className={cn(
                 '-mt-0.5 flex min-w-0 flex-wrap items-center gap-1.5',
-                'text-sm font-medium',
+                navetTypographyTokens.label,
                 descriptionClassName
               )}
               style={descriptionStyle}
@@ -377,6 +405,14 @@ export const CardDialogHeader = memo(function CardDialogHeader({
               ) : null}
             </div>
           </Dialog.Description>
+        ) : null}
+        {entityId && presentation !== 'compact' ? (
+          <p className={cn('mt-1 text-xs', descriptionClassName)} style={descriptionStyle}>
+            <span>{t('common.entityId')}: </span>
+            <code className="select-text whitespace-normal [overflow-wrap:anywhere]">
+              {getProviderNativeId(entityId)}
+            </code>
+          </p>
         ) : null}
         {supportingContent ? <div className="mt-2 min-w-0">{supportingContent}</div> : null}
       </div>

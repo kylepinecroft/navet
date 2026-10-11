@@ -6,6 +6,7 @@ import type { DragMeta, DropMeta } from '../hooks/use-home-dashboard-editor';
 
 function SortableHomeCard({
   cardId,
+  cardLabel,
   sectionId,
   isPreviewHidden,
   className,
@@ -14,6 +15,7 @@ function SortableHomeCard({
   children,
 }: {
   cardId: string;
+  cardLabel?: string;
   sectionId?: string;
   isPreviewHidden: boolean;
   className: string;
@@ -29,7 +31,7 @@ function SortableHomeCard({
   return (
     <div
       ref={setNodeRef}
-      {...attributes}
+      {...{ ...attributes, 'aria-label': cardLabel ?? cardId }}
       {...listeners}
       style={isDragging ? style : { ...style, ...getDndTransformStyle(transform, transition) }}
       className={`${className} relative h-full cursor-grab active:cursor-grabbing ${
@@ -53,6 +55,7 @@ function SortableHomeCard({
 
 function SnapDraggableHomeCard({
   cardId,
+  cardLabel,
   sectionId,
   isPreviewHidden,
   className,
@@ -61,6 +64,7 @@ function SnapDraggableHomeCard({
   children,
 }: {
   cardId: string;
+  cardLabel?: string;
   sectionId?: string;
   isPreviewHidden: boolean;
   className: string;
@@ -76,7 +80,7 @@ function SnapDraggableHomeCard({
   return (
     <div
       ref={setNodeRef}
-      {...attributes}
+      {...{ ...attributes, 'aria-label': cardLabel ?? cardId }}
       {...listeners}
       style={isDragging ? style : { ...style, ...getDndTransformStyle(transform) }}
       className={`${className} relative h-full cursor-grab active:cursor-grabbing ${
@@ -102,6 +106,7 @@ export function HomeCardSlot({
   sortable,
   snapDraggable = false,
   cardId,
+  cardLabel,
   sectionId,
   isPreviewHidden,
   className,
@@ -112,6 +117,7 @@ export function HomeCardSlot({
   sortable: boolean;
   snapDraggable?: boolean;
   cardId: string;
+  cardLabel?: string;
   sectionId?: string;
   isPreviewHidden: boolean;
   className: string;
@@ -123,6 +129,7 @@ export function HomeCardSlot({
     return (
       <SnapDraggableHomeCard
         cardId={cardId}
+        cardLabel={cardLabel}
         sectionId={sectionId}
         isPreviewHidden={isPreviewHidden}
         className={className}
@@ -138,6 +145,7 @@ export function HomeCardSlot({
     return (
       <SortableHomeCard
         cardId={cardId}
+        cardLabel={cardLabel}
         sectionId={sectionId}
         isPreviewHidden={isPreviewHidden}
         className={className}

@@ -10,7 +10,7 @@ requests.
 
 ## Shared Shape
 
-At a high level, a provider package provides two related layers:
+At a high level, a provider package provides three related layers:
 
 - A small state/resource contract used by app/runtime wiring.
 - A command adapter (`SmartHomeProviderAdapter`) used by UI interactions to execute commands.
@@ -41,11 +41,17 @@ type NavetProviderContract = {
 ## What The Small Contract Carries
 
 - normalized entities
-- room and room-descriptor data
-- provider availability and hydration status
+- normalized rooms, including whether each room is provider-managed or derived and whether its
+  source supports ordering or deletion
+- provider-neutral runtime status: connected, connecting, reconnecting, entity hydration,
+  registry hydration, errors, and optional unreachable state
 - entity lookup
 - generic command execution
 - live updates through subscriptions
+
+The app derives provider health, dashboard runtime status, room descriptors, and manageable-room
+references from this normalized state plus the provider runtime registration. It does not subscribe
+to Home Assistant, Homey, or openHAB snapshots separately.
 
 ## What Runtime Registration Adds
 
@@ -54,6 +60,9 @@ provider is implemented or planned, publishes the dashboard feature matrix, and 
 provider-owned services for media, lights, native actions, cameras, security, climate, rooms and
 entities, history, energy, calendars, weather, notifications, tasks, conversations, and entity
 runtime access.
+
+History services can declare entity-level availability through `supportsEntityHistory`. Shared
+history routing skips unsupported entities while preserving failures from supported requests.
 
 Keeping these services out of `NavetProviderContract` prevents the base contract from growing into
 a mirror of Home Assistant. Shared feature UI asks the app/runtime seam for an optional service and
@@ -103,24 +112,36 @@ Owns:
 
 ## Current Providers
 
-- Home Assistant: implemented (first stable provider)
+- Home Assistant: implemented (reference adapter)
 - Homey: implemented
 - openHAB: implemented
-- Hubitat: planned (contract + registration entry only)
-- SmartThings: planned (contract + registration entry only)
+- Hubitat: planned metadata only; no adapter package
+- SmartThings: planned metadata only; no adapter package
 
 Current runtime feature scope:
 
 | Capability group | Home Assistant | Homey | openHAB |
 |---|---:|---:|---:|
 | rooms, realtime entities, lighting, switches, sensors | Yes | Yes | Yes |
-| climate, media, cameras, energy, calendar, weather | Yes | No | No |
-| notifications, tasks, history, security, administration | Yes | No | No |
+| climate and media controls | Yes | Yes | Yes |
+| lock and cover controls, security sensors | Yes | Yes | Yes |
+| device power and energy measurements | Yes | Yes | Yes |
+| cameras, energy statistics, calendar, weather forecasts | Yes | No | No |
+| notifications, entity history, hub resources | Yes | Yes | No |
+| automation configuration and alarm-panel controls | Yes | No | No |
 | Assist conversations | Yes | No | No |
 
 The app may keep multiple implemented sessions connected at once. Provider-scoped IDs and
 provider-owned state remain separate; selected provider collections are merged for dashboard use,
-while an active provider resolves operations that require a single feature-service owner.
+and entity-scoped operations resolve to the selected source's owning provider. Feature availability
+considers connected providers. A current session remains a legacy compatibility detail, not a
+user-facing priority or a requirement for exposing another connected provider's capabilities.
+
+openHAB associations use semantic equipment metadata first, with conventional related item names
+as a fallback. Its normalized measurements retain units, source identity, and security categories.
+The current app compatibility mapper accepts `retainSensorCard` for measurements that must remain
+available alongside their device's control card. openHAB feature services translate Navet controls
+to native item commands; cover percentages are converted between Navet openness and openHAB closure.
 
 ## Testing Expectations
 
@@ -131,8 +152,8 @@ Every implemented provider should cover:
 - entity lookup and entity diffing through state subscriptions
 - add, update, remove, and unsubscribe behavior in state updates
 - resource resolution and fallback behavior where supported
-- feature-service behavior exposed by that provider, such as task automation details, automation
-  triggering, and optional habit-rule automation creation
+- feature-service behavior exposed by that provider, such as task automation details and
+  automation triggering
 - provider unavailable and malformed payload behavior
 
 Every adapter-layer command surface should cover:

@@ -38,6 +38,7 @@ function createFixture(options?: { hassUrlPin?: string; openhabUrlPin?: string }
     keyPath: join(directory, 'installation-key'),
     openHABSessionsDirectory: join(directory, 'openhab-sessions'),
     statePath: join(directory, 'authority.json'),
+    setupCodePath: join(directory, 'setup-code.json'),
   };
   return {
     directory,
@@ -71,7 +72,8 @@ describe('Vite installation authority', () => {
     });
     const key = readFileSync(keyPath, 'utf8').trim();
     expect(key).toMatch(/^[a-f0-9]{64}$/);
-    expect(warning).toHaveBeenCalledWith(expect.stringContaining(`#navet_pairing=${key}`));
+    expect(warning).not.toHaveBeenCalledWith(expect.stringContaining(key));
+    expect(warning).toHaveBeenCalledWith('Navet installation security initialized.');
 
     warning.mockClear();
     createViteInstallationAuthority({
@@ -110,26 +112,32 @@ describe('Vite installation authority', () => {
     expect(readFileSync(keyPath, 'utf8').trim()).toBe(INSTALLATION_KEY);
   });
 
-  it('requires the exact key and persists only verified target authority', () => {
+  it('exchanges a temporary setup code once for a browser setup grant', () => {
     const { authority, paths } = createFixture();
+    const record = { code: '1234-5678-9abc-def0', expiresAt: Date.now() + 60_000 };
+    writeFileSync(paths.setupCodePath, JSON.stringify(record));
+    const exchange = authority.exchangeSetupCode?.(request(), record.code);
 
+    expect(exchange?.approved).toBe(true);
+    expect(exchange?.setCookie).toContain('HttpOnly');
+    expect(authority.exchangeSetupCode?.(request(), record.code).approved).toBe(false);
+
+    const cookie = exchange?.setCookie?.split(';')[0] ?? '';
+    const grantedRequest = { headers: { cookie } } as IncomingMessage;
+    expect(authority.getProviderSetupStatus?.(grantedRequest, 'home_assistant')).toEqual({
+      state: 'ready',
+      authorization: 'none',
+    });
+  });
+
+  it('allows openHAB enrollment without a setup code and records successful connections', () => {
+    const { authority, paths } = createFixture();
     expect(
-      authority.authorizeOpenHAB(request(), 'http://openhab.local:8080', normalizeTarget).allowed
-    ).toBe(false);
-    const authorized = authority.authorizeOpenHAB(
-      request(INSTALLATION_KEY),
-      'http://openhab.local:8080',
-      normalizeTarget
-    );
-    expect(authorized).toEqual({ allowed: true, pairingVerified: true });
-    expect(
-      authority.commitOpenHAB(
-        'http://openhab.local:8080',
-        normalizeTarget,
-        authorized.pairingVerified
-      )
-    ).toBe(true);
+      authority.authorizeOpenHAB(request(), 'http://openhab.local:8080', normalizeTarget)
+    ).toEqual({ allowed: true, pairingVerified: false });
+    expect(authority.commitOpenHAB('http://openhab.local:8080', normalizeTarget, false)).toBe(true);
     expect(readFileSync(paths.statePath, 'utf8')).not.toContain(INSTALLATION_KEY);
+    expect(authority.authorizeOpenHAB(request(), 'invalid', normalizeTarget).allowed).toBe(false);
   });
 
   it('lets an exact configured pin replace stale authority after verification', () => {
@@ -161,7 +169,7 @@ describe('Vite installation authority', () => {
     });
   });
 
-  it('uses enrolled authority as the upstream for an alternate browser route', () => {
+  it('uses the entered Home Assistant route instead of silently substituting a remembered target', () => {
     const { authority, paths } = createFixture();
     const authorized = authority.authorizeHomeAssistant(
       request(INSTALLATION_KEY),
@@ -182,11 +190,10 @@ describe('Vite installation authority', () => {
     ).toEqual({
       allowed: true,
       pairingVerified: false,
-      upstreamTarget: 'https://ha-a.example.com',
     });
   });
 
-  it('keeps alternate-route authorization specific to Home Assistant OAuth', () => {
+  it('does not treat an alternate browser route as an exact provider pin', () => {
     const { authority } = createFixture({
       hassUrlPin: 'http://homeassistant.local:8123',
       openhabUrlPin: 'http://openhab.local:8080',
@@ -202,26 +209,38 @@ describe('Vite installation authority', () => {
     expect(
       authority.authorizeOpenHAB(request(), 'http://100.64.0.10:8080', normalizeTarget)
     ).toEqual({ allowed: false, pairingVerified: false });
+    expect(
+      authority.authorizeHomeAssistantChange?.(
+        request(),
+        'http://100.77.118.32:8123',
+        normalizeTarget
+      )
+    ).toEqual({ allowed: false, pairingVerified: false });
   });
 
-  it('rejects disjoint Homey evidence and never grows trust through overlap', () => {
-    const disjoint = createFixture();
-    writeSession(disjoint.paths.homeySessionsDirectory, 1, {
-      homeys: [{ id: 'homey-a' }],
-    });
-    writeSession(disjoint.paths.homeySessionsDirectory, 2, {
-      homeys: [{ id: 'homey-b' }],
-    });
-    expect(disjoint.authority.authorizeHomeyStart(request()).allowed).toBe(false);
+  it('allows every implemented provider to connect without setup approval', () => {
+    const { authority } = createFixture();
+    for (const id of ['home_assistant', 'homey', 'openhab']) {
+      expect(authority.getProviderSetupStatus?.(request(), id)).toEqual({
+        state: 'ready',
+        authorization: 'none',
+      });
+    }
+    expect(
+      authority.authorizeHomeAssistantChange?.(
+        request(),
+        'https://demo-ha.example.com',
+        normalizeTarget
+      )
+    ).toEqual({ allowed: true, pairingVerified: false });
+  });
 
-    const chain = createFixture();
-    writeSession(chain.paths.homeySessionsDirectory, 1, {
-      homeys: [{ id: 'homey-a' }, { id: 'homey-b' }],
-    });
-    expect(chain.authority.commitHomey(['homey-b', 'homey-c'], false)).toBe(false);
-    expect(chain.authority.commitHomey(['homey-c', 'homey-d'], false)).toBe(false);
-    expect(chain.authority.commitHomey(['homey-a', 'homey-b'], false)).toBe(true);
-    expect(chain.authority.commitHomey(['homey-b', 'homey-c'], false)).toBe(false);
+  it('accepts Homeys verified by OAuth without a separate enrollment grant', () => {
+    const { authority } = createFixture();
+    expect(authority.authorizeHomeyStart(request()).allowed).toBe(true);
+    expect(authority.commitHomey(['homey-a'], false)).toBe(true);
+    expect(authority.commitHomey(['homey-b'], false)).toBe(true);
+    expect(authority.commitHomey([], false)).toBe(false);
   });
 
   it('ignores corrupt session records without weakening valid migration evidence', () => {

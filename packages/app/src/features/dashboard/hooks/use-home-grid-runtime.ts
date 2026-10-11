@@ -147,7 +147,8 @@ export function useHomeGridRuntime({
             },
           ];
         }),
-        renderedGridCols
+        renderedGridCols,
+        { placementPreference: 'leftmost' }
       ),
     [allCards, breakpointCols, cardIds, cardSizes, renderedGridCols]
   );
@@ -161,8 +162,7 @@ export function useHomeGridRuntime({
     isAutoScaled,
     logicalGridCols,
     microCardMinWidth,
-    optimizeOffscreenPaint:
-      !isEditMode && (densePerformanceMode || performanceProfile.optimizeOffscreenPaint),
+    optimizeOffscreenPaint: !isEditMode && performanceProfile.optimizeOffscreenPaint,
     outerContainerStyle,
     outerRef,
     renderedGridCols,

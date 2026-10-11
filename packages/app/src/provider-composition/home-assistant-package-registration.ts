@@ -66,8 +66,6 @@ export function createHomeAssistantAppProviderPackageRegistration({
         resolveMediaSource: (mediaContentId) =>
           homeAssistantService.resolveMediaSource(mediaContentId),
         getAutomationConfig: (entityId) => homeAssistantService.getAutomationConfig(entityId),
-        saveAutomationConfig: (configKey, config) =>
-          homeAssistantService.saveAutomationConfig(configKey, config),
         getCameraCapabilities: async (entityId) =>
           (await homeAssistantService.getCameraCapabilities(entityId)) as Record<string, unknown>,
         enableCameraMotionDetection: (entityId) =>
@@ -130,11 +128,15 @@ export function createHomeAssistantAppProviderPackageRegistration({
           const state = homeAssistantStore.getState();
           return {
             connected: state.connected,
+            connecting: state.connecting,
+            reconnecting: state.reconnecting,
+            error: state.error,
             config: state.config,
             entities: state.entities,
             areas: state.areas as HomeAssistantAreaRegistryEntry[],
             deviceRegistry: state.deviceRegistry as HomeAssistantDeviceRegistryEntry[],
             entityRegistry: state.entityRegistry as HomeAssistantEntityRegistryEntry[],
+            registriesHydrated: state.registriesHydrated,
             automationCategories:
               state.automationCategories as HomeAssistantCategoryRegistryEntry[],
             connect: async (session) => {

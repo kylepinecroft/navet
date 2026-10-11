@@ -1,9 +1,37 @@
-import { Checkbox, type CheckboxProps } from '@navet/app/components/primitives';
+import { Checkbox, type CheckboxProps } from '@navet/app/components/primitives/checkbox';
+import { getThemeSurfaceTokens } from '@navet/app/components/shared/theme/theme-surface-tokens';
 import { cn } from '@navet/app/components/ui/utils';
+import { useTheme } from '@navet/app/hooks';
 import type { CheckedState } from '@radix-ui/react-checkbox';
-import { type CSSProperties, type ReactNode, useId } from 'react';
+import { type CSSProperties, type HTMLAttributes, type ReactNode, useId } from 'react';
+
+export type SelectableCheckboxListProps = HTMLAttributes<HTMLUListElement>;
+
+export function SelectableCheckboxList({
+  children,
+  className,
+  ...props
+}: SelectableCheckboxListProps) {
+  const { theme } = useTheme();
+  const surface = getThemeSurfaceTokens(theme);
+
+  return (
+    <ul
+      className={cn(
+        'min-w-0 max-w-full divide-y overflow-x-hidden rounded-[24px] border',
+        surface.border,
+        surface.divider,
+        className
+      )}
+      {...props}
+    >
+      {children}
+    </ul>
+  );
+}
 
 export interface SelectableCheckboxRowProps {
+  size?: 'default' | 'compact';
   checked: boolean;
   onCheckedChange: (checked: boolean) => void;
   label: ReactNode;
@@ -29,6 +57,7 @@ export interface SelectableCheckboxRowProps {
 }
 
 export function SelectableCheckboxRow({
+  size = 'default',
   checked,
   onCheckedChange,
   label,
@@ -54,43 +83,66 @@ export function SelectableCheckboxRow({
 }: SelectableCheckboxRowProps) {
   const generatedId = useId();
   const checkboxId = id ?? generatedId;
+  const { theme } = useTheme();
+  const surface = getThemeSurfaceTokens(theme);
 
   const handleCheckedChange = (value: CheckedState) => {
     onCheckedChange(Boolean(value));
   };
 
   return (
-    <div className={cn('flex items-start gap-3', className)}>
+    <div
+      className={cn(
+        'flex min-w-0 max-w-full items-center transition-colors motion-reduce:transition-none',
+        size === 'compact' ? 'min-h-10 gap-2 px-3 py-1' : 'min-h-14 gap-3 px-4 py-3',
+        surface.textPrimary,
+        surface.hoverBg,
+        disabled && 'opacity-50',
+        className,
+        rowClassName,
+        checked ? selectedClassName : unselectedClassName
+      )}
+      style={{
+        ...style,
+        ...(checked ? selectedStyle : unselectedStyle),
+      }}
+    >
       <label
         htmlFor={checkboxId}
         className={cn(
-          'flex min-w-0 flex-1 cursor-pointer items-start gap-3 rounded-2xl border px-3 py-3 text-left transition-colors',
-          disabled && 'cursor-not-allowed opacity-50',
-          rowClassName,
-          checked ? selectedClassName : unselectedClassName
+          'flex min-w-0 flex-1 cursor-pointer items-center text-left',
+          size === 'compact' ? 'gap-2' : 'gap-3',
+          disabled && 'cursor-not-allowed'
         )}
-        style={{
-          ...style,
-          ...(checked ? selectedStyle : unselectedStyle),
-        }}
       >
-        <Checkbox
-          id={checkboxId}
-          checked={checked}
-          onCheckedChange={handleCheckedChange}
-          disabled={disabled}
-          appearance={checkboxAppearance}
-          palette={checkboxPalette}
-          paletteColor={checkboxPaletteColor}
-          className={cn('mt-0.5 shrink-0', checkboxClassName)}
-        />
+        <span
+          className={cn(
+            'flex shrink-0 items-center justify-center',
+            size === 'compact' ? 'h-8 w-8' : 'h-9 w-9'
+          )}
+        >
+          <Checkbox
+            id={checkboxId}
+            checked={checked}
+            onCheckedChange={handleCheckedChange}
+            disabled={disabled}
+            appearance={checkboxAppearance}
+            palette={checkboxPalette}
+            paletteColor={checkboxPaletteColor}
+            className={cn('shrink-0', checkboxClassName)}
+          />
+        </span>
 
-        {leading ? <div className="mt-0.5 shrink-0">{leading}</div> : null}
+        {leading ? <div className="shrink-0">{leading}</div> : null}
 
         <div className="min-w-0 flex-1">
           <div className={cn('min-w-0 text-sm font-medium', labelClassName)}>{label}</div>
           {description ? (
-            <div className={cn('mt-0.5 min-w-0 text-xs', descriptionClassName)}>{description}</div>
+            <div
+              className={cn('mt-0.5 min-w-0 text-xs', surface.textSecondary, descriptionClassName)}
+            >
+              {description}
+            </div>
           ) : null}
         </div>
 
