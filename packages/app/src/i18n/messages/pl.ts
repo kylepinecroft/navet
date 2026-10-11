@@ -406,6 +406,8 @@ export const plMessages = {
   'household.data.importTitle': 'Przywrócić kopię obowiązków?',
   'household.data.importDescription':
     'Scal zachowuje bieżące obowiązki i zmienia nazwy konfliktów. Zastąp najpierw usuwa bieżący obszar.',
+  'household.data.importFailed':
+    'Nie udało się przywrócić kopii. Spróbuj ponownie scalić lub zastąpić.',
   'household.data.imported': 'Przywrócono kopię obowiązków.',
   'household.data.merge': 'Scal',
   'household.data.replace': 'Zastąp',
@@ -2458,6 +2460,8 @@ export const plMessages = {
   'cover.state.opening': 'Otwieranie...',
   'cover.state.closing': 'Zamykanie...',
   'cover.ariaLabel': 'Osłona — {name}',
+  'cover.settings.simple': 'Proste sterowanie',
+  'cover.settings.position': 'Sterowanie pozycją',
   'cover.settings.deviceType': 'Typ urządzenia',
   'cover.settings.description': 'Wybierz typ osłony — {name}',
   'cover.deviceClass.blind': 'Żaluzje okienne',
@@ -2468,6 +2472,7 @@ export const plMessages = {
   'cover.deviceClass.awning': 'Markizy',
   'cover.deviceClass.shutter': 'Okiennice',
   'cover.deviceClass.door': 'Drzwi',
+  'cover.deviceClass.window': 'Okna',
   'scene.activate': 'Aktywuj',
   'scene.activating': 'Aktywowanie...',
   'scene.tapToActivate': 'Stuknij, aby natychmiast zastosować tę scenę.',

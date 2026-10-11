@@ -1,10 +1,13 @@
 ---
 title: Home Assistant
 description: Install Navet with HACS, as a Home Assistant App, or with Docker.
-editUrl: https://github.com/awesomestvi/navet/edit/main/docs/HOME_ASSISTANT.md
+editUrl: https://github.com/navet-app/navet/edit/main/docs/HOME_ASSISTANT.md
 ---
 
-This guide helps you install Navet for Home Assistant.
+This guide helps you install the complete Navet dashboard for Home Assistant.
+
+To add individual Navet cards to your existing Home Assistant dashboard, follow
+[the Navet Cards installation guide](/cards/installation/). Navet Cards runs independently.
 
 You only need to choose **one** installation method.
 
@@ -34,7 +37,7 @@ use the **Home Assistant App**.
 4. Paste this address:
 
    ```text
-   https://github.com/awesomestvi/navet-home-assistant
+   https://github.com/navet-app/navet-home-assistant
    ```
 
 5. Choose **Integration** as the category, then add the repository.
@@ -59,7 +62,7 @@ Navet uses your current Home Assistant session.
 3. Paste this address and add it:
 
    ```text
-   https://github.com/awesomestvi/navet
+   https://github.com/navet-app/navet
    ```
 
 4. Find **Navet** in the App store and install it.
@@ -134,7 +137,7 @@ associated workspace.
 
 A camera **direct-stream URL** configured in Navet must be reachable from the browser's current
 network. Home Assistant-provided snapshots, HLS, and fallback paths use Navet's proxy.
-Native WebRTC can still negotiate a separate media path supplied by Home Assistant; when that path
+Native WebRTC can negotiate a separate media path supplied by Home Assistant; when that path
 is not usable across the current network, Navet falls back to another provider-supported transport.
 
 ### Optional: configure a Home Assistant upstream address

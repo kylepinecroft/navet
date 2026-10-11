@@ -410,6 +410,8 @@ export const deMessages = {
   'household.data.importTitle': 'Aufgabensicherung wiederherstellen?',
   'household.data.importDescription':
     'Zusammenführen behält aktuelle Aufgaben und benennt Konflikte um. Ersetzen entfernt zuerst den aktuellen Bereich.',
+  'household.data.importFailed':
+    'Die Sicherung konnte nicht wiederhergestellt werden. Versuche erneut, sie zusammenzuführen oder zu ersetzen.',
   'household.data.imported': 'Aufgabensicherung wiederhergestellt.',
   'household.data.merge': 'Zusammenführen',
   'household.data.replace': 'Ersetzen',
@@ -2487,6 +2489,8 @@ export const deMessages = {
   'cover.state.opening': 'Öffnet...',
   'cover.state.closing': 'Schließt...',
   'cover.ariaLabel': '{name} Abdeckung',
+  'cover.settings.simple': 'Einfache Steuerung',
+  'cover.settings.position': 'Positionssteuerung',
   'cover.settings.deviceType': 'Gerätetyp',
   'cover.settings.description': 'Wählen Sie den Cover-Typ für {name}',
   'cover.deviceClass.blind': 'Jalousien',
@@ -2497,6 +2501,7 @@ export const deMessages = {
   'cover.deviceClass.awning': 'Markisen',
   'cover.deviceClass.shutter': 'Fensterladen',
   'cover.deviceClass.door': 'Türen',
+  'cover.deviceClass.window': 'Fenster',
   'scene.activate': 'Aktivieren',
   'scene.activating': 'Wird aktiviert...',
   'scene.tapToActivate': 'Tippen, um diese Szene sofort anzuwenden.',

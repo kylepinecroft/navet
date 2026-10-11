@@ -414,6 +414,8 @@ export const itMessages = {
   'household.data.importTitle': 'Ripristinare il backup delle faccende?',
   'household.data.importDescription':
     'Unisci mantiene le faccende attuali e rinomina i conflitti. Sostituisci rimuove prima lo spazio corrente.',
+  'household.data.importFailed':
+    'Impossibile ripristinare il backup. Riprova a unire o sostituire.',
   'household.data.imported': 'Backup delle faccende ripristinato.',
   'household.data.merge': 'Unisci',
   'household.data.replace': 'Sostituisci',
@@ -2487,6 +2489,8 @@ export const itMessages = {
   'cover.state.opening': 'Apertura',
   'cover.state.closing': 'Chiusura',
   'cover.ariaLabel': 'Controllo copertura {name}',
+  'cover.settings.simple': 'Controlli semplici',
+  'cover.settings.position': 'Controlli di posizione',
   'cover.settings.deviceType': 'Tipo dispositivo',
   'cover.settings.description': 'Seleziona il tipo di copertura per {name}',
   'cover.deviceClass.blind': 'Tapparella',
@@ -2497,6 +2501,7 @@ export const itMessages = {
   'cover.deviceClass.awning': 'Tenda da sole',
   'cover.deviceClass.shutter': 'Persiana',
   'cover.deviceClass.door': 'Porta',
+  'cover.deviceClass.window': 'Finestre',
   'scene.activate': 'Attiva',
   'scene.activating': 'Attivazione...',
   'scene.tapToActivate': 'Tocca per attivare',

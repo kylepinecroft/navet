@@ -407,6 +407,8 @@ export const svMessages = {
   'household.data.importTitle': 'Återställa säkerhetskopian?',
   'household.data.importDescription':
     'Sammanfoga behåller nuvarande sysslor och byter namn vid konflikter. Ersätt tar först bort den nuvarande arbetsytan.',
+  'household.data.importFailed':
+    'Säkerhetskopian kunde inte återställas. Försök slå ihop eller ersätta igen.',
   'household.data.imported': 'Säkerhetskopian har återställts.',
   'household.data.merge': 'Sammanfoga',
   'household.data.replace': 'Ersätt',
@@ -2446,6 +2448,8 @@ export const svMessages = {
   'cover.state.opening': 'Öppnar...',
   'cover.state.closing': 'Stänger...',
   'cover.ariaLabel': '{name} skydd',
+  'cover.settings.simple': 'Enkla kontroller',
+  'cover.settings.position': 'Positionskontroller',
   'cover.settings.deviceType': 'Enhetstyp',
   'cover.settings.description': 'Välj typ av cover för {name}',
   'cover.deviceClass.blind': 'Fönsterpersienner',
@@ -2456,6 +2460,7 @@ export const svMessages = {
   'cover.deviceClass.awning': 'Markiser',
   'cover.deviceClass.shutter': 'Luckor',
   'cover.deviceClass.door': 'Dörrar',
+  'cover.deviceClass.window': 'Fönster',
   'scene.activate': 'Aktivera',
   'scene.activating': 'Aktiverar...',
   'scene.tapToActivate': 'Tryck för att använda scenen direkt.',

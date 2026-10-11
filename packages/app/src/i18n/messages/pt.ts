@@ -409,6 +409,8 @@ export const ptMessages = {
   'household.data.importTitle': 'Restaurar a cópia das tarefas?',
   'household.data.importDescription':
     'Combinar mantém as tarefas atuais e muda o nome dos conflitos. Substituir remove primeiro o espaço atual.',
+  'household.data.importFailed':
+    'Não foi possível restaurar a cópia. Tente mesclar ou substituir novamente.',
   'household.data.imported': 'Cópia das tarefas restaurada.',
   'household.data.merge': 'Combinar',
   'household.data.replace': 'Substituir',
@@ -2457,6 +2459,8 @@ export const ptMessages = {
   'cover.state.opening': 'Abrindo...',
   'cover.state.closing': 'Fechando...',
   'cover.ariaLabel': 'Cobertura {name}',
+  'cover.settings.simple': 'Controlos simples',
+  'cover.settings.position': 'Controlos de posição',
   'cover.settings.deviceType': 'Tipo de dispositivo',
   'cover.settings.description': 'Selecione o tipo de cobertura para {name}',
   'cover.deviceClass.blind': 'Persianas',
@@ -2467,6 +2471,7 @@ export const ptMessages = {
   'cover.deviceClass.awning': 'Toldos',
   'cover.deviceClass.shutter': 'Venezianas',
   'cover.deviceClass.door': 'Portas',
+  'cover.deviceClass.window': 'Janelas',
   'scene.activate': 'Ativar',
   'scene.activating': 'Ativando...',
   'scene.tapToActivate': 'Toque para aplicar esta cena na hora.',

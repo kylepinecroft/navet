@@ -406,6 +406,8 @@ export const noMessages = {
   'household.data.importTitle': 'Gjenopprette sikkerhetskopien?',
   'household.data.importDescription':
     'Slå sammen beholder nåværende oppgaver og gir konflikter nye navn. Erstatt fjerner først dagens område.',
+  'household.data.importFailed':
+    'Sikkerhetskopien kunne ikke gjenopprettes. Prøv å slå sammen eller erstatte igjen.',
   'household.data.imported': 'Sikkerhetskopien er gjenopprettet.',
   'household.data.merge': 'Slå sammen',
   'household.data.replace': 'Erstatt',
@@ -2455,6 +2457,8 @@ export const noMessages = {
   'cover.state.opening': 'Åpner...',
   'cover.state.closing': 'Lukker...',
   'cover.ariaLabel': '{name} gardin',
+  'cover.settings.simple': 'Enkle kontroller',
+  'cover.settings.position': 'Posisjonskontroller',
   'cover.settings.deviceType': 'Enhetstype',
   'cover.settings.description': 'Velg type omslag for {name}',
   'cover.deviceClass.blind': 'Persienner',
@@ -2465,6 +2469,7 @@ export const noMessages = {
   'cover.deviceClass.awning': 'Markiser',
   'cover.deviceClass.shutter': 'Skodder',
   'cover.deviceClass.door': 'Dører',
+  'cover.deviceClass.window': 'Vinduer',
   'scene.activate': 'Aktiver',
   'scene.activating': 'Aktiverer...',
   'scene.tapToActivate': 'Trykk for å bruke denne scenen umiddelbart.',

@@ -407,6 +407,8 @@ export const fiMessages = {
   'household.data.importTitle': 'Palautetaanko kotitöiden varmuuskopio?',
   'household.data.importDescription':
     'Yhdistä säilyttää nykyiset kotityöt ja nimeää ristiriidat uudelleen. Korvaa poistaa ensin nykyisen työtilan.',
+  'household.data.importFailed':
+    'Varmuuskopiota ei voitu palauttaa. Yritä yhdistämistä tai korvaamista uudelleen.',
   'household.data.imported': 'Kotitöiden varmuuskopio palautettu.',
   'household.data.merge': 'Yhdistä',
   'household.data.replace': 'Korvaa',
@@ -2461,6 +2463,8 @@ export const fiMessages = {
   'cover.state.opening': 'Avataan...',
   'cover.state.closing': 'Suljetaan...',
   'cover.ariaLabel': '{name} kansi',
+  'cover.settings.simple': 'Yksinkertaiset ohjaimet',
+  'cover.settings.position': 'Asennon ohjaimet',
   'cover.settings.deviceType': 'Laitteen tyyppi',
   'cover.settings.description': 'Valitse kansityyppi kohteelle {name}',
   'cover.deviceClass.blind': 'Ikkunan kaihtimet',
@@ -2471,6 +2475,7 @@ export const fiMessages = {
   'cover.deviceClass.awning': 'Markiisit',
   'cover.deviceClass.shutter': 'Ikkunaluukut',
   'cover.deviceClass.door': 'Ovet',
+  'cover.deviceClass.window': 'Ikkunat',
   'scene.activate': 'Aktivoi',
   'scene.activating': 'Aktivoidaan...',
   'scene.tapToActivate': 'Napauta ottaaksesi tämän kohtauksen käyttöön välittömästi.',

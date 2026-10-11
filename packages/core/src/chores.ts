@@ -10,6 +10,7 @@ import {
 } from './chore-calendar-policy.ts';
 import { applyChoreOccurrenceCommand } from './chore-occurrence-policy.ts';
 import { earnChoreProgressAwards } from './chore-progress-policy.ts';
+import { assertSafeRecord, setOwnRecordValue } from './record-safety.ts';
 
 export { applyChoreOccurrenceCommand } from './chore-occurrence-policy.ts';
 
@@ -1059,6 +1060,7 @@ export function isChoreWorkspaceData(value: unknown): value is ChoreWorkspaceDat
 }
 
 export function migrateChoreWorkspaceData(value: unknown): ChoreWorkspaceData {
+  assertSafeRecord(value);
   if (
     isRecord(value) &&
     value.schemaVersion === CHORE_WORKSPACE_SCHEMA_VERSION &&
@@ -1204,14 +1206,17 @@ export function getChoreTiming(occurrence: ChoreOccurrence, now = new Date()): C
   return 'due';
 }
 
-export function materializeChoreOccurrences({
-  definition,
-  participantsById,
-  rangeStart,
-  rangeEnd,
-  existingOccurrences = {},
-  latestCompletedAt,
-}: MaterializeChoreOccurrencesInput): ChoreOccurrence[] {
+export function materializeChoreOccurrences(
+  {
+    definition,
+    participantsById,
+    rangeStart,
+    rangeEnd,
+    existingOccurrences = {},
+    latestCompletedAt,
+  }: MaterializeChoreOccurrencesInput,
+  materializeNextAfterCompletion = false
+): ChoreOccurrence[] {
   if (!definition.enabled || definition.archivedAt) {
     return [];
   }
@@ -1226,7 +1231,7 @@ export function materializeChoreOccurrences({
     throw new Error('Invalid chore occurrence range');
   }
 
-  const completionCountsByParticipant: Record<string, number> = {};
+  const completionCountsByParticipant: Record<string, number> = Object.create(null);
   if (definition.assignment.rotationStrategy === 'fair') {
     for (const occurrence of Object.values(existingOccurrences)) {
       if (
@@ -1320,8 +1325,8 @@ export function materializeChoreOccurrences({
       : schedule.startDate;
     const nextDate = latestCompletedAt ? addCalendarDays(anchor, schedule.intervalDays) : anchor;
     if (
-      nextDate >= rangeStartDateKey &&
-      nextDate <= finalDateKey &&
+      (materializeNextAfterCompletion ||
+        (nextDate >= rangeStartDateKey && nextDate <= finalDateKey)) &&
       (schedule.endDate === undefined || nextDate <= schedule.endDate) &&
       !schedule.excludedDates?.includes(nextDate)
     ) {
@@ -1362,7 +1367,11 @@ export function materializeChoreOccurrences({
           : scheduledDate;
         const scheduledAt = localDateTimeToIso(personalDate, scheduledTimeValue, schedule.timeZone);
         const scheduledTime = new Date(scheduledAt).getTime();
-        if (scheduledTime < rangeStartTime || scheduledTime > rangeEndTime) continue;
+        if (
+          !(materializeNextAfterCompletion && schedule.frequency === 'after_completion') &&
+          (scheduledTime < rangeStartTime || scheduledTime > rangeEndTime)
+        )
+          continue;
         const id = buildOccurrenceId(definition.id, scheduledAt, slot.assignmentSlot);
         if (!existingOccurrences[id] && definition.assignment.rotationStrategy === 'fair') {
           for (const participantId of slot.assigneeIds)
@@ -1726,6 +1735,8 @@ function requiredCapabilityForCommand(command: ChoreOccurrenceCommand): ChorePar
 export function applyChoreWorkspaceOccurrenceCommand(
   input: ApplyChoreWorkspaceOccurrenceCommandInput
 ): ApplyChoreWorkspaceOccurrenceCommandResult {
+  assertSafeRecord(input.command);
+  assertSafeRecord({ occurrenceId: input.occurrenceId });
   const occurrence = input.workspace.occurrencesById[input.occurrenceId];
   if (!occurrence) throw new Error('Chore occurrence is no longer available');
 
@@ -1893,6 +1904,48 @@ function isWorkspaceMissionComplete(workspace: ChoreWorkspaceData, mission: Chor
 export function applyChoreWorkspaceAction(
   input: ApplyChoreWorkspaceActionInput
 ): ApplyChoreWorkspaceActionResult {
+  assertSafeRecord(input.action);
+  const result = applyChoreWorkspaceActionWithoutRecurrence(input);
+  const { action, commandId, timestamp, workspace } = input;
+  if (action.type !== 'occurrence_action') return result;
+  const previous = workspace.occurrencesById[action.occurrenceId];
+  const occurrence = result.data.occurrencesById[action.occurrenceId];
+  if (
+    !occurrence ||
+    previous?.completedAt === occurrence.completedAt ||
+    result.data.definitionsById[occurrence.definitionId]?.schedule.frequency !== 'after_completion'
+  )
+    return result;
+
+  const now = Date.parse(timestamp);
+  // Materialize this definition's single next date even beyond the rolling window.
+  const materialized = applyChoreWorkspaceActionWithoutRecurrence(
+    {
+      workspace: result.data,
+      commandId: `${commandId}:recurrence`,
+      timestamp,
+      action: {
+        type: 'materialize_occurrences',
+        rangeStart: new Date(now - 90 * 86_400_000).toISOString(),
+        rangeEnd: new Date(now + 45 * 86_400_000).toISOString(),
+      },
+    },
+    occurrence.definitionId
+  );
+  return {
+    ...result,
+    data: materialized.data,
+    additionalActivities: [
+      ...(result.additionalActivities ?? []),
+      ...(materialized.additionalActivities ?? []),
+    ],
+  };
+}
+
+function applyChoreWorkspaceActionWithoutRecurrence(
+  input: ApplyChoreWorkspaceActionInput,
+  recurrenceDefinitionId?: string
+): ApplyChoreWorkspaceActionResult {
   const { action, commandId, timestamp, workspace } = input;
   if (action.type === 'occurrence_action') {
     const previousOccurrence = workspace.occurrencesById[action.occurrenceId];
@@ -1933,7 +1986,7 @@ export function applyChoreWorkspaceAction(
       points && participantId ? (becameFinal ? points : stoppedBeingFinal ? -points : 0) : 0;
     if (points && participantId && (becameFinal || stoppedBeingFinal)) {
       const balances = getChoreExperiencePointBalances(workspace);
-      balances[participantId] = (balances[participantId] ?? 0) + pointsDelta;
+      setOwnRecordValue(balances, participantId, (balances[participantId] ?? 0) + pointsDelta);
       nextExperience = {
         ...nextExperience,
         earnedPointsByParticipant: balances,
@@ -2488,7 +2541,11 @@ export function applyChoreWorkspaceAction(
       throw new Error('Not enough points for this reward');
     }
     if (pointsDelta)
-      balances[request.participantId] = (balances[request.participantId] ?? 0) + pointsDelta;
+      setOwnRecordValue(
+        balances,
+        request.participantId,
+        (balances[request.participantId] ?? 0) + pointsDelta
+      );
     const pointTransactions = [
       ...experience.pointTransactions,
       {
@@ -2758,14 +2815,17 @@ export function applyChoreWorkspaceAction(
       .map((occurrence) => occurrence.completedAt as string)
       .sort()
       .at(-1);
-    const materialized = materializeChoreOccurrences({
-      definition,
-      participantsById: workspace.participantsById,
-      existingOccurrences: occurrencesById,
-      latestCompletedAt,
-      rangeStart: action.rangeStart,
-      rangeEnd: action.rangeEnd,
-    });
+    const materialized = materializeChoreOccurrences(
+      {
+        definition,
+        participantsById: workspace.participantsById,
+        existingOccurrences: occurrencesById,
+        latestCompletedAt,
+        rangeStart: action.rangeStart,
+        rangeEnd: action.rangeEnd,
+      },
+      definition.id === recurrenceDefinitionId
+    );
     scheduledOccurrenceIdsByDefinition.set(
       definition.id,
       new Set(materialized.map((occurrence) => occurrence.id))
@@ -2787,7 +2847,7 @@ export function applyChoreWorkspaceAction(
         ) {
           continue;
         }
-        occurrencesById[occurrence.id] = occurrence;
+        setOwnRecordValue(occurrencesById, occurrence.id, occurrence);
         occurrenceCreatedActivities.push({
           id: `activity:${commandId}:created:${occurrence.id}`,
           commandId,
@@ -2830,8 +2890,8 @@ export function applyChoreWorkspaceAction(
     const scheduledAt = Date.parse(occurrence.scheduledAt);
     if (
       scheduledIds &&
-      scheduledAt >= rangeStart &&
-      scheduledAt <= rangeEnd &&
+      (occurrence.definitionId === recurrenceDefinitionId ||
+        (scheduledAt >= rangeStart && scheduledAt <= rangeEnd)) &&
       scheduledAt > Date.parse(timestamp) &&
       !scheduledIds.has(id) &&
       !occurrence.assigneeIds.some((participantId) => {
@@ -2878,7 +2938,7 @@ export function getChoreExperiencePointBalances(
   const experience = workspace.experience ?? createChoreExperienceState();
   const persisted = experience.earnedPointsByParticipant;
   if (persisted) return { ...persisted };
-  const balances: Record<string, number> = {};
+  const balances: Record<string, number> = Object.create(null);
   for (const occurrence of Object.values(workspace.occurrencesById)) {
     if (occurrence.status !== 'done' || !occurrence.completedBy) continue;
     const points = experience.presentationByDefinitionId[occurrence.definitionId]?.points ?? 0;

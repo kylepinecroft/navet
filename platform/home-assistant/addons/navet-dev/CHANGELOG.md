@@ -1,5 +1,34 @@
 # Changelog
 
+## 0.17.8-beta.1
+
+## Improvements and bug fixes
+
+- Household guides explain that See rewards appears after creating a mission or enabled reward goal.
+- Hide unsupported Stop controls on cover cards and use the standard card surface for covers without position controls.
+- Keep keyboard focus inside device controls dialogs and return it to the opener on dismissal.
+- Restore keyboard tab switching and card-action focus, separate lighting-row controls, and keep lighting previews consistent after brightness edits.
+- Scroll long light-effect menus and keep animated colors inside the card's rounded corners.
+- Restore keyboard focus after card settings and disable unavailable overflow actions.
+- Improve search touch targets and keyboard focus, hide unsupported speaker actions, and retain failed chore imports for retry.
+
+## 0.17.7-beta.1
+
+## Improvements and bug fixes
+
+- Update the next occurrence immediately when a chore that repeats after completion is marked done or reopened.
+- Persist the next chore date immediately for long completion-based intervals and reconcile it when a completion is reopened.
+- Discord community links now open a permanent invite so new members can join.
+- Clarify where to find card entity IDs and how to enable household missions and rewards.
+- Garage doors, gates, doors, and window covers appear in Security and report open states even without position data.
+- Show clear open and closed states for garage doors and let each cover use simple controls without percentages.
+
+## 0.17.6-beta.1
+
+## Improvements and bug fixes
+
+- Keep card controls easy to reach with shared settings menus, compact light and fan controls, and clearer blind positioning.
+
 ## 0.17.5-beta.2
 
 ## New features

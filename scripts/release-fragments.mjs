@@ -1,4 +1,5 @@
 import { execFileSync } from 'node:child_process';
+import { isDeepStrictEqual } from 'node:util';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { repoRoot } from './repo-paths.mjs';
@@ -34,8 +35,38 @@ export function listAddedReleaseFragmentFiles(fromRef, toRef = 'HEAD') {
     : [];
 }
 
+// Only dependency metadata from the authenticated Dependabot PR author is exempt.
+export function isDependabotDependencyUpdate(author, files, readManifest) {
+  if (author?.login !== 'dependabot[bot]' || author?.type !== 'Bot' || files.length === 0) return false;
+  const lockfiles = new Set(['pnpm-lock.yaml', 'testing/provider-lab/homey-fixture-app/package-lock.json']);
+  const manifests = /^(?:(?:apps|packages)\/[^/]+\/|testing\/provider-lab\/homey-fixture-app\/)?package\.json$/;
+  return files.every((file) => {
+    if (lockfiles.has(file)) return true;
+    if (!manifests.test(file)) return false;
+    try {
+      const before = JSON.parse(readManifest('base', file));
+      const after = JSON.parse(readManifest('head', file));
+      for (const field of ['dependencies', 'devDependencies', 'optionalDependencies', 'peerDependencies']) {
+        delete before[field];
+        delete after[field];
+      }
+      return isDeepStrictEqual(before, after);
+    } catch {
+      return false;
+    }
+  });
+}
+
+export function isDependabotPullRequest(base, head, event) {
+  const changes = runGit(['diff', '--no-renames', '--name-status', `${base}..${head}`]).split('\n').filter(Boolean);
+  if (changes.some((change) => !change.startsWith('M\t'))) return false;
+  const files = changes.map((change) => change.slice(2));
+  return isDependabotDependencyUpdate(event?.pull_request?.user, files,
+    (revision, file) => runGit(['show', `${revision === 'base' ? base : head}:${file}`]));
+}
+
 export function parseReleaseFragment(content, file = 'release fragment') {
-  const fragment = {};
+  const fragment = Object.create(null);
   let listField = null;
   for (const rawLine of content.replace(/\r\n/g, '\n').split('\n')) {
     const trimmed = rawLine.trim();

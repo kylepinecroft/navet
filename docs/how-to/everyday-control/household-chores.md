@@ -1,7 +1,7 @@
 ---
 title: Set up and complete household chores
 description: Create the household, schedule recurring work, and use the Today list from a shared Navet screen.
-editUrl: https://github.com/awesomestvi/navet/edit/main/docs/how-to/everyday-control/household-chores.md
+editUrl: https://github.com/navet-app/navet/edit/main/docs/how-to/everyday-control/household-chores.md
 ---
 
 Open **Household** to keep ordinary home work beside the routines that already run your smart
@@ -89,9 +89,11 @@ Completed work appears in the shared activity history and synchronizes across co
 Chores today keeps the daily summary in one row. When work is overdue, it leads with **Needs
 attention**, the overdue count, remaining work, and completed chores. Otherwise it shows earned
 points, current streak, and completed chores.
-Choose **See rewards** to reveal the supporting mission and reward cards below the banner. They stay
-hidden from Today until requested, while **Missions** and **Rewards** remain available as separate
-management destinations.
+To use missions and rewards, open **Household → Settings → Motivation style** and choose
+**Light points**, **Family goals**, or **Child-friendly adventure**. Open **Missions** or **Rewards**
+to create at least one mission or enabled reward goal. **See rewards** then appears in Chores today;
+choose it to reveal the supporting cards below the banner. **Off** hides these surfaces and keeps the saved
+goals and completion history.
 
 Home shows a Chores summary pill when work remains. Each room has a **Chores** pill showing
 remaining or overdue work, or **All done today**. Choose the Chores pill on Home or in a room to open the

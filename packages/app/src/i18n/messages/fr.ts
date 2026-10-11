@@ -411,6 +411,8 @@ export const frMessages = {
   'household.data.importTitle': 'Restaurer la sauvegarde des tâches ?',
   'household.data.importDescription':
     'Fusionner conserve les tâches actuelles et renomme les conflits. Remplacer supprime d’abord l’espace actuel.',
+  'household.data.importFailed':
+    'La sauvegarde n’a pas pu être restaurée. Réessayez de fusionner ou de remplacer.',
   'household.data.imported': 'Sauvegarde des tâches restaurée.',
   'household.data.merge': 'Fusionner',
   'household.data.replace': 'Remplacer',
@@ -2487,6 +2489,8 @@ export const frMessages = {
   'cover.state.opening': 'Ouverture...',
   'cover.state.closing': 'Fermeture...',
   'cover.ariaLabel': 'volet {name}',
+  'cover.settings.simple': 'Commandes simples',
+  'cover.settings.position': 'Commandes de position',
   'cover.settings.deviceType': 'Type d’appareil',
   'cover.settings.description': 'Selectionnez le type de volet pour {name}',
   'cover.deviceClass.blind': 'Stores',
@@ -2497,6 +2501,7 @@ export const frMessages = {
   'cover.deviceClass.awning': 'Stores bannes',
   'cover.deviceClass.shutter': 'Volets',
   'cover.deviceClass.door': 'Portes',
+  'cover.deviceClass.window': 'Fenêtres',
   'scene.activate': 'Activer',
   'scene.activating': 'Activation...',
   'scene.tapToActivate': 'Touchez pour appliquer cette scène instantanément.',

@@ -1,11 +1,11 @@
 ---
-description: Merge upstream Navet (awesomestvi/navet) into this fork. Use when syncing, fetching, or merging upstream tags, rebasing onto upstream, updating from v0.x releases, resolving overlay conflicts, or deciding keep vs toss when upstream added a similar feature.
+description: Merge upstream Navet (navet-app/navet) into this fork. Use when syncing, fetching, or merging upstream tags, rebasing onto upstream, updating from v0.x releases, resolving overlay conflicts, or deciding keep vs toss when upstream added a similar feature.
 alwaysApply: false
 ---
 
 # Upstream sync
 
-Read [`docs/agents/fork-overlay.md`](docs/agents/fork-overlay.md) first. Keep the `upstream` remote at `https://github.com/awesomestvi/navet.git`.
+Read [`docs/agents/fork-overlay.md`](docs/agents/fork-overlay.md) first. Keep the `upstream` remote at `https://github.com/navet-app/navet.git`.
 
 ## Do
 
