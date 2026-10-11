@@ -15,7 +15,7 @@ export const NAVET_SPOTIFY_OAUTH_RELAY_URI = 'https://navet.app/redirect/oauth';
 const INSTANCE_STORAGE_KEY = 'navet-oauth-relay-instance';
 const HOME_STORAGE_KEY = 'navet-oauth-relay-home';
 const NAVET_SPOTIFY_CALLBACK_PATH = '/__navet_music__/spotify/callback';
-const NAVET_ISSUES_URL = 'https://github.com/awesomestvi/navet/issues/new';
+const NAVET_ISSUES_URL = 'https://github.com/navet-app/navet/issues/new';
 
 function isPrivateIpv4(hostname: string): boolean {
   const octets = hostname.split('.').map(Number);
@@ -160,12 +160,14 @@ export function NavetOAuthRedirectPage() {
 
     if (!instance || !authorize) return;
     if (!isValidNavetCallbackUrl(instance) || !isValidSpotifyAuthorizeUrl(authorize)) return;
+    const spotifyAuthorize = new URL('https://accounts.spotify.com/authorize');
+    spotifyAuthorize.search = new URL(authorize).search;
     const state = getSpotifyAuthorizeState(authorize);
     if (!state) return;
     window.sessionStorage.setItem(INSTANCE_STORAGE_KEY, JSON.stringify({ callback: instance, state }));
     const navetHomeUrl = getNavetHomeUrlFromCallback(instance);
     if (navetHomeUrl) window.localStorage.setItem(HOME_STORAGE_KEY, navetHomeUrl);
-    window.location.replace(authorize);
+    window.location.replace(spotifyAuthorize.href);
   }, [authorize, instance]);
 
   const storedRequest = window.sessionStorage.getItem(INSTANCE_STORAGE_KEY);

@@ -1,7 +1,7 @@
 ---
 title: Manage and recover household chores
 description: Edit recurring work, review progress, protect management, and back up or restore the shared chores workspace.
-editUrl: https://github.com/awesomestvi/navet/edit/main/docs/how-to/everyday-control/manage-household-chores.md
+editUrl: https://github.com/navet-app/navet/edit/main/docs/how-to/everyday-control/manage-household-chores.md
 ---
 
 Use **Chores** to manage recurring work and **Progress** to review activity. Open
@@ -83,8 +83,11 @@ pause, leave it unchanged.
 
 ## Manage missions and rewards
 
-Open **Missions** or **Rewards** to create and edit supporting goals. From Today, choose
-**See rewards** in Chores today to reveal the current mission and reward cards for that visit.
+In **Household → Settings → Motivation style**, choose **Light points**, **Family goals**, or
+**Child-friendly adventure** to show the **Missions** and **Rewards** tabs. Open either tab to create
+and edit supporting goals. After you create at least one mission or enabled reward goal, **See rewards**
+appears in Chores today. Choose it to reveal the current mission and reward cards for that visit.
+Choosing **Off** hides these surfaces and preserves their saved goals and household history.
 
 To use a reward, open **Rewards**, choose the person under **Request reward for**, and select
 **Request reward** on a goal. The person needs enough points for its cost. The request holds the
@@ -138,11 +141,14 @@ returns to the appropriate setup state.
 1. In **Data and recovery**, choose **Import backup**.
 2. Select a Navet chores backup, a supported Home Assistant todo export, or a normalized ChoreOps
    export.
-3. Choose **Merge** to keep current chores and remap conflicts, or **Replace** to remove the current
+3. Review the restore confirmation.
+4. Choose **Merge** to keep current chores and remap conflicts, or **Replace** to remove the current
    workspace first.
-4. Review the confirmation before restoring.
 
 Download a fresh backup before using **Replace** if the current household may be needed later.
+If restoring fails, the confirmation keeps your selected backup and shows an error. Choose **Merge**
+or **Replace** again to retry, or **Cancel** to discard the selection. Restore controls are disabled
+while saving.
 
 ## Recover damaged chore data
 

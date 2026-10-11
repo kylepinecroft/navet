@@ -6,6 +6,7 @@ import {
   getResponsiveCardSize,
 } from '@navet/app/components/shared/card-size-selector';
 import type { getThemeSurfaceTokens } from '@navet/app/components/shared/theme/theme-surface-tokens';
+import { navetRadiusTokens } from '@navet/app/components/system/tokens';
 import { useI18n } from '@navet/app/hooks';
 import { useBreakpointCols } from '@navet/app/hooks/use-breakpoint-cols';
 import type { DeviceWithType } from '@navet/app/types/device.types';
@@ -370,7 +371,7 @@ export const CardGrid = memo(function CardGrid({
             <div
               aria-hidden="true"
               data-home-snap-drop-preview="true"
-              className="pointer-events-none rounded-[20px]"
+              className={`pointer-events-none ${navetRadiusTokens.action}`}
               style={dropPreviewStyle}
             />
           ) : null}

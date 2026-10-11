@@ -159,3 +159,57 @@ export const HandleSizes: Story = {
     </div>
   ),
 };
+
+export const Garage: Story = {
+  args: {
+    id: 'cover.issue_235_garage',
+    initialDeviceClass: 'garage',
+    name: 'Garage door',
+    initialPosition: 0,
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await expect(canvas.getByText('Closed')).toBeVisible();
+    await expect(canvas.queryByText('0%')).toBeNull();
+    await expect(canvas.queryByRole('slider')).toBeNull();
+  },
+};
+
+export const Positionless: Story = {
+  args: {
+    id: 'cover.issue_235_positionless',
+    hasPosition: false,
+    initialPosition: 0,
+    supportedFeatures: 3,
+  },
+};
+
+export const WindowCover: Story = {
+  args: {
+    id: 'cover.window_fixture',
+    initialDeviceClass: 'window',
+    name: 'Kitchen Window',
+    initialState: 'open',
+  },
+};
+
+export const Unavailable: Story = {
+  args: {
+    id: 'cover.unavailable_garage_fixture',
+    initialDeviceClass: 'garage',
+    name: 'Garage Door',
+    initialState: 'unavailable',
+    initialPosition: 0,
+    hasPosition: false,
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await expect(canvas.getByText('Unavailable')).toBeVisible();
+    await expect(canvas.getByRole('button', { name: 'Open' })).toBeDisabled();
+    await expect(canvas.getByRole('button', { name: 'Toggle Garage Door cover' })).toBeDisabled();
+    await expect(canvas.getByRole('button', { name: 'Garage Door cover' })).toHaveAttribute(
+      'aria-disabled',
+      'true'
+    );
+  },
+};

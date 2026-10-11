@@ -2066,6 +2066,8 @@ export const enMessages = {
   'household.data.importTitle': 'Restore chores backup?',
   'household.data.importDescription':
     'Merge keeps current chores and renames conflicts. Replace removes the current workspace first.',
+  'household.data.importFailed':
+    'The chores backup could not be restored. Try Merge or Replace again.',
   'household.data.imported': 'Chores backup restored.',
   'household.data.merge': 'Merge',
   'household.data.replace': 'Replace',
@@ -2454,6 +2456,8 @@ export const enMessages = {
   'cover.state.opening': 'Opening...',
   'cover.state.closing': 'Closing...',
   'cover.ariaLabel': '{name} cover',
+  'cover.settings.simple': 'Simple controls',
+  'cover.settings.position': 'Position controls',
   'cover.settings.deviceType': 'Device Type',
   'cover.settings.description': 'Select the type of cover for {name}',
   'cover.deviceClass.blind': 'Window Blinds',
@@ -2464,6 +2468,7 @@ export const enMessages = {
   'cover.deviceClass.awning': 'Awnings',
   'cover.deviceClass.shutter': 'Shutters',
   'cover.deviceClass.door': 'Doors',
+  'cover.deviceClass.window': 'Windows',
   'scene.activate': 'Activate',
   'scene.activating': 'Activating...',
   'scene.tapToActivate': 'Tap to apply this scene instantly.',

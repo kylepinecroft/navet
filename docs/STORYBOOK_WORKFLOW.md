@@ -12,8 +12,7 @@ Architecture note:
 - Storybook documents the current shared UI implementation surface.
 - That current surface is mostly app-owned under `packages/app/src/components/*`,
   `packages/app/src/features/*`, and `packages/app/src/ui-kit/*`.
-- `@navet/ui` remains the target provider-neutral shared UI package boundary even where Storybook
-  is still reviewing app-owned migration seams.
+- Provider-neutral UI extracted into `@navet/ui` carries its colocated stories.
 
 ## Where Stories Go
 
@@ -21,7 +20,7 @@ Use colocated stories by default.
 
 | Area | Location | Title root |
 |---|---|---|
-| UI kit overview stories | `packages/app/src/ui-kit/*.stories.tsx` | `Concepts/` |
+| UI kit overview and registry recipes | `packages/app/src/ui-kit/**/*.stories.tsx` | `Concepts/` |
 | primitives | `packages/app/src/components/primitives/*.stories.tsx` | `Components/Primitives/` |
 | patterns | `packages/app/src/components/patterns/*.stories.tsx` | `Components/Patterns/` |
 | shared app UI | `packages/app/src/components/shared/**/*.stories.tsx` | `Components/Shared/` or `Theme/` |
@@ -36,14 +35,17 @@ Use colocated stories by default.
 - reuse helpers from `packages/app/src/storybook/`
 - do not connect stories to live provider sessions
 - use the preview runtime's deterministic media service for media browse and playback stories
+- For interactive entity fixtures, assemble normalized entities with `withPreviewEntities` and
+  install the resulting scenario before rendering controls. Reads and commands must use that same
+  runtime. Restore the previous runtime and store state when a fixture unmounts. Preview snapshots
+  provide compatibility aliases for normalized lighting attributes; fixture authors keep
+  `brightnessPct`, capabilities and availability in normalized entity state.
 - initialize only the minimum store state a story needs
 - keep aggregate stories useful, but do not hide normal component stories behind them
 - when adding or renaming a public card story, register its shared docs copy in `packages/app/src/storybook/story-docs.ts`
 - keep primary entity-card families covered with standalone stories before relying on aggregate matrix or catalog stories
 - when documenting story placement, distinguish current implementation locations from target
   package ownership
-- if a provider-neutral shared UI surface is extracted into `@navet/ui`, colocate its stories with
-  that package instead of forcing them to remain app-owned
 - when a story supports new or substantially reshaped UI, identify the canonical product or
   component reference in the story description or review notes
 - cover the component's meaningful states and sizes; do not present only the ideal default state
@@ -72,3 +74,11 @@ Development behavior:
 
 - [design-system/README.md](design-system/README.md)
 - [design-system/UI-GUIDELINES.md](design-system/UI-GUIDELINES.md)
+
+## Composition registry
+
+Use `pnpm registry:dev` for coordinated Storybook and registry development. Every Storybook build
+publishes matching `/r/registry.json` and item payloads, with links resolved against its actual
+index. Inspect templates, contracts and executable examples in **Concepts / UI Kit Recipes**.
+Verify the exact clean PR preview with `pnpm registry:preview <immutable-preview-URL> <full-SHA>`;
+see [registry workflow](design-system/REGISTRY.md) for provenance, CLI and MCP access.

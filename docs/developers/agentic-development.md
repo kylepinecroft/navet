@@ -1,7 +1,7 @@
 ---
 title: Agentic development workflow
 description: Understand how maintainers send selected Navet issues to Codex while preserving human review and manual contributions.
-editUrl: https://github.com/awesomestvi/navet/edit/main/docs/developers/agentic-development.md
+editUrl: https://github.com/navet-app/navet/edit/main/docs/developers/agentic-development.md
 ---
 
 Navet uses GitHub as the control point for selected agent-assisted work. Maintainers decide which
@@ -13,13 +13,13 @@ open pull requests manually.
 1. A maintainer adds `navet: research` for investigation or `navet: implement` for a fix.
    When Navet Nisse asks a blocking question or requests a retest, the issue reporter or a
    maintainer can reply normally.
-2. The private Codex runner checks the queue every 15 minutes. After dispatch succeeds, it
+2. The private Codex runner checks the queue on its configured schedule. After dispatch succeeds, it
    removes the request label. Add the same label later to request another run. If dispatch fails,
    the label stays in place for a retry.
 3. Codex creates an isolated worktree task from the default branch. Research tasks report without
    changing code; implementation tasks reproduce, fix, validate, review, and open a pull request.
-4. CI, Cloudflare previews, and independent review provide evidence. Navet Nisse maintains one
-   pull-request summary with the current validation result and preview links.
+4. CI, Cloudflare previews, and independent review provide evidence. Use the pull request's
+   checks to inspect the current validation results and preview links.
 5. A maintainer reviews the result, gives product feedback, and decides whether to merge. Runtime
    changes merged to `main` publish a Navet Dev build automatically; production publication remains separate.
 
@@ -61,10 +61,11 @@ Home Assistant credentials, or publish a production release.
 
 ## Communicate with reporters
 
-Automated issue and pull-request comments appear as `navet-nisse[bot]`. Branches, commits, pushes,
-and pull requests remain under the maintainer's GitHub identity, and your manual comments still
-appear as you. Public issue replies should sound like a thoughtful person speaking directly to the
-reporter. They acknowledge useful context or frustration when appropriate, use plain language,
+Automated issue comments and claim reactions appear as `navet-nisse[bot]`. Navet Nisse posts
+progress updates and blocking questions on the linked issue and reads pull-request feedback.
+Branches, commits, pushes, pull requests, and review-thread replies use the maintainer's GitHub
+identity. Your manual comments appear as you. Public issue replies should sound like a thoughtful
+person speaking directly to the reporter. They acknowledge useful context or frustration when appropriate, use plain language,
 lead with the user-visible finding, and end with one clear next step or question.
 
 Implementation details, test counts, and acceptance evidence belong in the pull request unless
@@ -85,6 +86,19 @@ merge records human acceptance for ordinary, foundational, and security-sensitiv
 Merging runtime changes to `main` automatically publishes a Navet Dev release. Production releases
 and public release communication require maintainer approval.
 
+## Requests in the Codex workspace
+
+Maintainers can request release announcements, researched ideas in the private GitHub Project, or delivery of
+a selected scope directly in the Navet workspace. The matching repository skill applies Navet's
+brand, voice and UX standards and retains checked evidence. Before publication, the maintainer
+reviews one package containing final copy, screenshot and all destinations/variants. One approval
+covers that package; changed content requires fresh approval. Idea proposals may include private prototypes and
+targeted feasibility POCs; product implementation needs selected-scope approval.
+
+See [direct request workflows](https://github.com/navet-app/navet/blob/main/docs/engineering/request-workflows.md)
+for setup, recovery and live acceptance evidence. PR merge and production release decisions remain
+with the maintainer.
+
 ## Develop manually
 
 Create a branch, make the change, run focused validation, and open a pull request by following the
@@ -97,4 +111,4 @@ Initial issue dispatch and follow-up work are automated. After adding unrelated 
 feedback, a maintainer can add the appropriate request label to queue another iteration.
 
 For the complete roles, permissions, and approval contract, see the
-[repository workflow specification](https://github.com/awesomestvi/navet/blob/main/docs/engineering/agentic-development.md).
+[repository workflow specification](https://github.com/navet-app/navet/blob/main/docs/engineering/agentic-development.md).

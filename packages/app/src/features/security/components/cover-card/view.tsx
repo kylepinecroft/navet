@@ -6,6 +6,7 @@ import { EntityCardHeaderIcon } from '@navet/app/components/primitives/entity-ca
 import { type CardSize, isCompactCardSize } from '@navet/app/components/shared/card-size-selector';
 import { getCardShellSurfaceTokens } from '@navet/app/components/shared/theme/card-shell-surface-tokens';
 import { type ThemeType, useI18n } from '@navet/app/hooks';
+import type { CoverControlMode } from '@navet/app/stores/settings-store';
 import type { HTMLAttributes, MouseEvent as ReactMouseEvent } from 'react';
 import { getSecurityCardSurfaceTokens } from '../security-card-surface-tokens';
 import { CoverActionRow } from './cover-action-row';
@@ -32,6 +33,10 @@ function isCoverOpenTone(position: number) {
 }
 
 interface CoverCardViewProps {
+  showPosition: boolean;
+  hasPosition: boolean;
+  controlMode: CoverControlMode;
+  onControlModeChange: (mode: CoverControlMode) => void;
   entityId: string;
   name: string;
   room: string;
@@ -45,7 +50,7 @@ interface CoverCardViewProps {
   openColors: CoverColorSet;
   closedColors: CoverColorSet;
   theme: ThemeType;
-  stateDisplay: { text: string; color: string };
+  stateDisplay: { text: string; color: string; unavailable?: boolean };
   iconButtonProps: CoverIconButtonProps;
   settingsButtonProps: CoverIconButtonProps;
   isSettingsOpen: boolean;
@@ -58,12 +63,17 @@ interface CoverCardViewProps {
   handleStop: () => void;
   canOpen: boolean;
   canClose: boolean;
+  supportsStop: boolean;
   canStop: boolean;
   canSetPosition: boolean;
   setDeviceClass: (deviceClass: DeviceClass) => void;
 }
 
 export function CoverCardView({
+  showPosition,
+  hasPosition,
+  controlMode,
+  onControlModeChange,
   entityId,
   name,
   room,
@@ -90,6 +100,7 @@ export function CoverCardView({
   handleStop,
   canOpen,
   canClose,
+  supportsStop,
   canStop,
   canSetPosition,
   setDeviceClass,
@@ -97,7 +108,7 @@ export function CoverCardView({
   const { t } = useI18n();
   const isSmall = isCompactCardSize(size);
   const isMedium = size === 'medium';
-  const clampedPosition = Math.max(0, Math.min(100, position));
+  const clampedPosition = stateDisplay.unavailable ? 0 : Math.max(0, Math.min(100, position));
 
   const cardShell = getCardShellSurfaceTokens(theme);
   const securitySurface = getSecurityCardSurfaceTokens(theme);
@@ -133,26 +144,32 @@ export function CoverCardView({
       size={size}
       {...coverCardProps}
       data-cover-card-root="true"
-      frameClassName={`bg-linear-to-br ${closedColors.gradient} ${cardShell.rootFrameClassName} ${isCoverOpenTone(clampedPosition) ? openColors.border : closedColors.border} ${securitySurface.containerShadowClassName}`}
-      disableDefaultSheen
+      frameClassName={
+        showPosition
+          ? `bg-linear-to-br ${closedColors.gradient} ${cardShell.rootFrameClassName} ${isCoverOpenTone(clampedPosition) ? openColors.border : closedColors.border} ${securitySurface.containerShadowClassName}`
+          : undefined
+      }
+      disableDefaultSheen={showPosition}
       overlay={
-        <>
-          <CoverPositionFill
-            position={clampedPosition}
-            theme={theme}
-            coverageGradient={openColors.gradient}
-            cardSize={size}
-          />
-          <div className={`absolute inset-0 bg-linear-to-br ${openColors.glow} to-transparent`} />
-          {securitySurface.overlayClassName ? (
-            <div className={`absolute inset-0 ${securitySurface.overlayClassName}`} />
-          ) : null}
-        </>
+        showPosition ? (
+          <>
+            <CoverPositionFill
+              position={clampedPosition}
+              theme={theme}
+              coverageGradient={openColors.gradient}
+              cardSize={size}
+            />
+            <div className={`absolute inset-0 bg-linear-to-br ${openColors.glow} to-transparent`} />
+            {securitySurface.overlayClassName ? (
+              <div className={`absolute inset-0 ${securitySurface.overlayClassName}`} />
+            ) : null}
+          </>
+        ) : undefined
       }
       contentClassName="h-full"
     >
       <div className="relative flex h-full flex-col">
-        {isSmall || isMedium ? (
+        {showPosition && (isSmall || isMedium) ? (
           <CoverPositionGestureSurface
             position={clampedPosition}
             ariaLabel={t('cover.ariaLabel', { name })}
@@ -183,6 +200,7 @@ export function CoverCardView({
             positionAriaLabel={t('cover.ariaLabel', { name })}
             openColors={openColors}
             position={clampedPosition}
+            showPosition={showPosition}
             stateDisplay={stateDisplay}
             theme={theme}
             onOpen={handleOpen}
@@ -191,13 +209,14 @@ export function CoverCardView({
             onPreviewPosition={onPreviewPosition}
             onCommitPosition={onCommitPosition}
             canOpen={canOpen}
+            supportsStop={supportsStop}
             canStop={canStop}
             canClose={canClose}
             canSetPosition={canSetPosition}
             isEditMode={isEditMode}
             onToggle={handleToggle}
           />
-        ) : isMedium ? (
+        ) : isMedium || !showPosition ? (
           <MediumCoverLayout
             name={name}
             size={size}
@@ -208,6 +227,7 @@ export function CoverCardView({
             positionAriaLabel={t('cover.ariaLabel', { name })}
             openColors={openColors}
             position={clampedPosition}
+            showPosition={showPosition}
             stateDisplay={stateDisplay}
             theme={theme}
             onOpen={handleOpen}
@@ -216,6 +236,7 @@ export function CoverCardView({
             onPreviewPosition={onPreviewPosition}
             onCommitPosition={onCommitPosition}
             canOpen={canOpen}
+            supportsStop={supportsStop}
             canStop={canStop}
             canClose={canClose}
             canSetPosition={canSetPosition}
@@ -233,6 +254,7 @@ export function CoverCardView({
             positionAriaLabel={t('cover.ariaLabel', { name })}
             openColors={openColors}
             position={clampedPosition}
+            showPosition={showPosition}
             stateDisplay={stateDisplay}
             theme={theme}
             onOpen={handleOpen}
@@ -241,6 +263,7 @@ export function CoverCardView({
             onPreviewPosition={onPreviewPosition}
             onCommitPosition={onCommitPosition}
             canOpen={canOpen}
+            supportsStop={supportsStop}
             canStop={canStop}
             canClose={canClose}
             canSetPosition={canSetPosition}
@@ -252,6 +275,10 @@ export function CoverCardView({
 
       {isSettingsOpen ? (
         <CoverSettingsDialog
+          showPosition={showPosition}
+          hasPosition={hasPosition}
+          controlMode={controlMode}
+          onControlModeChange={onControlModeChange}
           entityId={entityId}
           name={name}
           room={room}
@@ -268,6 +295,7 @@ export function CoverCardView({
           onStop={handleStop}
           onClose={handleClose}
           canOpen={canOpen}
+          supportsStop={supportsStop}
           canStop={canStop}
           canClose={canClose}
           canSetPosition={canSetPosition}
@@ -278,6 +306,7 @@ export function CoverCardView({
 }
 
 interface SharedCoverLayoutProps {
+  showPosition: boolean;
   name: string;
   size: CardSize;
   DeviceIcon: DeviceClassConfig['icon'];
@@ -286,7 +315,7 @@ interface SharedCoverLayoutProps {
   deviceLabel: string;
   positionAriaLabel: string;
   position: number;
-  stateDisplay: { text: string; color: string };
+  stateDisplay: { text: string; color: string; unavailable?: boolean };
   openColors: CoverColorSet;
   theme: ThemeType;
   onOpen: () => void;
@@ -295,6 +324,7 @@ interface SharedCoverLayoutProps {
   onPreviewPosition: (newPosition: number) => void;
   onCommitPosition: (newPosition: number) => void;
   canOpen: boolean;
+  supportsStop: boolean;
   canStop: boolean;
   canClose: boolean;
   canSetPosition: boolean;
@@ -332,6 +362,7 @@ function CoverCardHeader({
           size={isExtraSmall ? 'tiny' : size}
           tone={tone}
           ariaLabel={iconButtonProps['aria-label']}
+          disabled={iconButtonProps.disabled}
           onClick={iconButtonProps.onClick}
           onPointerDown={iconButtonProps.onPointerDown}
         />
@@ -347,14 +378,20 @@ function CoverPositionMetric({
   theme,
   size,
   inlineState = false,
-}: Pick<SharedCoverLayoutProps, 'position' | 'stateDisplay' | 'openColors' | 'theme'> & {
+  showPosition,
+}: Pick<
+  SharedCoverLayoutProps,
+  'position' | 'stateDisplay' | 'openColors' | 'theme' | 'showPosition'
+> & {
   size: 'sm' | 'xl';
   inlineState?: boolean;
 }) {
   return (
     <CardMetric
       value={
-        inlineState ? (
+        !showPosition || stateDisplay.unavailable ? (
+          stateDisplay.text
+        ) : inlineState ? (
           <span className="flex min-w-0 items-baseline gap-1.5">
             <span>{position}%</span>
             <span className={`truncate text-base font-light leading-none ${stateDisplay.color}`}>
@@ -365,19 +402,28 @@ function CoverPositionMetric({
           `${position}%`
         )
       }
-      label={inlineState ? undefined : stateDisplay.text}
+      label={
+        !showPosition || inlineState || stateDisplay.unavailable ? undefined : stateDisplay.text
+      }
       size={size}
-      isActive={position > 0}
+      isActive={!stateDisplay.unavailable && position > 0}
       accentClassName={openColors.accent}
       theme={theme}
       labelClassName={stateDisplay.color}
-      valueClassName={inlineState ? 'text-2xl font-light leading-none tracking-normal' : undefined}
+      valueClassName={
+        !showPosition
+          ? 'text-2xl font-light leading-tight break-words'
+          : inlineState
+            ? 'text-2xl font-light leading-none tracking-normal'
+            : undefined
+      }
     />
   );
 }
 
 // Small — no window visualization; the card background split IS the indicator.
 function CompactCoverLayout({
+  showPosition,
   name,
   size,
   DeviceIcon,
@@ -392,6 +438,7 @@ function CompactCoverLayout({
   onStop,
   onClose,
   canOpen,
+  supportsStop,
   canStop,
   canClose,
 }: SharedCoverLayoutProps) {
@@ -412,6 +459,7 @@ function CompactCoverLayout({
         <div className="mt-auto">
           <CoverPositionMetric
             position={position}
+            showPosition={showPosition}
             stateDisplay={stateDisplay}
             openColors={openColors}
             theme={theme}
@@ -425,6 +473,7 @@ function CompactCoverLayout({
           metric={
             <CoverPositionMetric
               position={position}
+              showPosition={showPosition}
               stateDisplay={stateDisplay}
               openColors={openColors}
               theme={theme}
@@ -441,6 +490,7 @@ function CompactCoverLayout({
               onStop={onStop}
               onClose={onClose}
               canOpen={canOpen}
+              supportsStop={supportsStop}
               canStop={canStop}
               canClose={canClose}
             />
@@ -453,6 +503,7 @@ function CompactCoverLayout({
 
 // Medium — no window visualization; the card background split IS the indicator.
 function MediumCoverLayout({
+  showPosition,
   name,
   size,
   DeviceIcon,
@@ -467,6 +518,7 @@ function MediumCoverLayout({
   onStop,
   onClose,
   canOpen,
+  supportsStop,
   canStop,
   canClose,
 }: SharedCoverLayoutProps) {
@@ -486,6 +538,7 @@ function MediumCoverLayout({
         metric={
           <CoverPositionMetric
             position={position}
+            showPosition={showPosition}
             stateDisplay={stateDisplay}
             openColors={openColors}
             theme={theme}
@@ -502,6 +555,7 @@ function MediumCoverLayout({
             onStop={onStop}
             onClose={onClose}
             canOpen={canOpen}
+            supportsStop={supportsStop}
             canStop={canStop}
             canClose={canClose}
           />
@@ -513,6 +567,7 @@ function MediumCoverLayout({
 
 // Large — keeps the window visualization alongside the split background.
 function LargeCoverLayout({
+  showPosition,
   name,
   size,
   DeviceIcon,
@@ -530,6 +585,7 @@ function LargeCoverLayout({
   onStop,
   onClose,
   canOpen,
+  supportsStop,
   canStop,
   canClose,
   canSetPosition,
@@ -561,6 +617,7 @@ function LargeCoverLayout({
         <div className="flex min-w-0 flex-col rounded-[28px] border border-white/10 bg-black/10 p-4 backdrop-blur-sm">
           <CoverPositionMetric
             position={position}
+            showPosition={showPosition}
             stateDisplay={stateDisplay}
             openColors={openColors}
             theme={theme}
@@ -588,6 +645,7 @@ function LargeCoverLayout({
           onStop={onStop}
           onClose={onClose}
           canOpen={canOpen}
+          supportsStop={supportsStop}
           canStop={canStop}
           canClose={canClose}
         />

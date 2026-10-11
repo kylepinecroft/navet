@@ -56,7 +56,10 @@ function createReleaseFixture() {
   runGit(repository, environment, ['config', 'commit.gpgSign', 'false']);
   runGit(repository, environment, ['config', 'tag.gpgSign', 'false']);
 
-  cpSync(sourceScriptsDirectory, join(repository, 'scripts'), { recursive: true });
+  mkdirSync(join(repository, 'scripts'));
+  for (const file of ['create-dev-release.mjs', 'release-surfaces.mjs', 'repo-paths.mjs']) {
+    cpSync(join(sourceScriptsDirectory, file), join(repository, 'scripts', file));
+  }
   mkdirSync(join(repository, 'platform/home-assistant/addons/navet-dev'), {
     recursive: true,
   });
@@ -78,7 +81,7 @@ function createReleaseFixture() {
     join(repository, 'repository.yaml'),
     [
       'name: Navet Add-ons',
-      'url: https://github.com/awesomestvi/navet',
+      'url: https://github.com/navet-app/navet',
       'maintainer: Navet Release Test',
       '',
     ].join('\n'),

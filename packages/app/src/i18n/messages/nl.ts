@@ -407,6 +407,8 @@ export const nlMessages = {
   'household.data.importTitle': 'Back-up van taken herstellen?',
   'household.data.importDescription':
     'Samenvoegen bewaart huidige taken en hernoemt conflicten. Vervangen verwijdert eerst de huidige ruimte.',
+  'household.data.importFailed':
+    'De back-up kon niet worden hersteld. Probeer opnieuw samen te voegen of te vervangen.',
   'household.data.imported': 'Back-up van taken hersteld.',
   'household.data.merge': 'Samenvoegen',
   'household.data.replace': 'Vervangen',
@@ -2479,6 +2481,8 @@ export const nlMessages = {
   'cover.state.opening': 'Openen...',
   'cover.state.closing': 'Sluiten...',
   'cover.ariaLabel': '{name}-afdekking',
+  'cover.settings.simple': 'Eenvoudige bediening',
+  'cover.settings.position': 'Positiebediening',
   'cover.settings.deviceType': 'Apparaattype',
   'cover.settings.description': 'Selecteer het type dekking voor {name}',
   'cover.deviceClass.blind': 'Jaloezieën',
@@ -2489,6 +2493,7 @@ export const nlMessages = {
   'cover.deviceClass.awning': 'Luifels',
   'cover.deviceClass.shutter': 'Luiken',
   'cover.deviceClass.door': 'Deuren',
+  'cover.deviceClass.window': 'Ramen',
   'scene.activate': 'Activeer',
   'scene.activating': 'Activeren...',
   'scene.tapToActivate': 'Tik om deze scène onmiddellijk toe te passen.',

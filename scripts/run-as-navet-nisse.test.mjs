@@ -53,25 +53,25 @@ describe('Navet Nisse GitHub App authentication', () => {
   it('limits the bot identity to comments, reactions, and request-label cleanup', () => {
     expect(parseOperation(['comment', '181', '--body-file', '/tmp/reply.md'])).toEqual({
       method: 'POST',
-      path: '/repos/awesomestvi/navet/issues/181/comments',
+      path: '/repos/navet-app/navet/issues/181/comments',
       bodyFile: '/tmp/reply.md',
     });
     expect(parseOperation(['react', '1234', 'rocket'])).toEqual({
       method: 'POST',
-      path: '/repos/awesomestvi/navet/issues/comments/1234/reactions',
+      path: '/repos/navet-app/navet/issues/comments/1234/reactions',
       body: { content: 'rocket' },
     });
     expect(parseOperation(['unreact', '1234', '5678'])).toEqual({
       method: 'DELETE',
-      path: '/repos/awesomestvi/navet/issues/comments/1234/reactions/5678',
+      path: '/repos/navet-app/navet/issues/comments/1234/reactions/5678',
     });
     expect(parseOperation(['remove-request-label', '181', 'research'])).toEqual({
       method: 'DELETE',
-      path: '/repos/awesomestvi/navet/issues/181/labels/navet%3A%20research',
+      path: '/repos/navet-app/navet/issues/181/labels/navet%3A%20research',
     });
     expect(parseOperation(['remove-request-label', '181', 'implement'])).toEqual({
       method: 'DELETE',
-      path: '/repos/awesomestvi/navet/issues/181/labels/navet%3A%20implement',
+      path: '/repos/navet-app/navet/issues/181/labels/navet%3A%20implement',
     });
     expect(() => parseOperation(['remove-request-label', '181', 'other'])).toThrow('Unsupported');
     expect(() => parseOperation(['git', 'push'])).toThrow('Usage:');
@@ -79,22 +79,64 @@ describe('Navet Nisse GitHub App authentication', () => {
     expect(() => parseOperation(['react', '1234', 'invalid'])).toThrow('Unsupported');
   });
 
-  it('writes comments through the issues API without exposing the token', async () => {
-    const fetchImpl = vi.fn().mockResolvedValue({
+  it('checks issue identity before writing comments without exposing the token', async () => {
+    const fetchImpl = vi.fn().mockResolvedValueOnce({ ok: true, json: async () => ({ number: 181 }) }).mockResolvedValueOnce({
       ok: true,
       status: 201,
       json: async () => ({ id: 99 }),
     });
     const operation = {
       method: 'POST',
-      path: '/repos/awesomestvi/navet/issues/181/comments',
+      path: '/repos/navet-app/navet/issues/181/comments',
       body: { body: 'Useful result.' },
     };
     await expect(
       performOperation({ token: 'installation-token', operation, fetchImpl })
     ).resolves.toEqual({ id: 99 });
-    const [, request] = fetchImpl.mock.calls[0];
+    expect(fetchImpl.mock.calls[0][0]).toBe('https://api.github.com/repos/navet-app/navet/issues/181');
+    expect(fetchImpl.mock.calls[0][1].method).toBe('GET');
+    const [, request] = fetchImpl.mock.calls[1];
     expect(request.body).toBe(JSON.stringify({ body: 'Useful result.' }));
     expect(request.headers.Authorization).toBe('Bearer installation-token');
   });
+  it.each([
+    ['comment', '181', '--body-file', '/tmp/unused.md'],
+    ['remove-request-label', '181', 'research'],
+    ['react', '1234', 'rocket'],
+    ['unreact', '1234', '5678'],
+  ])('refuses PR mutation targets before sending any write: %s', async (...args) => {
+    const operation = parseOperation(args);
+    const fetchImpl = vi.fn();
+    if (['react', 'unreact'].includes(args[0])) fetchImpl.mockResolvedValueOnce({ ok: true,
+      json: async () => ({ id: 1234, issue_url: 'https://api.github.com/repos/navet-app/navet/issues/181' }) });
+    fetchImpl.mockResolvedValueOnce({ ok: true, json: async () => ({ number: 181, pull_request: { url: 'https://api.github.com/repos/navet-app/navet/pulls/181' } }) });
+    await expect(performOperation({ token: 'test', operation, fetchImpl })).rejects.toThrow('restricted to issues');
+    expect(fetchImpl.mock.calls.every(([, request]) => request.method === 'GET')).toBe(true);
+  });
+
+  it.each(['react', 'unreact'])('allows %s only after resolving its comment to a verified issue', async (action) => {
+    const operation = parseOperation(action === 'react' ? [action, '1234', 'rocket'] : [action, '1234', '5678']);
+    const fetchImpl = vi.fn()
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ id: 1234, issue_url: 'https://api.github.com/repos/navet-app/navet/issues/181' }) })
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ number: 181 }) })
+      .mockResolvedValueOnce({ ok: true, status: 204 });
+    expect(await performOperation({ token: 'test', operation, fetchImpl })).toBeNull();
+    expect(fetchImpl.mock.calls.map(([, request]) => request.method)).toEqual(['GET', 'GET', operation.method]);
+  });
+
+  it.each([
+    { ok: false, status: 404 },
+    { ok: true, json: async () => ({ number: 182 }) },
+  ])('fails closed when the issue target cannot be verified', async (response) => {
+    const fetchImpl = vi.fn().mockResolvedValueOnce(response);
+    await expect(performOperation({ token: 'test', operation: parseOperation(['remove-request-label', '181', 'research']), fetchImpl })).rejects.toThrow();
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  it('refuses foreign comment issue URLs before forwarding the App credential', async () => {
+    const fetchImpl = vi.fn().mockResolvedValueOnce({ ok: true, json: async () => ({ id: 1234, issue_url: 'https://example.invalid/repos/navet-app/navet/issues/181' }) });
+    await expect(performOperation({ token: 'test', operation: parseOperation(['react', '1234', 'rocket']), fetchImpl })).rejects.toThrow('identity mismatch');
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
 });

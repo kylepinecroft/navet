@@ -408,6 +408,8 @@ export const daMessages = {
   'household.data.importTitle': 'Gendan sikkerhedskopien?',
   'household.data.importDescription':
     'Flet beholder aktuelle opgaver og omdøber konflikter. Erstat fjerner først det nuværende område.',
+  'household.data.importFailed':
+    'Sikkerhedskopien kunne ikke gendannes. Prøv at flette eller erstatte igen.',
   'household.data.imported': 'Sikkerhedskopien er gendannet.',
   'household.data.merge': 'Flet',
   'household.data.replace': 'Erstat',
@@ -2455,6 +2457,8 @@ export const daMessages = {
   'cover.state.opening': 'Åbner...',
   'cover.state.closing': 'Lukker...',
   'cover.ariaLabel': '{name} afdækning',
+  'cover.settings.simple': 'Enkle kontroller',
+  'cover.settings.position': 'Positionskontroller',
   'cover.settings.deviceType': 'Enhedstype',
   'cover.settings.description': 'Vælg typen af omslag til {name}',
   'cover.deviceClass.blind': 'Rudegardiner',
@@ -2465,6 +2469,7 @@ export const daMessages = {
   'cover.deviceClass.awning': 'Markiser',
   'cover.deviceClass.shutter': 'Skodder',
   'cover.deviceClass.door': 'Døre',
+  'cover.deviceClass.window': 'Vinduer',
   'scene.activate': 'Aktiver',
   'scene.activating': 'Aktiverer...',
   'scene.tapToActivate': 'Tryk for at anvende denne scene med det samme.',

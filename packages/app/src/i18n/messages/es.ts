@@ -410,6 +410,8 @@ export const esMessages = {
   'household.data.importTitle': '¿Restaurar la copia de tareas?',
   'household.data.importDescription':
     'Combinar conserva las tareas actuales y cambia el nombre de los conflictos. Reemplazar elimina primero el espacio actual.',
+  'household.data.importFailed':
+    'No se pudo restaurar la copia. Intenta combinar o reemplazar de nuevo.',
   'household.data.imported': 'Copia de tareas restaurada.',
   'household.data.merge': 'Combinar',
   'household.data.replace': 'Reemplazar',
@@ -2471,6 +2473,8 @@ export const esMessages = {
   'cover.state.opening': 'Abriendo...',
   'cover.state.closing': 'Cerrando...',
   'cover.ariaLabel': 'cubierta {name}',
+  'cover.settings.simple': 'Controles simples',
+  'cover.settings.position': 'Controles de posición',
   'cover.settings.deviceType': 'Tipo de dispositivo',
   'cover.settings.description': 'Selecciona el tipo de cubierta para {name}',
   'cover.deviceClass.blind': 'Persianas',
@@ -2481,6 +2485,7 @@ export const esMessages = {
   'cover.deviceClass.awning': 'Toldos',
   'cover.deviceClass.shutter': 'Contraventanas',
   'cover.deviceClass.door': 'Puertas',
+  'cover.deviceClass.window': 'Ventanas',
   'scene.activate': 'Activar',
   'scene.activating': 'Activando...',
   'scene.tapToActivate': 'Toca para aplicar esta escena al instante.',

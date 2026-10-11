@@ -1,27 +1,19 @@
 #!/usr/bin/env node
 import fs from 'node:fs';
 import path from 'node:path';
+import { applyCompositionBaseline, findCompositionViolations } from './ui-shell-recipes.mjs';
+import { findUiFeatureImports } from './ui-feature-imports.mjs';
 
 const ROOT = process.cwd();
 
 const SHARED_DIRS = [
+  'packages/ui/src',
   'packages/app/src/components/primitives',
   'packages/app/src/components/patterns',
   'packages/app/src/components/shared',
   'packages/app/src/components/system',
   'packages/app/src/ui-kit',
 ];
-
-const PUBLIC_EXPORT_DIRS = ['packages/app/src/components/system', 'packages/app/src/ui-kit'];
-
-const LEGACY_MODAL_ALLOWLIST = new Set([
-  'packages/app/src/features/security/components/camera-card/camera-settings-dialog.tsx',
-  'packages/app/src/features/security/components/cover-card/view.tsx',
-  'packages/app/src/features/climate/components/hvac-settings-dialog/index.tsx',
-  'packages/app/src/features/weather/components/weather-card/weather-settings-dialog.tsx',
-  'packages/app/src/features/lighting/components/light-card/light-settings-dialog.tsx',
-  'packages/app/src/features/lighting/components/switch-settings-dialog.tsx',
-]);
 
 function walk(dir) {
   const entries = fs.readdirSync(path.join(ROOT, dir), { withFileTypes: true });
@@ -39,7 +31,7 @@ function walk(dir) {
       continue;
     }
 
-    if (!/\.(ts|tsx|js|jsx|mjs)$/.test(entry.name) || entry.name.includes('.stories.')) {
+    if (!/\.(ts|tsx|js|jsx|mjs)$/.test(entry.name)) {
       continue;
     }
 
@@ -53,38 +45,22 @@ const violations = [];
 
 for (const dir of SHARED_DIRS) {
   for (const relativePath of walk(dir)) {
+    if (relativePath.includes('.stories.')) continue;
     const source = fs.readFileSync(path.join(ROOT, relativePath), 'utf8');
 
-    if (source.includes(`/app/features/`)) {
-      violations.push(`${relativePath}: shared UI layers must not import from feature modules`);
+    for (const specifier of findUiFeatureImports(relativePath, source)) {
+      violations.push(`${relativePath}: shared UI layers must not depend on feature modules (${specifier})`);
     }
   }
 }
 
-for (const dir of PUBLIC_EXPORT_DIRS) {
-  for (const relativePath of walk(dir)) {
-    const source = fs.readFileSync(path.join(ROOT, relativePath), 'utf8');
-
-    if (/export\s+.*from\s+['"]@\/app\/features\//.test(source)) {
-      violations.push(`${relativePath}: public UI-kit surfaces must not re-export feature modules`);
-    }
-  }
-}
-
-for (const relativePath of [...walk('packages/app/src/components/layout'), ...walk('packages/app/src/features')]) {
-  const source = fs.readFileSync(path.join(ROOT, relativePath), 'utf8');
-
-  const hasLegacyModalRecipe =
-    /(fixed (left-1\/2 top-1\/2|top-1\/2 left-1\/2) z-50 .*shadow-2xl backdrop-blur-xl)/.test(
-      source
-    ) || /fixed inset-x-0 bottom-0 z-50 .*rounded-\[30px\].*shadow-2xl/.test(source);
-
-  if (hasLegacyModalRecipe && !LEGACY_MODAL_ALLOWLIST.has(relativePath)) {
-    violations.push(
-      `${relativePath}: use shared ModalSurface or SheetSurface instead of reauthoring shell recipes`
-    );
-  }
-}
+// Canonical Radix shell implementations own their shell classes. Consumers and stories are checked.
+const canonicalShells = new Set(['packages/app/src/components/primitives/dialog-primitives.tsx', 'packages/app/src/components/ui/alert-dialog.tsx', 'packages/app/src/components/ui/dialog.tsx', 'packages/app/src/components/primitives/modal-surface.tsx', 'packages/app/src/components/primitives/Cards/BaseCardDialog/index.tsx']);
+const shellFiles = walk('packages/app/src').filter((file) => !canonicalShells.has(file));
+const baseline = JSON.parse(fs.readFileSync(path.join(ROOT, 'scripts/ui-composition-baseline.json'), 'utf8'));
+const result = applyCompositionBaseline(findCompositionViolations(ROOT, shellFiles), baseline);
+for (const entry of result.newViolations) violations.push(`${entry.file}:${entry.line}: ${entry.rule} (${entry.anchor}, occurrence ${entry.occurrence})`);
+for (const entry of result.obsolete) violations.push(`${entry.file}: obsolete baseline entry ${entry.rule} (${entry.anchor})`);
 
 if (violations.length > 0) {
   console.error('\nUI kit boundary check failed:\n');

@@ -1,7 +1,7 @@
 ---
 title: Choose how cards react to taps
 description: Select toggle-first or control-first behavior for supported cards.
-editUrl: https://github.com/awesomestvi/navet/edit/main/docs/how-to/settings/card-interactions.md
+editUrl: https://github.com/navet-app/navet/edit/main/docs/how-to/settings/card-interactions.md
 ---
 
 Card interaction style changes the common tap path without changing what the provider device can
@@ -20,8 +20,9 @@ Settings buttons and secondary card actions remain available in both modes.
 
 ## Identify an entity
 
-Open an entity card’s controls or settings dialog to see its **Entity id** beneath the name and
-type. This is the ID used by the connected provider, such as `sensor.office_temperature` in
+Open an entity card's controls or settings dialog. In dialogs with a three-dot **More actions**
+menu, the **Entity id** appears at the bottom of that menu. Other dialogs display it beneath the
+name and type. This is the provider's native ID, such as `sensor.office_temperature` in
 Home Assistant. Use it to distinguish entities with similar names before renaming or moving
 them. You can select the ID text to copy it.
 

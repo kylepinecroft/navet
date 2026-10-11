@@ -1,9 +1,9 @@
 # Fork overlay
 
-This checkout is `kylepinecroft/navet`, a fork of [`awesomestvi/navet`](https://github.com/awesomestvi/navet).
+This checkout is `kylepinecroft/navet`, a fork of [`navet-app/navet`](https://github.com/navet-app/navet).
 
-- **Last synced:** upstream `v0.17.6`
-- **Remote:** `upstream` → `https://github.com/awesomestvi/navet.git`
+- **Last synced:** upstream `v0.17.8`
+- **Remote:** `upstream` → `https://github.com/navet-app/navet.git`
 
 Keep this file current. It is the routing list for new fork features and for upstream merges. Do not turn it into a design doc or a hunk-by-hunk patch archive.
 
