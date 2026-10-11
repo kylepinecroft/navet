@@ -15,7 +15,7 @@ import { inferSensorDisplayIcon } from '@navet/app/hooks/device-mappers';
 import { settingsSelectors } from '@navet/app/stores/selectors';
 import { useSettingsStore } from '@navet/app/stores/settings-store';
 import type { SecuritySeverity } from '@navet/app/types/device.types';
-import { type KeyboardEvent, memo, useMemo, useState } from 'react';
+import { type KeyboardEvent, memo, type ReactNode, useMemo, useState } from 'react';
 import {
   type SensorStatisticsPoint,
   useSensorStatisticsHistory,
@@ -45,6 +45,8 @@ export interface InfoCardProps {
   onOpenSettings?: () => void;
   disableBuiltInSettingsDialog?: boolean;
   sparklineData?: SensorStatisticsPoint[];
+  bottomActionBar?: ReactNode;
+  useLiveState?: boolean;
 }
 
 export const InfoCard = memo(function InfoCard({
@@ -65,6 +67,8 @@ export const InfoCard = memo(function InfoCard({
   onOpenSettings,
   disableBuiltInSettingsDialog = false,
   sparklineData,
+  bottomActionBar,
+  useLiveState = true,
 }: InfoCardProps) {
   const { theme } = useTheme();
   const { t } = useI18n();
@@ -72,7 +76,7 @@ export const InfoCard = memo(function InfoCard({
   const use24HourTime = useSettingsStore(settingsSelectors.use24HourTime);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const providerEntity = useProviderEntityModel(id);
-  const providerState = readNavetSensorState(providerEntity);
+  const providerState = useLiveState ? readNavetSensorState(providerEntity) : null;
   const liveDeviceClass = providerState?.deviceClass ?? deviceClass;
   const liveValue = typeof providerState?.value === 'string' ? providerState.value : value;
   const liveUnit = typeof providerState?.unit === 'string' ? providerState.unit : unit;
@@ -173,6 +177,7 @@ export const InfoCard = memo(function InfoCard({
     isEditMode && !disableBuiltInSettingsDialog && onOpenSettings === undefined
   );
   const handleCardKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (event.target !== event.currentTarget) return;
     if (event.key === 'Enter' || event.key === ' ') {
       event.preventDefault();
       openSettings();
@@ -200,6 +205,7 @@ export const InfoCard = memo(function InfoCard({
       {shouldShowQualityBar && qualityModel ? (
         <BaseCard
           size={size}
+          footer={!isVeryCompact ? bottomActionBar : undefined}
           role="button"
           tabIndex={0}
           aria-label={t('entityCardInteraction.openSettings', { name })}
@@ -236,6 +242,7 @@ export const InfoCard = memo(function InfoCard({
       ) : shouldShowSparkline ? (
         <BaseCard
           size={size}
+          footer={!isVeryCompact ? bottomActionBar : undefined}
           role="button"
           tabIndex={0}
           aria-label={t('entityCardInteraction.openSettings', { name })}
@@ -312,6 +319,7 @@ export const InfoCard = memo(function InfoCard({
       ) : (
         <BaseCard
           size={size}
+          footer={!isVeryCompact ? bottomActionBar : undefined}
           role="button"
           tabIndex={0}
           aria-label={t('entityCardInteraction.openSettings', { name })}
