@@ -42,6 +42,7 @@ function createReleaseFixture() {
     GIT_COMMITTER_NAME: 'Navet Release Test',
     GIT_CONFIG_GLOBAL: globalGitConfig,
     GIT_CONFIG_NOSYSTEM: '1',
+    GITHUB_REPOSITORY_OWNER: 'KylePinecroft',
   };
 
   temporaryDirectories.push(root);
@@ -57,7 +58,12 @@ function createReleaseFixture() {
   runGit(repository, environment, ['config', 'tag.gpgSign', 'false']);
 
   mkdirSync(join(repository, 'scripts'));
-  for (const file of ['create-dev-release.mjs', 'release-surfaces.mjs', 'repo-paths.mjs']) {
+  for (const file of [
+    'create-dev-release.mjs',
+    'release-ghcr-namespace.mjs',
+    'release-surfaces.mjs',
+    'repo-paths.mjs',
+  ]) {
     cpSync(join(sourceScriptsDirectory, file), join(repository, 'scripts', file));
   }
   mkdirSync(join(repository, 'platform/home-assistant/addons/navet-dev'), {
@@ -245,7 +251,7 @@ describe('create-dev-release', () => {
     expect(readRemoteRef(fixture, 'refs/heads/main')).toBe(mainBefore);
     expect(release.branchHead).not.toBe(mainBefore);
     expect(result.stdout).toContain(
-      `docker pull ghcr.io/awesomestvi/navet:${release.version}`
+      `docker pull ghcr.io/kylepinecroft/navet:${release.version}`
     );
   });
 

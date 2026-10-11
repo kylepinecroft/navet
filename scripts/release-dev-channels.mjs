@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { execFileSync, spawnSync } from 'node:child_process';
+import { ghcrImage } from './release-ghcr-namespace.mjs';
 import { inspectImage } from './release-image.mjs';
 
 const sha = process.env.RELEASE_SHA;
@@ -8,7 +9,7 @@ const updates = [];
 for (const name of ['navet', 'amd64-navet-addon', 'aarch64-navet-addon']) {
   const record = JSON.parse(readFileSync(`release-images/${name}.json`, 'utf8'));
   if (
-    record.image !== `ghcr.io/awesomestvi/${name}` ||
+    record.image !== ghcrImage(name) ||
     record.sha !== sha ||
     record.channel !== 'dev'
   )

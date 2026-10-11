@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { resolve } from 'node:path';
+import { ghcrImage } from './release-ghcr-namespace.mjs';
 import { assertImageLabels, digestPattern } from './release-image.mjs';
 
 const arch = process.env.NAVET_ADDON_TEST_ARCH;
@@ -11,7 +12,7 @@ const images = ['navet', `${arch}-navet-addon`].map((name) => {
   const record = JSON.parse(readFileSync(`release-images/${name}.json`, 'utf8'));
   if (
     !digestPattern.test(record.digest) ||
-    record.image !== `ghcr.io/awesomestvi/${name}`
+    record.image !== ghcrImage(name)
   ) {
     throw new Error('Invalid artifact identity.');
   }

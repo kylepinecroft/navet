@@ -203,19 +203,36 @@ describe('candidate publication verification', () => {
     schema: 1, tag, sha, version, channel: 'beta', runId: 123,
     panelDigest: digest, notesDigest: digest,
     images: ['navet', 'amd64-navet-addon', 'aarch64-navet-addon'].map((name) => ({
-      image: `ghcr.io/awesomestvi/${name}`, tag: name === 'navet' ? tag : version,
+      image: `ghcr.io/kylepinecroft/${name}`, tag: name === 'navet' ? tag : version,
       sha, version, channel: 'beta', digest,
     })),
   });
-  const verify = (record = evidence(), run = { conclusion: 'success', path: '.github/workflows/release.yml' }) =>
-    candidatePublicationSucceeded(release, sha, { readEvidence: () => record, readRun: () => run });
+  const verify = (
+    record = evidence(),
+    run = { conclusion: 'success', path: '.github/workflows/release.yml' },
+    owner = 'kylepinecroft',
+  ) =>
+    candidatePublicationSucceeded(release, sha, {
+      readEvidence: () => record,
+      readRun: () => run,
+      owner,
+    });
 
-  it('accepts the published beta namespace independently of repository ownership', async () => {
+  it('accepts evidence published under the repository owner', async () => {
     expect(await verify()).toBe(true);
+    const upstream = evidence();
+    upstream.images = upstream.images.map((image) => ({
+      ...image,
+      image: image.image.replace('kylepinecroft', 'navet-app'),
+    }));
+    expect(await verify(upstream, undefined, 'navet-app')).toBe(true);
   });
-  it.each(['other', 'navet-app'])('rejects evidence for an unpublished namespace %s', async (owner) => {
+  it.each(['awesomestvi', 'other'])('rejects evidence for another namespace %s', async (owner) => {
     const record = evidence();
-    record.images = record.images.map((image) => ({ ...image, image: image.image.replace('awesomestvi', owner) }));
+    record.images = record.images.map((image) => ({
+      ...image,
+      image: image.image.replace('kylepinecroft', owner),
+    }));
     expect(await verify(record)).toBe(false);
   });
   it('retains commit and artifact identity requirements', async () => {
@@ -231,7 +248,9 @@ describe('candidate publication verification', () => {
   });
   it('propagates API failure instead of excluding a potentially valid source', async () => {
     await expect(candidatePublicationSucceeded(release, sha, {
-      readEvidence: () => { throw new Error('API unavailable'); }, readRun: () => ({}),
+      readEvidence: () => { throw new Error('API unavailable'); },
+      readRun: () => ({}),
+      owner: 'kylepinecroft',
     })).rejects.toThrow('API unavailable');
   });
 });
