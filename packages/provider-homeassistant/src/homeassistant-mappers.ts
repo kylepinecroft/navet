@@ -1056,6 +1056,10 @@ function inferHomeAssistantCapabilities(
     return capabilities;
   }
 
+  if (domain === 'button' || domain === 'input_button' || domain === 'script') {
+    return ['press'];
+  }
+
   if (domain === 'switch' || domain === 'input_boolean') {
     return ['toggle'];
   }
@@ -1664,7 +1668,12 @@ function mapHomeAssistantEntity(
     return null;
   }
 
-  if (getEntityCategory(entityEntry) === 'config') {
+  // Value and action helpers remain available as secondary controls in their device dialog.
+  if (
+    getEntityCategory(entityEntry) === 'config' &&
+    !mapHomeAssistantHelper(entity) &&
+    !['button', 'input_button', 'script'].includes(domain)
+  ) {
     return null;
   }
 

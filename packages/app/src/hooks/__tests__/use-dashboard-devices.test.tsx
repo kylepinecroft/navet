@@ -10,6 +10,131 @@ import {
 } from '../use-dashboard-devices';
 
 describe('useDashboardDevices', () => {
+  it('keeps standalone helpers opt-in and absorbs related helpers within their provider', () => {
+    const devices: DeviceCollection = {
+      ...createEmptyDeviceCollection(),
+      lights: [
+        {
+          id: 'home_assistant:light.kitchen',
+          providerId: 'home_assistant',
+          underlyingDeviceId: 'shared',
+          name: 'Kitchen',
+          room: 'Kitchen',
+          size: 'small',
+          state: true,
+          brightness: 100,
+          temp: 3000,
+        },
+      ],
+      helpers: [
+        {
+          id: 'home_assistant:number.related',
+          providerId: 'home_assistant',
+          underlyingDeviceId: 'shared',
+          name: 'Related',
+          room: 'Kitchen',
+          size: 'small',
+          state: false,
+        },
+        {
+          id: 'home_assistant:input_number.lone',
+          providerId: 'home_assistant',
+          name: 'Lone',
+          room: 'Kitchen',
+          size: 'small',
+          state: false,
+        },
+        {
+          id: 'openhab:helper',
+          providerId: 'openhab',
+          underlyingDeviceId: 'shared',
+          name: 'Other provider',
+          room: 'Kitchen',
+          size: 'small',
+          state: false,
+        },
+      ],
+    };
+    const initial = buildDashboardVisibilityResult(devices, []);
+    expect(initial.visibleDevices.helpers).toEqual([]);
+    expect(initial.availableDevices.helpers.map((helper) => helper.id)).toEqual([
+      'home_assistant:input_number.lone',
+      'openhab:helper',
+    ]);
+    const selected = buildDashboardVisibilityResult(
+      devices,
+      [],
+      [],
+      devices.helpers.map((helper) => helper.id)
+    );
+    expect(selected.visibleDevices.helpers.map((helper) => helper.id)).toEqual([
+      'home_assistant:input_number.lone',
+      'openhab:helper',
+    ]);
+    expect(
+      buildDashboardVisibilityResult(
+        devices,
+        ['home_assistant:input_number.lone'],
+        [],
+        ['home_assistant:input_number.lone']
+      ).visibleDevices.helpers
+    ).toEqual([]);
+  });
+
+  it('keeps person-associated helpers available and absorbs them for remote controls', () => {
+    const helper = {
+      id: 'home_assistant:number.delay',
+      name: 'Delay',
+      room: 'Hall',
+      size: 'small' as const,
+      state: false,
+      providerId: 'home_assistant' as const,
+      underlyingDeviceId: 'shared',
+    };
+    const devices: DeviceCollection = {
+      ...createEmptyDeviceCollection(),
+      persons: [
+        {
+          id: 'home_assistant:device_tracker.phone',
+          name: 'Phone',
+          room: 'Hall',
+          size: 'small',
+          state: 'home',
+          location: 'Home',
+          providerId: 'home_assistant',
+          underlyingDeviceId: 'shared',
+        },
+      ],
+      helpers: [helper],
+    };
+    expect(getAbsorbedDashboardEntityIds(devices, [])).toEqual([]);
+    expect(buildDashboardVisibilityResult(devices, []).availableDevices.helpers).toEqual([helper]);
+    expect(
+      buildDashboardVisibilityResult(devices, [], [], [helper.id]).visibleDevices.helpers
+    ).toEqual([helper]);
+    devices.persons = [];
+    devices.remotes = [
+      {
+        ...helper,
+        id: 'home_assistant:remote.tv',
+        normalizedEntity: {
+          id: 'home_assistant:remote.tv',
+          canonicalId: 'home_assistant:remote.tv',
+          externalId: 'remote.tv',
+          providerId: 'home_assistant',
+          type: 'remote',
+          name: 'TV',
+          primaryState: 'on',
+          availability: 'available',
+          attributes: {},
+          capabilities: [],
+        },
+      },
+    ];
+    expect(buildDashboardVisibilityResult(devices, []).availableDevices.helpers).toEqual([]);
+    expect(getAbsorbedDashboardEntityIds(devices, [])).toEqual([helper.id]);
+  });
+
   it('keeps sensors hidden until explicitly shown', () => {
     const devices: DeviceCollection = {
       ...createEmptyDeviceCollection(),
@@ -81,7 +206,7 @@ describe('useDashboardDevices', () => {
     expect(result.current.lights).toBe(devices.lights);
   });
 
-  it('absorbs security child entities when a visible parent card already represents the device', () => {
+  it('absorbs security sensors but keeps lock-associated helpers available without a helper dialog', () => {
     const devices: DeviceCollection = {
       ...createEmptyDeviceCollection(),
       locks: [
@@ -139,11 +264,10 @@ describe('useDashboardDevices', () => {
     expect(result.current.sensors).toEqual([]);
     expect(result.current.helpers).toEqual([]);
     expect(getAbsorbedDashboardEntityIds(devices, [])).toEqual([
-      'button.front_door_chime',
       'binary_sensor.front_door_contact',
     ]);
     expect(visibility.availableDevices.sensors).toEqual([]);
-    expect(visibility.availableDevices.helpers).toEqual([]);
+    expect(visibility.availableDevices.helpers).toEqual(devices.helpers);
   });
 
   it('allows a child security entity to surface again when its parent card is hidden', () => {
@@ -187,7 +311,7 @@ describe('useDashboardDevices', () => {
     expect(getAbsorbedDashboardEntityIds(devices, ['lock.front_door'])).toEqual([]);
   });
 
-  it('always hides standalone security button helpers from home and room dashboards', () => {
+  it('offers standalone button helpers without automatically adding them', () => {
     const devices: DeviceCollection = {
       ...createEmptyDeviceCollection(),
       helpers: [
@@ -210,8 +334,11 @@ describe('useDashboardDevices', () => {
     const visibility = buildDashboardVisibilityResult(devices, []);
 
     expect(result.current.helpers).toEqual([]);
-    expect(getAbsorbedDashboardEntityIds(devices, [])).toEqual(['button.identity']);
-    expect(visibility.availableDevices.helpers).toEqual([]);
+    expect(getAbsorbedDashboardEntityIds(devices, [])).toEqual([]);
+    expect(visibility.availableDevices.helpers).toEqual(devices.helpers);
+    expect(
+      buildDashboardVisibilityResult(devices, [], [], ['button.identity']).visibleDevices.helpers
+    ).toEqual(devices.helpers);
   });
 
   it('expands hidden camera variants so sibling security cameras stay hidden everywhere', () => {
