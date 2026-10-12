@@ -15,6 +15,20 @@ const publishWorkflows = [
   '.github/workflows/release-runtime.yml',
 ];
 
+const repositoryOwnerEnv = 'GITHUB_REPOSITORY_OWNER';
+
+function withRepositoryOwner(owner, run) {
+  const previous = process.env[repositoryOwnerEnv];
+  if (owner === undefined) delete process.env[repositoryOwnerEnv];
+  else process.env[repositoryOwnerEnv] = owner;
+  try {
+    return run();
+  } finally {
+    if (previous === undefined) delete process.env[repositoryOwnerEnv];
+    else process.env[repositoryOwnerEnv] = previous;
+  }
+}
+
 describe('GHCR namespace', () => {
   it('lowercases the repository owner for the image path', () => {
     expect(ghcrNamespace('KylePinecroft')).toBe('kylepinecroft');
@@ -26,7 +40,25 @@ describe('GHCR namespace', () => {
 
   it('rejects a missing owner instead of publishing to a hardcoded namespace', () => {
     expect(() => ghcrNamespace('')).toThrow(/repository owner/);
-    expect(() => ghcrNamespace(undefined)).toThrow(/repository owner/);
+    expect(() => ghcrNamespace('   ')).toThrow(/repository owner/);
+    withRepositoryOwner('kylepinecroft', () => {
+      expect(() => ghcrNamespace('')).toThrow(/repository owner/);
+      expect(() => ghcrNamespace('   ')).toThrow(/repository owner/);
+    });
+    withRepositoryOwner(undefined, () => {
+      expect(() => ghcrNamespace()).toThrow(/repository owner/);
+      expect(() => ghcrNamespace(undefined)).toThrow(/repository owner/);
+      expect(() => ghcrNamespace('')).toThrow(/repository owner/);
+      expect(() => ghcrImage('navet')).toThrow(/repository owner/);
+      expect(() => ghcrImage('navet', undefined)).toThrow(/repository owner/);
+    });
+  });
+
+  it('uses the repository owner from the environment when no owner is passed', () => {
+    withRepositoryOwner('KylePinecroft', () => {
+      expect(ghcrNamespace()).toBe('kylepinecroft');
+      expect(ghcrImage('navet')).toBe('ghcr.io/kylepinecroft/navet');
+    });
   });
 
   it('treats the upstream Navet repositories as the owners of hosted release infrastructure', () => {
