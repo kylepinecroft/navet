@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { createHash } from 'node:crypto';
+import { ghcrNamespace, isUpstreamRepository, UPSTREAM_HACS_REPOSITORY } from './release-ghcr-namespace.mjs';
 import { digestPattern, inspectImage } from './release-image.mjs';
 import { assertReleaseNotes, validateNotesBundle } from './release-note-contract.mjs';
 
@@ -74,7 +75,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     SOURCE_TAG: tag,
     RELEASE_SHA: sha,
   } = process.env;
-  const owner = 'awesomestvi';
+  const owner = ghcrNamespace();
   if (process.argv[2] === 'verify-source') {
     if (tag.startsWith('navet-dev-')) {
       const runs = JSON.parse(
@@ -140,10 +141,12 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
         prerelease: tag.includes('-'),
         notes: notes.notes.general,
       });
-      assertReleaseNotes(
-        JSON.parse(gh('api', 'repos/navet-app/navet-home-assistant/releases/tags/' + tag)),
-        { tag, prerelease: tag.includes('-'), notes: notes.notes.hacs },
-      );
+      if (isUpstreamRepository(repo)) {
+        assertReleaseNotes(
+          JSON.parse(gh('api', `repos/${UPSTREAM_HACS_REPOSITORY}/releases/tags/${tag}`)),
+          { tag, prerelease: tag.includes('-'), notes: notes.notes.hacs },
+        );
+      }
     }
   } else if (process.argv[2] === 'write') {
     const evidence = {

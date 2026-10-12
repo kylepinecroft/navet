@@ -1,12 +1,14 @@
 import { execFileSync } from 'node:child_process';
 import { compareVersions } from './release-channels.mjs';
+import { publicationRepositories } from './release-ghcr-namespace.mjs';
 
 const target = process.env.RELEASE_TAG;
 if (!/^v\d+\.\d+\.\d+(?:-(?:beta|rc)\.\d+)?$/.test(target ?? ''))
   throw new Error('Invalid release target.');
 const prerelease = target.includes('-');
 // Publication is serialized; reject stale recovery runs before any HACS/App metadata writes.
-for (const repo of [process.env.GITHUB_REPOSITORY, 'navet-app/navet-home-assistant']) {
+// The HACS repository is upstream-owned, so forks compare only their own releases.
+for (const repo of publicationRepositories()) {
   const pages = JSON.parse(
     execFileSync('gh', ['api', '--paginate', '--slurp', `repos/${repo}/releases?per_page=100`], {
       encoding: 'utf8',

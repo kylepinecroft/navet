@@ -1,6 +1,7 @@
 import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
+import { ghcrNamespace } from './release-ghcr-namespace.mjs';
 import { inspectImage } from './release-image.mjs';
 import { validateEvidence } from './release-evidence.mjs';
 
@@ -35,7 +36,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   validateEvidence(evidence, {
     tag: process.env.RELEASE_TAG,
     sha: process.env.RELEASE_SHA,
-    owner: 'awesomestvi',
+    owner: ghcrNamespace(),
   });
   if (evidence.runId !== Number(process.env.GITHUB_RUN_ID))
     throw new Error('This run did not verify the recorded artifacts.');

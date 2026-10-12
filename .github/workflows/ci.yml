@@ -295,7 +295,7 @@ jobs:
         run: node scripts/pipeline-gate.mjs
 
       - name: Require successful previews for affected sites
-        if: github.event_name == 'pull_request'
+        if: github.event_name == 'pull_request' && (github.repository_owner == 'navet-app' || github.repository_owner == 'awesomestvi')
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}

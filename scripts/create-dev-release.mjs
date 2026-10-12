@@ -8,6 +8,7 @@ import {
   updateAddonVersion,
   writeText,
 } from './release-surfaces.mjs';
+import { ghcrImage, ghcrNamespace } from './release-ghcr-namespace.mjs';
 import { homeAssistantPaths, repoRoot } from './repo-paths.mjs';
 
 function runGit(args, options = {}) {
@@ -441,7 +442,7 @@ function pushTag(remote, tagName) {
 }
 
 function buildPublicationSummary({ devVersion, sourceBranch, tagName, remote, pushed, tagOnly }) {
-  const exactStandaloneImage = `ghcr.io/awesomestvi/navet:${devVersion}`;
+  const exactStandaloneImage = `${ghcrImage('navet')}:${devVersion}`;
   const lines = [
     `Prepared Navet Dev release ${devVersion}.`,
     `Source branch: ${sourceBranch}`,
@@ -483,6 +484,7 @@ function buildPublicationSummary({ devVersion, sourceBranch, tagName, remote, pu
 }
 
 try {
+  ghcrNamespace();
   const options = parseArgs(process.argv.slice(2));
   const sourceBranch = getCurrentBranch();
 

@@ -1,7 +1,12 @@
 import { execFileSync } from 'node:child_process';
 import { setTimeout as delay } from 'node:timers/promises';
 import { pathToFileURL } from 'node:url';
+import { isUpstreamRepository } from './release-ghcr-namespace.mjs';
 import { pagesProjects, pagesAffected } from './pages-policy.mjs';
+
+export function hostedPreviewChecksRequired(repository = process.env.GITHUB_REPOSITORY) {
+  return isUpstreamRepository(repository);
+}
 
 export function requiredPagesChecks(impact) {
   return Object.entries(pagesProjects)
@@ -25,6 +30,12 @@ export function equivalentPagesInputs(surface, changedFiles) {
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  if (!hostedPreviewChecksRequired()) {
+    console.log(
+      `Skipping hosted preview checks for ${process.env.GITHUB_REPOSITORY ?? 'this repository'}.`,
+    );
+    process.exit(0);
+  }
   const sha = process.env.HEAD_SHA;
   if (!/^[a-f0-9]{40}$/.test(sha ?? ''))
     throw new Error('Pages checks require the exact PR head SHA.');

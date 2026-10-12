@@ -1,6 +1,7 @@
 import { execFileSync } from 'node:child_process';
 import { appendFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
+import { ghcrNamespace } from './release-ghcr-namespace.mjs';
 import { validateEvidence } from './release-evidence.mjs';
 
 const versionPattern = '(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)';
@@ -159,14 +160,21 @@ export async function collectPromotionSources({
 }
 
 /** Verify candidate evidence against the documented package namespace and publication run. */
-export async function candidatePublicationSucceeded(release, sha, { readEvidence, readRun }) {
+export async function candidatePublicationSucceeded(
+  release,
+  sha,
+  { readEvidence, readRun, owner = ghcrNamespace() },
+) {
   const asset = release.assets?.find((entry) => entry.name === 'navet-release-evidence.json');
   if (!asset || !release.assets.some((entry) => entry.name === 'navet-release-notes.json'))
     return false;
   const evidence = await readEvidence(asset);
   try {
-    // Repository ownership does not change the published container package namespace.
-    validateEvidence(evidence, { tag: release.tag_name, sha, owner: 'awesomestvi' });
+    validateEvidence(evidence, {
+      tag: release.tag_name,
+      sha,
+      owner,
+    });
   } catch {
     return false;
   }

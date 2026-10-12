@@ -94,6 +94,16 @@ Keep the raw value on change; normalize on blur (and in persistence), not on eve
 - **Seams:** `settings-dashboard-section.tsx` greeting field, `settings-store.ts`
 - **Tests:** `display-overrides.test.ts`, `settings-store.test.ts`
 
+### Repository GHCR publishing
+
+Publish container images to `ghcr.io/<repository owner>/...` with `GITHUB_TOKEN`. A merge to `main` builds the multi-arch standalone image and moves the `dev` tag.
+
+- **Intent:** The registry namespace and login user are the lowercased repository owner. `navet-app/navet` publishes to `ghcr.io/navet-app`; this fork publishes to `ghcr.io/kylepinecroft`. HACS sync, Home Assistant add-on metadata, and hosted Cloudflare preview checks run only for `navet-app` or `awesomestvi`.
+- **Owned:** `scripts/release-ghcr-namespace.mjs`
+- **Seams:** `.github/workflows/release-image.yml`, `dev-tag-release.yml`, `release.yml`, `release-runtime.yml`, `ci.yml`; `scripts/release-dev-channels.mjs`, `release-prebuilt-runtime.mjs`, `release-channels.mjs`, `release-evidence.mjs`, `release-preflight.mjs`, `release-promotion.mjs`, `create-dev-release.mjs`, `pages-gate.mjs`
+- **Tests:** `scripts/release-ghcr-namespace.test.mjs`, `scripts/release-promotion.test.mjs`, `scripts/create-dev-release.test.mjs`, `scripts/dev-tag-release-workflow.test.mjs`
+- **Verify:** Dispatch Prepare Navet Dev Publish from `main`. A main-backed run pushes `ghcr.io/kylepinecroft/navet:dev` for linux/amd64 and linux/arm64. On sync, keep the repository-owner namespace, `GITHUB_TOKEN` login, and the upstream-only skips in these seams.
+
 ## Shared mechanical seams
 
 These files pick up overlay keys on every upstream sync. Resolve as keep-both; do not drop overlay keys to make the merge look clean.
