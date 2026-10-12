@@ -1,4 +1,5 @@
 export const zhMessages = {
+  'helpers.title': '辅助项',
   'deviceType.timer': '计时器',
   'deviceType.counter': '计数器',
   'deviceType.valve': '阀门',
@@ -3108,9 +3109,11 @@ export const zhMessages = {
   'lighting.fanSpeed.medium': '中速',
   'lighting.fanSpeed.high': '高速',
   'lighting.fanDirection': '风扇方向：{direction}',
+  'lighting.fanDirectionLabel': '风扇方向',
   'lighting.fanDirection.forward': '正向',
   'lighting.fanDirection.reverse': '反向',
   'lighting.fanOscillation': '风扇摆动：{state}',
+  'lighting.fanOscillationLabel': '风扇摆动',
   'energy.model.solar': '太阳能',
   'energy.model.grid': '电网',
   'energy.model.battery': '电池',

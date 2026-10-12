@@ -1,4 +1,5 @@
 export const deMessages = {
+  'helpers.title': 'Helfer',
   'deviceType.timer': 'Timer',
   'deviceType.counter': 'Zähler',
   'deviceType.valve': 'Ventil',
@@ -3407,9 +3408,11 @@ export const deMessages = {
   'lighting.fanSpeed.medium': 'Mittel',
   'lighting.fanSpeed.high': 'Hoch',
   'lighting.fanDirection': 'Lüfterrichtung {direction}',
+  'lighting.fanDirectionLabel': 'Lüfterrichtung',
   'lighting.fanDirection.forward': 'Vorwärts',
   'lighting.fanDirection.reverse': 'Rückwärts',
   'lighting.fanOscillation': 'Lüfteroszillation {state}',
+  'lighting.fanOscillationLabel': 'Lüfteroszillation',
   'energy.model.solar': 'Solar',
   'energy.model.grid': 'Netz',
   'energy.model.battery': 'Batterie',

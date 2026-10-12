@@ -1,4 +1,5 @@
 export const fiMessages = {
+  'helpers.title': 'Auttajat',
   'deviceType.timer': 'Ajastin',
   'deviceType.counter': 'Laskuri',
   'deviceType.valve': 'Venttiili',
@@ -3367,9 +3368,11 @@ export const fiMessages = {
   'lighting.fanSpeed.medium': 'Keskikokoinen',
   'lighting.fanSpeed.high': 'Korkea',
   'lighting.fanDirection': 'Tuulettimen suunta {direction}',
+  'lighting.fanDirectionLabel': 'Tuulettimen suunta',
   'lighting.fanDirection.forward': 'Eteenpäin',
   'lighting.fanDirection.reverse': 'Käänteinen',
   'lighting.fanOscillation': 'Tuulettimen värähtely {state}',
+  'lighting.fanOscillationLabel': 'Tuulettimen värähtely',
   'energy.model.solar': 'aurinko',
   'energy.model.grid': 'Ruudukko',
   'energy.model.battery': 'Akku',

@@ -2,6 +2,7 @@ import { enMessages } from './en';
 
 export const itMessages = {
   ...enMessages,
+  'helpers.title': 'Aiutanti',
   'deviceType.timer': 'Timer',
   'deviceType.counter': 'Contatore',
   'deviceType.valve': 'Valvola',
@@ -3368,9 +3369,11 @@ export const itMessages = {
   'lighting.fanSpeed.medium': 'Media',
   'lighting.fanSpeed.high': 'Alta',
   'lighting.fanDirection': 'Direzione ventilatore: {direction}',
+  'lighting.fanDirectionLabel': 'Direzione ventilatore',
   'lighting.fanDirection.forward': 'Avanti',
   'lighting.fanDirection.reverse': 'Indietro',
   'lighting.fanOscillation': 'Oscillazione ventilatore: {state}',
+  'lighting.fanOscillationLabel': 'Oscillazione ventilatore',
   'energy.model.solar': 'Solare',
   'energy.model.grid': 'Rete',
   'energy.model.battery': 'Batteria',

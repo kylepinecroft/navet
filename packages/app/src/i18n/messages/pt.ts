@@ -1,4 +1,5 @@
 export const ptMessages = {
+  'helpers.title': 'Ajudantes',
   'deviceType.timer': 'Temporizador',
   'deviceType.counter': 'Contador',
   'deviceType.valve': 'Válvula',
@@ -3370,9 +3371,11 @@ export const ptMessages = {
   'lighting.fanSpeed.medium': 'Média',
   'lighting.fanSpeed.high': 'Alta',
   'lighting.fanDirection': 'Direção da ventoinha: {direction}',
+  'lighting.fanDirectionLabel': 'Direção da ventoinha',
   'lighting.fanDirection.forward': 'Para a frente',
   'lighting.fanDirection.reverse': 'Para trás',
   'lighting.fanOscillation': 'Oscilação da ventoinha: {state}',
+  'lighting.fanOscillationLabel': 'Oscilação da ventoinha',
   'energy.model.solar': 'Solar',
   'energy.model.grid': 'Rede',
   'energy.model.battery': 'Bateria',

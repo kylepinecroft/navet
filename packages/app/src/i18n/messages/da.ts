@@ -1,4 +1,5 @@
 export const daMessages = {
+  'helpers.title': 'Hjælpere',
   'deviceType.timer': 'Timer',
   'deviceType.counter': 'Tæller',
   'deviceType.valve': 'Ventil',
@@ -3352,9 +3353,11 @@ export const daMessages = {
   'lighting.fanSpeed.medium': 'Medium',
   'lighting.fanSpeed.high': 'Høj',
   'lighting.fanDirection': 'Ventilatorretning {direction}',
+  'lighting.fanDirectionLabel': 'Ventilatorretning',
   'lighting.fanDirection.forward': 'Fremad',
   'lighting.fanDirection.reverse': 'Omvendt',
   'lighting.fanOscillation': 'Ventilatoroscillation {state}',
+  'lighting.fanOscillationLabel': 'Ventilatoroscillation',
   'energy.model.solar': 'Solar',
   'energy.model.grid': 'Gitter',
   'energy.model.battery': 'Batteri',

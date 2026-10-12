@@ -1,12 +1,16 @@
 import { dispatchEntityCommand } from '@navet/app/commands';
-import { useI18n } from '@navet/app/hooks';
+import { CardDialogSection } from '@navet/app/components/patterns/card-dialog';
+import { OverlayScrollArea } from '@navet/app/components/primitives/overlay-scroll-area';
+import { getThemeSurfaceTokens } from '@navet/app/components/shared/theme/theme-surface-tokens';
+import { navetTypographyTokens } from '@navet/app/components/system/tokens';
+import { useI18n, useTheme } from '@navet/app/hooks';
 import { useIntegrationStore } from '@navet/app/hooks/use-integration-store';
 import { useProviderControlSession } from '@navet/app/hooks/use-provider-control-session';
 import { useProviderEntityModel } from '@navet/app/hooks/use-provider-device';
 import type { ThemeType } from '@navet/app/hooks/use-theme';
 import { readNavetHelperState } from '@navet/core/helper-state';
 import type { NavetEntity } from '@navet/core/types';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { shallow } from 'zustand/shallow';
 import { DeviceControlRow } from './device-control-row';
 import { HelperValueControl } from './helper-value-control';
@@ -32,10 +36,77 @@ export function selectRelatedHelpers(
         entity.canonicalId !== parent.canonicalId &&
         deviceId(entity) === parentDeviceId
     )
-    .sort((left, right) => left.canonicalId.localeCompare(right.canonicalId));
+    .sort(
+      (left, right) =>
+        Number(left.availability !== 'available') - Number(right.availability !== 'available') ||
+        left.name.localeCompare(right.name, undefined, { numeric: true, sensitivity: 'base' }) ||
+        left.canonicalId.localeCompare(right.canonicalId)
+    );
 }
 
 const EMPTY_IDS: string[] = [];
+const HELPER_ROW_ESTIMATE = 41;
+const HELPER_VISIBLE_ROWS = 8;
+const HELPER_VIEWPORT_HEIGHT = (HELPER_VISIBLE_ROWS - 0.5) * HELPER_ROW_ESTIMATE;
+const HELPER_SCROLL_THRESHOLD = 12;
+
+function ScrollableHelperControls({
+  helpers,
+  theme,
+  headingId,
+}: {
+  helpers: NavetEntity[];
+  theme?: ThemeType;
+  headingId: string;
+}) {
+  const contentRef = useRef<HTMLDivElement>(null);
+  const [scrollTop, setScrollTop] = useState(0);
+  const [hasMoreBelow, setHasMoreBelow] = useState(true);
+  useEffect(() => {
+    const content = contentRef.current;
+    const viewport = content?.closest<HTMLElement>('[role="region"]');
+    if (!content || !viewport) return;
+    const update = () => {
+      if (!viewport.clientHeight) return;
+      setScrollTop(viewport.scrollTop);
+      setHasMoreBelow(viewport.scrollTop + viewport.clientHeight < viewport.scrollHeight - 1);
+    };
+    update();
+    if (typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(update);
+    observer.observe(content);
+    observer.observe(viewport);
+    return () => observer.disconnect();
+  }, []);
+  return (
+    <OverlayScrollArea
+      className="-mr-3"
+      contentClassName="pr-3"
+      viewportClassName={[
+        scrollTop > 1 ? 'helper-list-top-fade' : '',
+        hasMoreBelow ? 'helper-list-bottom-fade' : '',
+      ].join(' ')}
+      viewportProps={{
+        role: 'region',
+        'aria-labelledby': headingId,
+        tabIndex: 0,
+        style: { height: `min(${HELPER_VIEWPORT_HEIGHT}px, 60dvh)` },
+        onScroll: (event) => {
+          const viewport = event.currentTarget;
+          setScrollTop(viewport.scrollTop);
+          setHasMoreBelow(viewport.scrollTop + viewport.clientHeight < viewport.scrollHeight - 1);
+        },
+      }}
+    >
+      <div ref={contentRef}>
+        {/* Keep every control mounted for native Tab and screen-reader navigation. */}
+        {helpers.map((entity) => (
+          <EntityHelperRow key={entity.canonicalId} entity={entity} theme={theme} />
+        ))}
+      </div>
+    </OverlayScrollArea>
+  );
+}
 
 export function EntityHelperControls({
   entityId,
@@ -46,6 +117,10 @@ export function EntityHelperControls({
   excludeEntityIds?: string[];
   theme?: ThemeType;
 }) {
+  const { t } = useI18n();
+  const { theme: currentTheme } = useTheme();
+  const headingId = useId();
+  const surface = getThemeSurfaceTokens(theme ?? currentTheme);
   const parent = useProviderEntityModel(entityId);
   const helpers = useIntegrationStore(
     (state) =>
@@ -60,11 +135,30 @@ export function EntityHelperControls({
     shallow
   );
   return helpers.length ? (
-    <div className="mt-4">
-      {helpers.map((entity) => (
-        <EntityHelperRow key={entity.canonicalId} entity={entity} theme={theme} />
-      ))}
-    </div>
+    <CardDialogSection
+      className="mt-6"
+      label={
+        <h3 id={headingId} className={navetTypographyTokens.caption}>
+          {t('helpers.title')}
+        </h3>
+      }
+      labelClassName={`border-b pb-2 text-xs ${surface.textSecondary} ${surface.dividerBorder}`}
+    >
+      {helpers.length > HELPER_SCROLL_THRESHOLD ? (
+        <ScrollableHelperControls
+          key={entityId}
+          helpers={helpers}
+          theme={theme}
+          headingId={headingId}
+        />
+      ) : (
+        <div>
+          {helpers.map((entity) => (
+            <EntityHelperRow key={entity.canonicalId} entity={entity} theme={theme} />
+          ))}
+        </div>
+      )}
+    </CardDialogSection>
   ) : null;
 }
 
@@ -108,10 +202,18 @@ function EntityHelperRowContent({ entity, theme }: { entity: NavetEntity; theme?
     []
   );
   const unavailable = entity.availability !== 'available';
+  if (unavailable)
+    return (
+      <DeviceControlRow
+        theme={theme}
+        kind="reading"
+        label={entity.name}
+        value={t('common.unavailable')}
+      />
+    );
   if (helper) {
-    const value = unavailable
-      ? t('common.unavailable')
-      : helper.value === null
+    const value =
+      helper.value === null
         ? t('providerDetails.unknown')
         : helper.helperType === 'text' && helper.mode === 'password'
           ? '••••'
@@ -119,6 +221,7 @@ function EntityHelperRowContent({ entity, theme }: { entity: NavetEntity; theme?
     return (
       <DeviceControlRow theme={theme} kind="disclosure" label={entity.name} value={value}>
         <HelperValueControl
+          layout="inline"
           id={entity.canonicalId}
           name={entity.name}
           helper={helper}
@@ -163,8 +266,6 @@ function EntityHelperRowContent({ entity, theme }: { entity: NavetEntity; theme?
     <span role="alert">{t('helpers.updateFailed')}</span>
   ) : pending ? (
     t('helpers.updating')
-  ) : unavailable ? (
-    t('common.unavailable')
   ) : undefined;
   if (isAction)
     return (
@@ -194,11 +295,7 @@ function EntityHelperRowContent({ entity, theme }: { entity: NavetEntity; theme?
       theme={theme}
       kind="reading"
       label={entity.name}
-      value={
-        unavailable
-          ? t('common.unavailable')
-          : String(entity.primaryState ?? t('providerDetails.unknown'))
-      }
+      value={String(entity.primaryState ?? t('providerDetails.unknown'))}
     />
   );
 }
