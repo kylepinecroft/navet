@@ -2,6 +2,7 @@ import storage from '/etc/nginx/njs/chore-durable-storage.js';
 import choreStore from '/etc/nginx/njs/chore-store.js';
 import recurrence from '/etc/nginx/njs/chore-recurrence-policy.js';
 import crypto from 'crypto';
+import zlib from 'zlib';
 let assertions = 0;
 function assert(value, message) {
   assertions++;
@@ -71,6 +72,57 @@ assert(
     JSON.stringify(doc.data.experience.pointTransactions),
   'Ledger preserved through native framing'
 );
+const historyRows = [];
+for (let index = 0; index < 2000; index++) historyRows.push({
+  id: 'activity:legacy:' + index, commandId: 'legacy:' + index,
+  type: 'workspace_materialized', timestamp, reason: 'Preserve åäö and event order',
+});
+const historyDocument = { contractVersion: 1, events: historyRows };
+const compressedHistory = storage.pack(historyDocument, hash);
+assert(compressedHistory.storageEncoding === 'deflate-v1', 'Native history uses deflate');
+assert(JSON.stringify(compressedHistory).length < JSON.stringify(historyDocument).length * 0.3, 'Native history compression shrinks repeated writes');
+assert(JSON.stringify(storage.unpack(compressedHistory, hash)) === JSON.stringify(historyDocument), 'Native deflate preserves every event and UTF-8 text');
+// Exercise stored, fixed-Huffman, and dynamic-Huffman blocks in the native runtime.
+const deflateText = JSON.stringify({ text: 'abc åäö '.repeat(20000) });
+const deflateOptions = [{ level: 0 }, { strategy: zlib.constants.Z_FIXED }, {}];
+for (let index = 0; index < deflateOptions.length; index++) {
+  const envelope = {
+    storageEncoding: 'deflate-v1', uncompressedBytes: Buffer.byteLength(deflateText),
+    checksum: hash(deflateText), payload: zlib.deflateSync(deflateText, deflateOptions[index]).toString('base64'),
+  };
+  assert(JSON.stringify(storage.unpack(envelope, hash)) === deflateText, 'All native deflate block types round-trip');
+  const inflate = zlib.inflateSync;
+  let nativeInflations = 0;
+  zlib.inflateSync = function () { nativeInflations++; throw new Error('Unexpected native inflation'); };
+  let sizeError = '';
+  try { storage.unpack(Object.assign({}, envelope, { uncompressedBytes: 128 }), hash); }
+  catch (error) { sizeError = error.message; }
+  zlib.inflateSync = inflate;
+  assert(nativeInflations === 0 && sizeError.indexOf('exceeds expanded size') !== -1,
+    'Underdeclared expansion is rejected before allocating native output');
+}
+const truncatedEnvelope = Object.assign({}, compressedHistory, {
+  payload: Buffer.from(compressedHistory.payload, 'base64').subarray(0, 10).toString('base64'),
+});
+let truncatedRejected = false;
+try { storage.unpack(truncatedEnvelope, hash); }
+catch (_error) { truncatedRejected = true; }
+assert(truncatedRejected, 'Truncated native deflate streams are rejected');
+const reservedEnvelope = Object.assign({}, compressedHistory, {
+  payload: Buffer.from([0x78, 0x9c, 0x07, 0, 0, 0, 0]).toString('base64'),
+});
+let reservedRejected = false;
+try { storage.unpack(reservedEnvelope, hash); }
+catch (_error) { reservedRejected = true; }
+assert(reservedRejected, 'Reserved native deflate block types are rejected');
+let deflateRejected = false;
+try { storage.unpack(Object.assign({}, compressedHistory, { checksum: '0'.repeat(64) }), hash); }
+catch (_error) { deflateRejected = true; }
+assert(deflateRejected, 'Native compressed storage rejects corrupt checksums');
+deflateRejected = false;
+try { storage.unpack(compressedHistory, hash, 1024); }
+catch (_error) { deflateRejected = true; }
+assert(deflateRejected, 'Native compressed storage validates expanded size before decoding');
 const paths = { '/data/navet-chore-workspace.json': JSON.stringify(manifest) };
 for (const key in files)
   paths['/data/navet-chore-workspace.json.chunk-' + key] = JSON.stringify(files[key]);
@@ -99,6 +151,9 @@ choreStore.setChoreStoreFsForTests({
   closeSync: (descriptor) => {
     delete descriptors[descriptor];
   },
+  readdirSync: (directory) => Object.keys(paths)
+    .filter(function (path) { return path.indexOf(directory + '/') === 0; })
+    .map(function (path) { return path.slice(directory.length + 1); }),
   statSync: (path) =>
     paths[path] === undefined ? missing() : { size: Buffer.byteLength(paths[path]) },
   readFileSync: (path) => (paths[path] === undefined ? missing() : paths[path]),
