@@ -2639,6 +2639,77 @@ class ChoreAuthorityTests(unittest.IsolatedAsyncioTestCase):
             {item["id"] for item in self.authority.data["outbox"]},
         )
 
+    async def test_merge_configuration_keeps_appearance_goals_and_existing_progress(self):
+        current = chores._empty_data()
+        current["participantsById"]["manager"] = _participant()
+        current["definitionsById"]["shared"] = {
+            "id": "shared", "title": "Current chore", "enabled": True,
+            "assignment": {"mode": "person", "participantIds": ["manager"]},
+            "approval": {"required": False, "approverIds": []},
+            "schedule": {"frequency": "once", "date": "2026-10-16", "time": "08:00", "timeZone": "UTC"},
+            "dueWindowMinutes": 60, "createdAt": "2026-10-15T08:00:00Z", "updatedAt": "2026-10-15T08:00:00Z",
+        }
+        imported = copy.deepcopy(current)
+        imported["participantsById"]["manager"]["displayName"] = "Imported person"
+        imported["definitionsById"]["shared"]["title"] = "Imported chore"
+        current["experience"]["earnedPointsByParticipant"] = {"manager": 50}
+        current["experience"]["presentationByDefinitionId"] = {"shared": {"icon": "house"}}
+        imported["experience"]["presentationByDefinitionId"] = {"shared": {"icon": "leaf"}}
+        for data, title in ((current, "Current"), (imported, "Imported")):
+            exp = data["experience"]
+            exp["missionsById"]["goal"] = {"id": "goal", "title": title, "definitionIds": ["shared"], "status": "active", "createdAt": "2026-10-15T08:00:00Z", "updatedAt": "2026-10-15T08:00:00Z"}
+            exp["rewardGoalsById"]["goal"] = {"id": "goal", "title": title, "participantId": "manager", "type": "saving", "targetPoints": 100, "enabled": True, "createdAt": "2026-10-15T08:00:00Z", "updatedAt": "2026-10-15T08:00:00Z"}
+            for name in ("badgesById", "achievementsById"):
+                exp[name]["goal"] = {"id": "goal", "title": title, "participantId": "manager", "definitionIds": ["shared"], "metric": "count", "target": 5}
+        before = copy.deepcopy(current)
+        merged, events = chores._merge_imported_workspace(current, [], imported, [], "2026-10-15T10:00:00Z")
+        exp = merged["experience"]
+        self.assertEqual(exp["presentationByDefinitionId"], {"shared": {"icon": "house"}, "shared~import-2": {"icon": "leaf"}})
+        self.assertEqual(exp["missionsById"]["goal~import-2"]["definitionIds"], ["shared~import-2"])
+        self.assertEqual(exp["rewardGoalsById"]["goal~import-2"]["participantId"], "manager~import-2")
+        for name, target_id in (("badgesById", "goal~import-2"), ("achievementsById", "goal~import-3")):
+            self.assertEqual(exp[name][target_id]["participantId"], "manager~import-2")
+            self.assertEqual(exp[name][target_id]["definitionIds"], ["shared~import-2"])
+        self.assertEqual(exp["earnedPointsByParticipant"], {"manager": 50})
+        self.assertEqual(current, before)
+        self.assertEqual(events, [])
+
+    async def test_merge_reserves_award_history_and_shared_progress_target_ids(self):
+        current = chores._empty_data()
+        imported = chores._empty_data()
+        current["participantsById"]["manager"] = _participant()
+        imported["participantsById"]["manager"] = {**_participant(), "displayName": "Imported"}
+        experience = current["experience"]
+        experience["awardedMissionIds"] = ["goal", "goal~import-2"]
+        experience["progressAwards"] = [
+            {"id": f"progress:{target_id}:manager:once", "targetId": target_id,
+             "participantId": "manager", "cycleKey": "once", "awardedAt": "2026-10-15T08:00:00Z"}
+            for target_id in ("goal", "goal~import-2")
+        ]
+        target = {"id": "goal", "title": "Imported", "metric": "count", "target": 1, "awardPoints": 5}
+        experience["badgesById"]["goal~import-3"] = {**target, "id": "goal~import-3", "target": 100}
+        imported["experience"]["badgesById"]["goal"] = target.copy()
+        imported["experience"]["achievementsById"]["goal"] = target.copy()
+        imported["experience"]["missionsById"]["goal"] = {
+            "id": "goal", "title": "Imported mission", "definitionIds": [], "status": "active",
+            "rewardPoints": 10, "createdAt": "2026-10-15T08:00:00Z", "updatedAt": "2026-10-15T08:00:00Z",
+        }
+        imported["experience"]["awardedMissionIds"] = ["goal"]
+        imported["experience"]["progressAwards"] = [copy.deepcopy(experience["progressAwards"][0])]
+        before = copy.deepcopy(current)
+        merged, _ = chores._merge_imported_workspace(current, [], imported, [], "2026-10-15T10:00:00Z")
+        result = merged["experience"]
+        self.assertEqual(list(result["missionsById"]), ["goal~import-3"])
+        self.assertEqual(list(result["badgesById"]), ["goal~import-3", "goal~import-4"])
+        self.assertEqual(list(result["achievementsById"]), ["goal~import-5"])
+        self.assertEqual(result["awardedMissionIds"], [*experience["awardedMissionIds"], "goal~import-3"])
+        self.assertEqual(result["progressAwards"], [*experience["progressAwards"], *[
+            {**imported["experience"]["progressAwards"][0], "id": f"progress:{target_id}:manager~import-2:once",
+             "targetId": target_id, "participantId": "manager~import-2"}
+            for target_id in ("goal~import-4", "goal~import-5")
+        ]])
+        self.assertEqual(current, before)
+
     async def test_notification_failure_is_retained_and_retried(self):
         self.hass.services.error = RuntimeError("Home Assistant unavailable")
         manager = _participant(

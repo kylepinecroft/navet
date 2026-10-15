@@ -745,6 +745,63 @@ function nextImportedId(sourceId, occupied) {
   return sourceId + '~import-' + index;
 }
 
+function mergeExperienceConfiguration(current, imported, participantMap, definitionMap, adoptSettings) {
+  const experience = cloneValue(current || createEmptyChoreExperience());
+  if (!imported) return experience;
+  if (adoptSettings) {
+    experience.gamificationMode = imported.gamificationMode;
+    experience.setupStartedAt = imported.setupStartedAt;
+    experience.setupCompletedAt = imported.setupCompletedAt;
+  }
+  Object.keys(imported.presentationByDefinitionId).forEach(function (id) {
+    recordSafety.setOwnRecordValue(experience.presentationByDefinitionId, definitionMap[id] || id, cloneValue(imported.presentationByDefinitionId[id]));
+  });
+  const collections = ['missionsById', 'rewardGoalsById', 'badgesById', 'achievementsById'];
+  const progressTargetIds = Object.create(null);
+  const missionMap = Object.create(null);
+  const progressTargetMap = Object.create(null);
+  Object.keys(experience.badgesById).concat(Object.keys(experience.achievementsById), experience.progressAwards.map(function (award) { return award.targetId; })).forEach(function (id) { recordSafety.setOwnRecordValue(progressTargetIds, id, true); });
+  for (let index = 0; index < collections.length; index++) {
+    const name = collections[index];
+    const occupied = name === 'badgesById' || name === 'achievementsById' ? progressTargetIds : Object.create(null);
+    Object.keys(experience[name]).concat(name === 'missionsById' ? (experience.awardedMissionIds || []) : []).forEach(function (id) { recordSafety.setOwnRecordValue(occupied, id, true); });
+    Object.values(imported[name]).forEach(function (source) {
+      const item = cloneValue(source);
+      if (Array.isArray(item.definitionIds)) item.definitionIds = item.definitionIds.map(function (id) { return definitionMap[id] || id; });
+      if (item.participantId) item.participantId = participantMap[item.participantId] || item.participantId;
+      if (JSON.stringify(experience[name][item.id]) !== JSON.stringify(item)) {
+        item.id = nextImportedId(item.id, occupied);
+        recordSafety.setOwnRecordValue(occupied, item.id, true);
+        recordSafety.setOwnRecordValue(experience[name], item.id, item);
+      }
+      if (name === 'missionsById') recordSafety.setOwnRecordValue(missionMap, source.id, item.id);
+      if (name === 'badgesById' || name === 'achievementsById') {
+        recordSafety.setOwnRecordValue(progressTargetMap, source.id, (progressTargetMap[source.id] || []).concat([item.id]));
+      }
+    });
+  }
+  const awardedMissionIds = (experience.awardedMissionIds || []).slice();
+  (imported.awardedMissionIds || []).forEach(function (id) {
+    const targetId = missionMap[id];
+    if (targetId && awardedMissionIds.indexOf(targetId) === -1) awardedMissionIds.push(targetId);
+  });
+  experience.awardedMissionIds = awardedMissionIds;
+  const awardIds = Object.create(null);
+  experience.progressAwards.forEach(function (award) { recordSafety.setOwnRecordValue(awardIds, award.id, true); });
+  imported.progressAwards.forEach(function (award) {
+    const participantId = participantMap[award.participantId];
+    if (!participantId) return;
+    (progressTargetMap[award.targetId] || []).forEach(function (targetId) {
+      const id = 'progress:' + targetId + ':' + participantId + ':' + award.cycleKey;
+      if (awardIds[id]) return;
+      recordSafety.setOwnRecordValue(awardIds, id, true);
+      experience.progressAwards.push(Object.assign({}, award, { id, targetId, participantId }));
+    });
+  });
+  // Preserve imported award identities without replacing destination balances, ledgers or requests.
+  return experience;
+}
+
 function mergeImportedWorkspace(current, currentEvents, imported, timestamp) {
   const participantsById = cloneValue(current.participantsById);
   const participantMap = Object.create(null);
@@ -856,6 +913,7 @@ function mergeImportedWorkspace(current, currentEvents, imported, timestamp) {
       definitionsById,
       occurrencesById,
       activity: current.activity.concat(events.slice(currentEvents.length)).slice(-MAX_ACTIVITY_ITEMS),
+      experience: mergeExperienceConfiguration(current.experience, imported.workspace.experience, participantMap, definitionMap, Object.keys(current.definitionsById).length === 0),
       outbox: current.outbox,
     }),
     events,

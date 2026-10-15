@@ -1,3 +1,4 @@
+import { type ChoreExperienceState, createChoreExperienceState } from './chore-experience.ts';
 import {
   type ChoreActivity,
   type ChoreDefinition,
@@ -5,8 +6,10 @@ import {
   type ChoreWorkspaceData,
   createEmptyChoreWorkspace,
   isChoreWorkspaceData,
+  isWorkspaceMissionComplete,
   migrateChoreWorkspaceData,
 } from './chores.ts';
+import { setOwnRecordValue } from './record-safety.ts';
 
 export const CHORE_INTERCHANGE_VERSION = 1 as const;
 
@@ -113,6 +116,53 @@ export function parseChoreInterchangeDocument(value: unknown): ChoreInterchangeD
   });
 }
 
+/** Export reusable household configuration without work instances or earned progress. */
+export function createChoreConfigurationDocument(input: {
+  workspace: ChoreWorkspaceData;
+  exportedAt?: string;
+}): ChoreInterchangeDocument {
+  if (!isChoreWorkspaceData(input.workspace)) throw new Error('Invalid chore workspace export');
+  const workspace = createEmptyChoreWorkspace();
+  workspace.participantsById = clone(input.workspace.participantsById);
+  workspace.definitionsById = clone(input.workspace.definitionsById);
+  if (input.workspace.historyRetention) {
+    workspace.historyRetention = clone(input.workspace.historyRetention);
+  }
+  for (const definition of Object.values(workspace.definitionsById)) {
+    delete definition.assignment.rotationCursor;
+  }
+  const source = input.workspace.experience;
+  if (source) {
+    workspace.experience = {
+      ...createChoreExperienceState(),
+      setupStartedAt: source.setupStartedAt,
+      setupCompletedAt: source.setupCompletedAt,
+      gamificationMode: source.gamificationMode,
+      presentationByDefinitionId: clone(source.presentationByDefinitionId),
+      missionsById: clone(source.missionsById),
+      rewardGoalsById: clone(source.rewardGoalsById),
+      badgesById: clone(source.badgesById),
+      achievementsById: clone(source.achievementsById),
+    };
+    const awardedMissionIds = new Set(source.awardedMissionIds ?? []);
+    for (const mission of Object.values(workspace.experience.missionsById)) {
+      if (
+        mission.status === 'complete' ||
+        awardedMissionIds.has(mission.id) ||
+        (mission.definitionIds.length > 0 && isWorkspaceMissionComplete(input.workspace, mission))
+      ) {
+        mission.status = 'active';
+        delete mission.startsAt;
+        delete mission.endsAt;
+      }
+    }
+    for (const reward of Object.values(workspace.experience.rewardGoalsById)) {
+      delete reward.startingPoints;
+    }
+  }
+  return createChoreInterchangeDocument({ workspace, events: [], exportedAt: input.exportedAt });
+}
+
 function nextImportedId(sourceId: string, occupied: Set<string>) {
   if (!occupied.has(sourceId)) return sourceId;
   let index = 2;
@@ -122,6 +172,88 @@ function nextImportedId(sourceId: string, occupied: Set<string>) {
 
 function sameValue(left: unknown, right: unknown) {
   return JSON.stringify(left) === JSON.stringify(right);
+}
+
+function mergeExperienceConfiguration(
+  current: ChoreExperienceState | undefined,
+  imported: ChoreExperienceState | undefined,
+  participantMap: Map<string, string>,
+  definitionMap: Map<string, string>,
+  adoptSettings: boolean
+): ChoreExperienceState {
+  const experience = clone(current ?? createChoreExperienceState());
+  if (!imported) return experience;
+  if (adoptSettings) {
+    experience.gamificationMode = imported.gamificationMode;
+    experience.setupStartedAt = imported.setupStartedAt;
+    experience.setupCompletedAt = imported.setupCompletedAt;
+  }
+  for (const [id, metadata] of Object.entries(imported.presentationByDefinitionId)) {
+    setOwnRecordValue(
+      experience.presentationByDefinitionId,
+      definitionMap.get(id) ?? id,
+      clone(metadata)
+    );
+  }
+  const progressTargetIds = new Set([
+    ...Object.keys(experience.badgesById),
+    ...Object.keys(experience.achievementsById),
+    ...experience.progressAwards.map((award) => award.targetId),
+  ]);
+  const missionMap = new Map<string, string>();
+  const progressTargetMap = new Map<string, string[]>();
+  for (const name of [
+    'missionsById',
+    'rewardGoalsById',
+    'badgesById',
+    'achievementsById',
+  ] as const) {
+    const occupied =
+      name === 'badgesById' || name === 'achievementsById'
+        ? progressTargetIds
+        : new Set([
+            ...Object.keys(experience[name]),
+            ...(name === 'missionsById' ? (experience.awardedMissionIds ?? []) : []),
+          ]);
+    for (const source of Object.values(imported[name])) {
+      const item = clone(source);
+      if ('definitionIds' in item && item.definitionIds) {
+        item.definitionIds = item.definitionIds.map((id: string) => definitionMap.get(id) ?? id);
+      }
+      if ('participantId' in item && item.participantId) {
+        item.participantId = participantMap.get(item.participantId) ?? item.participantId;
+      }
+      if (!sameValue(experience[name][item.id], item)) {
+        item.id = nextImportedId(item.id, occupied);
+        occupied.add(item.id);
+        setOwnRecordValue(experience[name], item.id, item);
+      }
+      if (name === 'missionsById') missionMap.set(source.id, item.id);
+      if (name === 'badgesById' || name === 'achievementsById') {
+        progressTargetMap.set(source.id, [...(progressTargetMap.get(source.id) ?? []), item.id]);
+      }
+    }
+  }
+  const awardedMissionIds = new Set(experience.awardedMissionIds ?? []);
+  for (const id of imported.awardedMissionIds ?? []) {
+    const targetId = missionMap.get(id);
+    if (targetId) awardedMissionIds.add(targetId);
+  }
+  experience.awardedMissionIds = [...awardedMissionIds];
+  const awardIds = new Set(experience.progressAwards.map((award) => award.id));
+  for (const award of imported.progressAwards) {
+    const participantId = participantMap.get(award.participantId);
+    if (!participantId) continue;
+    for (const targetId of progressTargetMap.get(award.targetId) ?? []) {
+      const id = `progress:${targetId}:${participantId}:${award.cycleKey}`;
+      if (awardIds.has(id)) continue;
+      awardIds.add(id);
+      experience.progressAwards.push({ ...award, id, targetId, participantId });
+    }
+  }
+  // Preserve award identities so imported work cannot earn the same points again.
+  // Destination balances, ledgers and reward requests remain intact.
+  return experience;
 }
 
 export function mergeChoreInterchange(input: {
@@ -268,6 +400,13 @@ export function mergeChoreInterchange(input: {
       definitionsById,
       occurrencesById,
       activity,
+      experience: mergeExperienceConfiguration(
+        input.current.experience,
+        input.imported.workspace.experience,
+        participantMap,
+        definitionMap,
+        Object.keys(input.current.definitionsById).length === 0
+      ),
       // Imported delivery work is intentionally not replayed.
       outbox: input.current.outbox,
     },
