@@ -8,6 +8,7 @@ import type { IntegrationProviderId } from '@navet/app/types/provider';
 import type { PlatformManageableRoomReference } from '@navet/core/provider-feature-models';
 import type { NavetEntity, NavetProviderRoom } from '@navet/core/types';
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
+import { useDashboardEntityVisibility } from '../hooks/use-dashboard-entity-visibility';
 import type {
   RoomWorkspaceActions,
   RoomWorkspaceChangeViewModel,
@@ -80,11 +81,14 @@ const EMPTY_ROOM_OVERRIDES: Record<string, string> = {};
 function isEntityShownOnDashboard(
   entity: NavetEntity,
   hiddenEntityIds: ReadonlySet<string>,
-  shownSensorEntityIds: ReadonlySet<string>
+  shownSensorEntityIds: ReadonlySet<string>,
+  explicitlyShownEntityIds: ReadonlySet<string>
 ): boolean {
   if (hiddenEntityIds.has(entity.canonicalId)) {
     return false;
   }
+
+  if (entity.type === 'helper') return explicitlyShownEntityIds.has(entity.canonicalId);
 
   if (entity.type === 'sensor' || entity.type === 'binary_sensor') {
     return shownSensorEntityIds.has(entity.canonicalId);
@@ -412,6 +416,7 @@ export function useRoomWorkspaceController({
     isOpen ? state.roomIdsByEntityId : EMPTY_ROOM_OVERRIDES
   );
   const hiddenDashboardEntityIds = useDashboardEntitiesStore((state) => state.hiddenEntityIds);
+  const { explicitlyShownEntityIds } = useDashboardEntityVisibility();
   const shownSensorEntityIds = useDashboardEntitiesStore((state) => state.shownSensorEntityIds);
   const hideDashboardEntity = useDashboardEntitiesStore((state) => state.hideEntity);
   const showDashboardEntity = useDashboardEntitiesStore((state) => state.showEntity);
@@ -735,6 +740,10 @@ export function useRoomWorkspaceController({
     () => new Set(hiddenDashboardEntityIds),
     [hiddenDashboardEntityIds]
   );
+  const explicitlyShownEntityIdSet = useMemo(
+    () => new Set(explicitlyShownEntityIds),
+    [explicitlyShownEntityIds]
+  );
   const shownSensorEntityIdSet = useMemo(
     () => new Set(shownSensorEntityIds),
     [shownSensorEntityIds]
@@ -785,7 +794,8 @@ export function useRoomWorkspaceController({
                 : isEntityShownOnDashboard(
                     entity,
                     hiddenDashboardEntityIdSet,
-                    shownSensorEntityIdSet
+                    shownSensorEntityIdSet,
+                    explicitlyShownEntityIdSet
                   )),
           };
         }),
@@ -798,6 +808,7 @@ export function useRoomWorkspaceController({
       hiddenDashboardEntityIdSet,
       resolvedRoomIdByEntityId,
       shownSensorEntityIdSet,
+      explicitlyShownEntityIdSet,
     ]
   );
 

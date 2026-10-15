@@ -1,4 +1,5 @@
 import type { DeviceCollection } from '@navet/app/types/device.types';
+import { readNavetHelperState } from '@navet/core/helper-state';
 import type { NavetEntity } from '@navet/core/types';
 import { getClimateSensorGroup } from './climate-sensor-group';
 
@@ -12,6 +13,10 @@ export function createEmptyDeviceCollection(): DeviceCollection {
     weather: [],
     switches: [],
     helpers: [],
+    timers: [],
+    counters: [],
+    valves: [],
+    remotes: [],
     covers: [],
     locks: [],
     scenes: [],
@@ -28,7 +33,6 @@ type EntityStateRecord = Record<string, unknown>;
 
 type DeviceSuppressionIndexes = {
   deviceIdsWithPrimaryCards: Set<string>;
-  deviceIdsWithSensorCards: Set<string>;
   deviceIdsWithClimateEntity: Set<string>;
   deviceIdsWithFanEntity: Set<string>;
   deviceIdsWithVacuumEntity: Set<string>;
@@ -224,7 +228,6 @@ function compareSortKeys(left: [number, number, string], right: [number, number,
 function buildDeviceSuppressionIndexes(entities: NavetEntity[]): DeviceSuppressionIndexes {
   const indexes: DeviceSuppressionIndexes = {
     deviceIdsWithPrimaryCards: new Set<string>(),
-    deviceIdsWithSensorCards: new Set<string>(),
     deviceIdsWithClimateEntity: new Set<string>(),
     deviceIdsWithFanEntity: new Set<string>(),
     deviceIdsWithVacuumEntity: new Set<string>(),
@@ -241,16 +244,6 @@ function buildDeviceSuppressionIndexes(entities: NavetEntity[]): DeviceSuppressi
 
     if (hasPrimaryCardType(entity)) {
       indexes.deviceIdsWithPrimaryCards.add(deviceId);
-    }
-
-    if (
-      entity.type === 'sensor' ||
-      entity.type === 'binary_sensor' ||
-      entity.type === 'energy' ||
-      entity.type === 'unknown' ||
-      entity.type === 'grouped_sensor'
-    ) {
-      indexes.deviceIdsWithSensorCards.add(deviceId);
     }
 
     if (entity.type === 'climate' || entity.type === 'hvac') {
@@ -285,6 +278,31 @@ function buildDeviceSuppressionIndexes(entities: NavetEntity[]): DeviceSuppressi
   return indexes;
 }
 
+/** Compatibility snapshot for profiles saved before helper cards became opt-in. */
+export function getLegacyVisibleHelperIds(entities: NavetEntity[]): string[] {
+  const parentDeviceIds = new Set(
+    entities
+      .filter(
+        (entity) =>
+          hasPrimaryCardType(entity) ||
+          ['sensor', 'binary_sensor', 'energy', 'unknown', 'grouped_sensor'].includes(entity.type)
+      )
+      .map((entity) => readDeviceId(readEntityState(entity)))
+      .filter((id): id is string => Boolean(id))
+  );
+  return entities
+    .filter((entity) => {
+      if (entity.type !== 'helper') return false;
+      const state = readEntityState(entity);
+      // Configuration helpers were newly admitted alongside opt-in visibility.
+      if (state.entityCategory === 'config') return false;
+      if (readNavetHelperState(entity) || readSecurityKind(state.securityKind)) return true;
+      const deviceId = readDeviceId(state);
+      return !deviceId || !parentDeviceIds.has(deviceId);
+    })
+    .map((entity) => entity.canonicalId);
+}
+
 export function mapNavetEntitiesToDeviceCollection(entities: NavetEntity[]): DeviceCollection {
   const collection = createEmptyDeviceCollection();
   const indexes = buildDeviceSuppressionIndexes(entities);
@@ -296,6 +314,16 @@ export function mapNavetEntitiesToDeviceCollection(entities: NavetEntity[]): Dev
     const deviceId = readDeviceId(state);
 
     switch (entity.type) {
+      case 'timer':
+      case 'counter':
+      case 'valve':
+      case 'remote': {
+        const key = (
+          { timer: 'timers', counter: 'counters', valve: 'valves', remote: 'remotes' } as const
+        )[entity.type];
+        collection[key].push({ ...base, normalizedEntity: entity });
+        break;
+      }
       case 'light':
         collection.lights.push({
           ...base,
@@ -358,7 +386,17 @@ export function mapNavetEntitiesToDeviceCollection(entities: NavetEntity[]): Dev
           action: typeof state.action === 'string' ? state.action : undefined,
         });
         break;
-      case 'helper':
+      case 'helper': {
+        const helper = readNavetHelperState(entity);
+        if (helper) {
+          collection.helpers.push({
+            ...base,
+            state: false,
+            entityType: typeof state.entityType === 'string' ? state.entityType : undefined,
+            helper,
+          });
+          break;
+        }
         if (base.securityKind) {
           collection.helpers.push({
             ...base,
@@ -371,14 +409,8 @@ export function mapNavetEntitiesToDeviceCollection(entities: NavetEntity[]): Dev
           });
           break;
         }
-        if (
-          deviceId &&
-          (indexes.deviceIdsWithPrimaryCards.has(deviceId) ||
-            indexes.deviceIdsWithSensorCards.has(deviceId)) &&
-          indexes.primarySwitchByDeviceId.get(deviceId)?.canonicalId !== entity.canonicalId
-        ) {
-          break;
-        }
+        // Dashboard visibility absorbs helpers only while a capable parent is visible.
+        // Retain them here so hidden parents and cards without helper controls stay recoverable.
         collection.helpers.push({
           ...base,
           state: value === 'on' || state.on === true,
@@ -387,6 +419,7 @@ export function mapNavetEntitiesToDeviceCollection(entities: NavetEntity[]): Dev
           serviceAction: typeof state.serviceAction === 'string' ? state.serviceAction : undefined,
         });
         break;
+      }
       case 'sensor':
       case 'binary_sensor':
       case 'energy':

@@ -1,3 +1,4 @@
+import { CardDialogOverflowMenu } from '@navet/app/components/patterns/card-dialog-overflow-menu';
 import { CardErrorBoundary } from '@navet/app/components/shared/card-error-boundary';
 import type { CardSize } from '@navet/app/components/shared/card-size-selector';
 import { getBaseCardRadiusClassName } from '@navet/app/components/system/tokens';
@@ -17,6 +18,8 @@ import type { SensorReading } from '@navet/app/features/sensors/components/senso
 import type { VacuumStatus } from '@navet/app/features/vacuum/components/vacuum/vacuum-utils';
 import { isLawnMowerEntityId } from '@navet/app/features/vacuum/components/vacuum/vacuum-utils';
 import { useI18n, useIntegrationStore } from '@navet/app/hooks';
+import { useEntityIntegrationReload } from '@navet/app/hooks/use-entity-integration-reload';
+import { useTheme } from '@navet/app/hooks/use-theme';
 import type { IntegrationStore } from '@navet/app/stores/integration-store';
 import { integrationSelectors, settingsSelectors } from '@navet/app/stores/selectors';
 import { useSettingsStore } from '@navet/app/stores/settings-store';
@@ -25,6 +28,7 @@ import { type IntegrationProviderId, isIntegrationProviderId } from '@navet/app/
 import { resolveEffectsQuality } from '@navet/app/utils/effects-quality';
 import { parseProviderScopedId } from '@navet/app/utils/provider-ids';
 import type { NavetAlarmEntity } from '@navet/core/alarm-types';
+import type { NavetHelperState } from '@navet/core/helper-state';
 import type { NavetEntity } from '@navet/core/types';
 import { lazy, type ReactElement, type ReactNode, Suspense, useCallback, useMemo } from 'react';
 
@@ -73,6 +77,31 @@ const LightCard = lazy(async () => {
 const FanCard = lazy(async () => {
   const module = await import('@navet/app/features/lighting');
   return { default: module.FanCard };
+});
+
+const HelperCard = lazy(async () => {
+  const module = await import('@navet/app/features/lighting/components/helper-card');
+  return { default: module.HelperCard };
+});
+
+const TimerCard = lazy(async () => {
+  const module = await import('@navet/app/features/household-controls/components/timer-card');
+  return { default: module.TimerCard };
+});
+
+const CounterCard = lazy(async () => {
+  const module = await import('@navet/app/features/household-controls/components/counter-card');
+  return { default: module.CounterCard };
+});
+
+const ValveCard = lazy(async () => {
+  const module = await import('@navet/app/features/household-controls/components/valve-card');
+  return { default: module.ValveCard };
+});
+
+const RemoteCard = lazy(async () => {
+  const module = await import('@navet/app/features/household-controls/components/remote-card');
+  return { default: module.RemoteCard };
 });
 
 const SwitchCard = lazy(async () => {
@@ -265,7 +294,7 @@ export function selectCardIsUnavailable(
       ? readProviderEntityStateValue(providerEntity)
       : fallbackState;
 
-    return entityState === 'unavailable';
+    return providerEntity?.availability === 'unavailable' || entityState === 'unavailable';
   });
 }
 
@@ -283,6 +312,56 @@ export function useCardIsUnavailable(
   return useIntegrationStore(selectUnavailable, Object.is);
 }
 
+function UnavailableEntityOverlay({
+  entityId,
+  size,
+  isEditMode,
+  shouldReducePaintEffects,
+}: {
+  entityId?: string;
+  size: CardSize;
+  isEditMode: boolean;
+  shouldReducePaintEffects: boolean;
+}) {
+  const { t } = useI18n();
+  const { theme } = useTheme();
+  const recovery = useEntityIntegrationReload(entityId);
+  const showRecovery = !isEditMode && recovery.available;
+  const isTinyAvailabilityCard = size === 'tiny';
+  const isCompactAvailabilityCard = isTinyAvailabilityCard || size === 'extra-small';
+  return (
+    <>
+      {showRecovery ? (
+        <div className="absolute right-1 top-1 z-40">
+          <CardDialogOverflowMenu
+            theme={theme}
+            sections={[]}
+            onSectionChange={() => undefined}
+            entityId={entityId}
+          />
+        </div>
+      ) : null}
+      <div
+        className={`pointer-events-none absolute inset-0 z-30 flex justify-center ${
+          showRecovery && isTinyAvailabilityCard ? 'items-end pb-2' : 'items-center'
+        }`}
+      >
+        <div
+          className={`inline-flex max-w-[calc(100%-1rem)] items-center justify-center truncate rounded-full border border-white/12 bg-black/45 font-semibold text-white/92 ${
+            isTinyAvailabilityCard
+              ? 'px-1.5 py-0.5 text-[10px] leading-none tracking-[0.02em]'
+              : isCompactAvailabilityCard
+                ? 'px-2 py-0.5 text-[11px] leading-none tracking-[0.04em]'
+                : 'px-2.5 py-1 text-xs tracking-[0.06em] uppercase'
+          } ${shouldReducePaintEffects ? '' : 'backdrop-blur-md'}`}
+        >
+          {t('camera.status.unavailable')}
+        </div>
+      </div>
+    </>
+  );
+}
+
 function EntityAvailabilityFrame({
   device,
   isEditMode,
@@ -294,13 +373,10 @@ function EntityAvailabilityFrame({
   size: CardSize;
   children: ReactNode;
 }) {
-  const { t } = useI18n();
   const effectsQuality = useSettingsStore(settingsSelectors.effectsQuality);
   const lowPowerMode = useSettingsStore(settingsSelectors.lowPowerMode);
   const currentProviderId = useIntegrationStore(integrationSelectors.currentProviderId);
   const shouldReducePaintEffects = resolveEffectsQuality(effectsQuality, lowPowerMode) !== 'high';
-  const isTinyAvailabilityCard = size === 'tiny';
-  const isCompactAvailabilityCard = isTinyAvailabilityCard || size === 'extra-small';
   const entityIdsKey = JSON.stringify(
     (() => {
       const sourceIds = device.sourceIds;
@@ -328,6 +404,7 @@ function EntityAvailabilityFrame({
   return (
     <div className="relative h-full w-full overflow-hidden rounded-3xl">
       <div
+        inert={!isEditMode}
         className={`pointer-events-none h-full w-full opacity-45 ${
           shouldReducePaintEffects ? '' : 'saturate-50'
         }`}
@@ -342,19 +419,12 @@ function EntityAvailabilityFrame({
       {!isEditMode ? (
         <div className="pointer-events-auto absolute inset-0 z-20 rounded-[inherit]" />
       ) : null}
-      <div className="pointer-events-none absolute inset-0 z-30 flex items-center justify-center">
-        <div
-          className={`inline-flex max-w-[calc(100%-1rem)] items-center justify-center truncate rounded-full border border-white/12 bg-black/45 font-semibold text-white/92 ${
-            isTinyAvailabilityCard
-              ? 'px-1.5 py-0.5 text-[10px] leading-none tracking-[0.02em]'
-              : isCompactAvailabilityCard
-                ? 'px-2 py-0.5 text-[11px] leading-none tracking-[0.04em]'
-                : 'px-2.5 py-1 text-xs tracking-[0.06em] uppercase'
-          } ${shouldReducePaintEffects ? '' : 'backdrop-blur-md'}`}
-        >
-          {t('camera.status.unavailable')}
-        </div>
-      </div>
+      <UnavailableEntityOverlay
+        entityId={entityIds.length === 1 ? entityIds[0] : undefined}
+        size={size}
+        isEditMode={isEditMode}
+        shouldReducePaintEffects={shouldReducePaintEffects}
+      />
     </div>
   );
 }
@@ -558,19 +628,78 @@ const cardRegistry: Partial<Record<string, CardRenderFn>> = {
       />
     ),
 
-  helpers: ({ device, size, isEditMode }) => (
-    <SwitchCard
-      id={device.id as string}
-      name={device.name as string}
-      size={size}
-      providerId={device.providerId as CardProviderId}
-      initialState={device.state as boolean | undefined}
-      entityType={device.entityType as string | undefined}
-      serviceDomain={device.serviceDomain as string | undefined}
-      serviceAction={device.serviceAction as string | undefined}
-      isEditMode={isEditMode}
-    />
-  ),
+  helpers: ({ device, size, isEditMode }) =>
+    device.helper ? (
+      <HelperCard
+        id={device.id as string}
+        name={device.name as string}
+        room={device.room as string | undefined}
+        size={size}
+        helper={device.helper as NavetHelperState}
+        providerId={device.providerId as CardProviderId}
+        isEditMode={isEditMode}
+      />
+    ) : (
+      <SwitchCard
+        id={device.id as string}
+        name={device.name as string}
+        size={size}
+        providerId={device.providerId as CardProviderId}
+        initialState={device.state as boolean | undefined}
+        entityType={device.entityType as string | undefined}
+        serviceDomain={device.serviceDomain as string | undefined}
+        serviceAction={device.serviceAction as string | undefined}
+        isEditMode={isEditMode}
+      />
+    ),
+
+  timers: ({ device, size, isEditMode }) =>
+    typeof device.providerId === 'string' && isIntegrationProviderId(device.providerId) ? (
+      <TimerCard
+        id={device.id}
+        name={device.name as string}
+        room={device.room as string | undefined}
+        providerId={device.providerId}
+        size={size}
+        isEditMode={isEditMode}
+      />
+    ) : null,
+
+  counters: ({ device, size, isEditMode }) =>
+    typeof device.providerId === 'string' && isIntegrationProviderId(device.providerId) ? (
+      <CounterCard
+        id={device.id}
+        name={device.name as string}
+        room={device.room as string | undefined}
+        providerId={device.providerId}
+        size={size}
+        isEditMode={isEditMode}
+      />
+    ) : null,
+
+  valves: ({ device, size, isEditMode }) =>
+    typeof device.providerId === 'string' && isIntegrationProviderId(device.providerId) ? (
+      <ValveCard
+        id={device.id}
+        name={device.name as string}
+        room={device.room as string | undefined}
+        providerId={device.providerId}
+        size={size}
+        isEditMode={isEditMode}
+      />
+    ) : null,
+
+  remotes: ({ device, size, isEditMode }) =>
+    typeof device.providerId === 'string' && isIntegrationProviderId(device.providerId) ? (
+      <RemoteCard
+        id={device.id}
+        name={device.name as string}
+        room={device.room as string | undefined}
+        providerId={device.providerId}
+        size={size}
+        isEditMode={isEditMode}
+      />
+    ) : null,
 
   covers: ({ device, size, handleSizeChange, isEditMode }) => (
     <CoverCard

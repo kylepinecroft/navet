@@ -32,11 +32,16 @@ import type {
   NavetProviderState,
 } from '@navet/core/types';
 import { createStore } from 'zustand/vanilla';
-import { setInstalledPreviewCommandHandler } from './preview-action-bridge';
+import { enrichDemoEntities } from './demo-entities';
+import {
+  setInstalledPreviewCommandHandler,
+  setInstalledPreviewServiceHandler,
+} from './preview-action-bridge';
 import { applyPreviewCommandToEntity } from './preview-command-model';
 import {
   createPreviewEntityRuntimeService,
   getPreviewSnapshotAttributes,
+  getPreviewSnapshotState,
   resetPreviewEntityRuntimeCaches,
 } from './preview-entity-runtime-service';
 
@@ -166,12 +171,7 @@ function createPreviewRoom(name: string, memberEntityIds: string[]): NavetProvid
 }
 
 function createHomeAssistantCompatEntity(entity: NavetEntity) {
-  const state =
-    entity.primaryState === null || entity.primaryState === undefined
-      ? 'unknown'
-      : typeof entity.primaryState === 'string'
-        ? entity.primaryState
-        : String(entity.primaryState);
+  const state = getPreviewSnapshotState(entity);
 
   return {
     entity_id: entity.externalId,
@@ -1149,7 +1149,57 @@ function clonePreviewScenario(scenario: PreviewRuntimeScenario): PreviewRuntimeS
 
 export function getPreviewRuntimeScenario(name: 'default' | 'demo' = 'default') {
   if (name === 'demo') {
-    return clonePreviewScenario(DEFAULT_PREVIEW_SCENARIO);
+    const base = clonePreviewScenario(DEFAULT_PREVIEW_SCENARIO);
+    const entities = enrichDemoEntities(base.entities);
+    const roomNames = [
+      ...new Set(
+        entities.map((entity) => entity.room).filter((room): room is string => Boolean(room))
+      ),
+    ];
+    return withPreviewEntities(
+      {
+        ...base,
+        id: 'demo',
+        rooms: roomNames.map((room) =>
+          createPreviewRoom(
+            room,
+            entities.filter((entity) => entity.room === room).map((entity) => entity.externalId)
+          )
+        ),
+        homeAssistant: {
+          ...base.homeAssistant,
+          areas: roomNames.map((room) => ({ area_id: slugify(room), name: room })),
+          deviceRegistry: [
+            ...new Map(
+              entities
+                .filter((entity) => typeof entity.attributes.deviceId === 'string')
+                .map((entity) => [
+                  entity.attributes.deviceId as string,
+                  {
+                    id: entity.attributes.deviceId as string,
+                    area_id: entity.room ? slugify(entity.room) : null,
+                    name:
+                      base.homeAssistant.deviceRegistry.find(
+                        (device) => device.id === entity.attributes.deviceId
+                      )?.name ??
+                      entities.find(
+                        (candidate) => candidate.attributes.deviceId === entity.attributes.deviceId
+                      )?.name ??
+                      entity.name,
+                  },
+                ])
+            ).values(),
+          ],
+          entityRegistry: entities.map((entity) => ({
+            entity_id: entity.externalId,
+            device_id:
+              typeof entity.attributes.deviceId === 'string' ? entity.attributes.deviceId : null,
+            area_id: entity.room ? slugify(entity.room) : null,
+          })),
+        },
+      },
+      entities
+    );
   }
 
   return clonePreviewScenario(DEFAULT_PREVIEW_SCENARIO);
@@ -1709,7 +1759,7 @@ const previewProviderPackageRegistration: ProviderPackageRegistration = {
       mediaArtwork: true,
       cameraSnapshot: true,
       cameraStreams: false,
-      energyNow: false,
+      energyNow: true,
       calendar: true,
       weather: true,
       notifications: true,
@@ -1755,11 +1805,54 @@ export function installPreviewRuntime(scenario: PreviewRuntimeScenario) {
         entry.externalId === command.entityId
     );
     if (
-      entity?.type !== 'light' ||
-      !['turn_on', 'turn_off', 'set_brightness', 'set_color_temperature'].includes(command.type)
+      !entity ||
+      ![
+        'turn_on',
+        'turn_off',
+        'set_brightness',
+        'set_color_temperature',
+        'set_fan_speed',
+        'set_temperature',
+        'set_climate_mode',
+        'set_position',
+        'open',
+        'close',
+        'stop',
+        'lock',
+        'unlock',
+        'set_number_value',
+        'select_option',
+        'set_text_value',
+        'set_datetime_value',
+        'press',
+        'set_climate_preset',
+        'set_climate_fan_mode',
+        'set_climate_swing_mode',
+        'set_climate_swing_horizontal_mode',
+        'set_climate_humidity',
+      ].includes(command.type)
     )
       return null;
     return previewProviderPackageRegistration.providerContractAdapter.execute(command);
+  });
+  setInstalledPreviewServiceHandler((entityId, { domain, service, serviceData }) => {
+    const entity = getActiveScenario()?.entities.find(
+      (entry) => entry.externalId === entityId || entry.canonicalId === entityId
+    );
+    if (!entity || domain !== 'fan') return false;
+    const patch =
+      service === 'set_direction' &&
+      (serviceData?.direction === 'forward' || serviceData?.direction === 'reverse')
+        ? { direction: serviceData.direction }
+        : service === 'oscillate' && typeof serviceData?.oscillating === 'boolean'
+          ? { oscillating: serviceData.oscillating }
+          : null;
+    if (!patch) return false;
+    updatePreviewEntity(entity.externalId, (current) => ({
+      ...current,
+      attributes: { ...current.attributes, ...patch },
+    }));
+    return true;
   });
 }
 
@@ -1768,6 +1861,7 @@ export function getInstalledPreviewRuntimeScenario() {
 }
 
 export function resetPreviewRuntime() {
+  setInstalledPreviewServiceHandler(null);
   setInstalledPreviewCommandHandler(null);
   resetPreviewEntityRuntimeCaches();
   previewRuntimeStore.setState({ scenario: null });

@@ -16,6 +16,7 @@ import { TabPanel, Tabs } from '@navet/app/components/primitives/tabs';
 import { CompactRoomSelector } from '@navet/app/components/shared/device-editor/compact-room-selector';
 import { CustomCardTintPicker } from '@navet/app/components/shared/device-editor/custom-card-tint-picker';
 import { CustomScrollbar } from '@navet/app/components/shared/device-editor/custom-scrollbar';
+import { EntityHelperControls } from '@navet/app/components/shared/device-editor/entity-helper-controls';
 import { getDialogReturnFocus } from '@navet/app/components/shared/dialog-return-focus';
 import { EntityRoomSelector } from '@navet/app/components/shared/entity-room-selector';
 import { getBaseCardDialogSurface } from '@navet/app/components/shared/theme/base-card-dialog-surface';
@@ -75,8 +76,13 @@ interface BaseCardDialogSharedProps {
 
 interface BaseCardDialogCardProps extends BaseCardDialogSharedProps {
   variant?: 'card';
+  /** Fit the phone sheet to its content, capped at the usual resting sheet height. */
+  mobileFitContent?: boolean;
   entityId?: string;
   entityType?: string;
+  /** Helpers already rendered by the consuming dialog's existing controls. */
+  excludeHelperEntityIds?: string[];
+  helperControlsTheme?: ThemeType;
   tabs: BaseCardDialogTab[];
   tintColor?: string;
   onTintColorChange?: (color: string) => void;
@@ -149,6 +155,7 @@ interface BaseCardDialogRootProps {
   disableOpenAutoFocus?: boolean;
   onCloseAutoFocus?: (event: Event) => void;
   mobileCoverSheet?: boolean;
+  mobileFitContent?: boolean;
   persistentMobileDismiss?: boolean;
   mobileCoverSheetActions?: ReactNode;
   mobileDismissLabel?: string;
@@ -164,7 +171,7 @@ interface BaseCardDialogRootProps {
 
 const mobileCoverSheetClassName = [
   'max-sm:!top-[var(--mobile-cover-sheet-top)] max-sm:!right-0 max-sm:!bottom-0 max-sm:!left-0',
-  'max-sm:!mx-0 max-sm:!h-[80dvh] max-sm:!max-h-[100dvh] max-sm:!w-auto max-sm:!max-w-none',
+  'max-sm:!mx-0 max-sm:!w-auto max-sm:!max-w-none',
   'max-sm:[--navet-safe-area-top-offset:0px]',
   'max-sm:!flex max-sm:!flex-col',
   'max-sm:![translate:0_var(--mobile-cover-sheet-drag-y)] max-sm:!rounded-t-[30px] max-sm:!rounded-b-none',
@@ -172,7 +179,7 @@ const mobileCoverSheetClassName = [
 ].join(' ');
 
 const mobileCoverSheetFullscreenClassName = [
-  'max-sm:!h-auto',
+  'max-sm:!h-auto max-sm:!max-h-[100dvh]',
   'max-sm:!transition-[height,top,translate] max-sm:!duration-200 max-sm:!ease-out',
 ].join(' ');
 
@@ -214,6 +221,7 @@ function BaseCardDialogRoot({
   disableOpenAutoFocus = false,
   onCloseAutoFocus,
   mobileCoverSheet = true,
+  mobileFitContent = false,
   persistentMobileDismiss = false,
   mobileCoverSheetActions,
   mobileDismissLabel,
@@ -409,6 +417,11 @@ function BaseCardDialogRoot({
   const resolvedContentClassName = [
     contentClassName,
     mobileCoverSheet ? mobileCoverSheetClassName : '',
+    mobileCoverSheet && !isMobileCoverSheetFullscreen
+      ? mobileFitContent
+        ? 'max-sm:!h-auto max-sm:!max-h-[80dvh]'
+        : 'max-sm:!h-[80dvh] max-sm:!max-h-[100dvh]'
+      : '',
     persistentMobileDismiss ? 'max-sm:[&_[data-cover-sheet-inline-dismiss]]:!hidden' : '',
     mobileCoverSheet && isMobileCoverSheetFullscreen ? mobileCoverSheetFullscreenClassName : '',
     mobileCoverSheet && isMobileCoverSheetDragging ? mobileCoverSheetDraggingClassName : '',
@@ -549,6 +562,8 @@ function BaseCardDialogCardVariant({
   title,
   entityId,
   entityType,
+  excludeHelperEntityIds,
+  helperControlsTheme,
   description,
   tabs,
   theme,
@@ -585,6 +600,7 @@ function BaseCardDialogCardVariant({
   disableOpenAutoFocus = false,
   maxWidth = 'md',
   height,
+  mobileFitContent = false,
   activeTab,
   defaultTab,
   onActiveTabChange,
@@ -742,9 +758,10 @@ function BaseCardDialogCardVariant({
       />
 
       {shouldRenderTabs && showTabList && !overflowNavigation ? (
-        <CardDialogTabList className="mt-3 mb-0 flex flex-wrap gap-2">
+        <CardDialogTabList segmented className="mt-3 mb-0">
           {dialogTabs.map((tab) => (
             <CardDialogTabTrigger
+              segmented
               key={tab.key}
               active={resolvedActiveTab === tab.key}
               icon={tab.icon}
@@ -758,6 +775,18 @@ function BaseCardDialogCardVariant({
     </header>
   );
 
+  const renderControlsContent = (tab: BaseCardDialogTab) => (
+    <>
+      {tab.content}
+      {tab.key === firstTabKey && entityId && isOpen ? (
+        <EntityHelperControls
+          entityId={entityId}
+          excludeEntityIds={excludeHelperEntityIds}
+          theme={helperControlsTheme ?? theme}
+        />
+      ) : null}
+    </>
+  );
   const renderSectionContent = (tab: BaseCardDialogTab) =>
     overflowNavigation && tab.key !== firstTabKey ? (
       <div className="space-y-4">
@@ -769,10 +798,10 @@ function BaseCardDialogCardVariant({
         >
           {t('common.backToControls')}
         </Button>
-        {tab.content}
+        {renderControlsContent(tab)}
       </div>
     ) : (
-      tab.content
+      renderControlsContent(tab)
     );
   const cardBody = (
     <CardDialogBody className={bodyClassName}>
@@ -785,10 +814,12 @@ function BaseCardDialogCardVariant({
         : shouldRenderTabs
           ? dialogTabs.map((tab) => (
               <TabPanel key={tab.key} value={tab.key}>
-                {tab.content}
+                {renderControlsContent(tab)}
               </TabPanel>
             ))
-          : (dialogTabs[0]?.content ?? null)}
+          : dialogTabs[0]
+            ? renderControlsContent(dialogTabs[0])
+            : null}
 
       {footerContent ? (
         footerContent
@@ -817,6 +848,7 @@ function BaseCardDialogCardVariant({
       contentGlowStyle={contentGlowStyle}
       contentOverlayClassName={contentOverlayClassName}
       contentOverlayStyle={contentOverlayStyle}
+      mobileFitContent={mobileFitContent}
       persistentMobileDismiss
       mobileDismissStyle={paletteControlStyle}
       mobileCoverSheetActions={overflowNavigation ? menu : mobileCoverSheetActions}

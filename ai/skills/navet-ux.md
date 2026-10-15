@@ -76,6 +76,19 @@ empty space.
 - Do not rely on hover, color alone, or motion alone to reveal state or affordance.
 - Keep focus-visible and reduced-motion behavior when extending shared controls.
 - Use progressive disclosure for configuration; do not hide useful live state behind it.
+- For card-dialog advanced controls, reuse `DeviceControlRow` and `DeviceControlOptions` from
+  `components/shared/device-editor`. Keep the main device value and segmented operating choices
+  first. Use `DeviceTargetControl` for a labelled setpoint beside existing adjustment buttons,
+  followed by the current reading and status. Climate and humidifier dialogs use
+  `BaseCardDialog.mobileFitContent` to avoid reserving phone-sheet space for decoration.
+  Secondary rows show the current value and expand their own editor. Single-choice option lists
+  compose `SelectableRadioList` and `SelectableRadioRow`; checkbox rows are for independent
+  selections. Boolean controls use
+  an inline switch, and readings have no interactive affordance. The feature determines whether
+  provider options are genuinely boolean and owns commands, pending/error states and validation.
+  Keep editors mounted while collapsed to preserve drafts. The climate dialog is the first
+  consuming reference (`cards-entity-climate--advanced-dialog-supported`); rendered maintainer
+  acceptance remains pending.
 - Use sentence case, short household language, and the existing translation system.
 - Do not invent explanatory subtitles, status labels, badges, or calls to action merely to fill a
   composition. Every visible line must help the user understand state or act.
@@ -119,13 +132,12 @@ Review the result against the named reference, not only against the request:
 - realistic long names, translated copy, missing artwork, and missing optional data
 - high and reduced effects quality when visual effects are involved
 
-Compare rendered output with the named reference. Discovery preserves review status; structural
-checks establish neither rendered acceptance nor design fidelity. If a visual review surface is
-available, inspect it and correct visible hierarchy, overflow, alignment and theme mismatches
-before calling the work complete.
+Ask the maintainer to compare rendered output with the named reference using this matrix.
+Agents perform visual comparisons only when the maintainer explicitly requests them.
+Keep rendered acceptance pending until the maintainer completes the manual review.
 
 For small UI-only tweaks, run the closest focused validation, usually a targeted Storybook test,
-`pnpm check:stories`, or `pnpm test <path>`, and inspect the rendered state. For broader or
+`pnpm check:stories`, or `pnpm test <path>`. For broader or
 responsive UI work, follow `docs/agents/commands.md`, use the smallest routeable validation that
 covers the change, and run `pnpm test:visual-review` when shared layout or overflow can change.
 

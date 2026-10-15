@@ -1,4 +1,6 @@
 import type {
+  PlatformActivityEntry,
+  PlatformActivityRequest,
   PlatformEntityHistoriesRequest,
   PlatformEntityHistoryRequest,
   PlatformEntityHistorySeries,
@@ -15,6 +17,14 @@ import {
 } from './integration-provider-context.service';
 
 const ENTITY_HISTORY_FALLBACK_CONCURRENCY = 6;
+
+export function getIntegrationEntityHistoryQueryMode(entityId: string) {
+  const providerId = resolveIntegrationProviderId(entityId);
+  return (
+    getProviderRuntimeRegistration(providerId).historyFeatureService?.entityHistoryQueryMode ??
+    'time-range'
+  );
+}
 
 function readNativeEntityId(entityId: string) {
   return entityId.replace(/^[^:]+:/, '');
@@ -216,18 +226,9 @@ export async function getIntegrationStatisticsHistory(
     nativeToCanonical.set(readNativeEntityId(entityId), entityId);
   }
   const nativeEntityIds = [...nativeToCanonical.keys()];
-  const nativeUnits = request.units
-    ? Object.fromEntries(
-        [...nativeToCanonical.entries()].flatMap(([nativeEntityId, canonicalEntityId]) => {
-          const unit = request.units?.[canonicalEntityId];
-          return unit ? [[nativeEntityId, unit]] : [];
-        })
-      )
-    : undefined;
   const result = await service.getStatisticsHistory({
     ...request,
     entityIds: nativeEntityIds,
-    ...(nativeUnits && Object.keys(nativeUnits).length > 0 ? { units: nativeUnits } : {}),
   });
 
   const normalized: PlatformStatisticsHistorySeries = {};
@@ -276,4 +277,28 @@ export function supportsIntegrationEnergyStatistics(
   }
 
   return service.getMessageClient() !== null;
+}
+
+/** Activity filters must target one owning source; never fall back to a current provider. */
+export async function getIntegrationActivity(
+  request: PlatformActivityRequest
+): Promise<PlatformActivityEntry[] | null> {
+  if (request.entityIds.length === 0) return [];
+  throwIfHistoryRequestAborted(request.signal);
+  const providerId = resolveIntegrationProviderId(request.entityIds[0]);
+  if (request.entityIds.some((id) => resolveIntegrationProviderId(id) !== providerId)) {
+    throw new Error('Activity entities must belong to the same provider');
+  }
+  const service = getProviderRuntimeRegistration(providerId).historyFeatureService;
+  if (!service?.getActivity) return null;
+  const nativeToCanonical = new Map(request.entityIds.map((id) => [readNativeEntityId(id), id]));
+  const result = await service.getActivity({
+    ...request,
+    entityIds: [...nativeToCanonical.keys()],
+  });
+  throwIfHistoryRequestAborted(request.signal);
+  return result.flatMap((entry) => {
+    const entityId = nativeToCanonical.get(entry.entityId);
+    return entityId ? [{ ...entry, entityId }] : [];
+  });
 }

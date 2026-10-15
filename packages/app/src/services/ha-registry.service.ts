@@ -16,27 +16,49 @@ class HARegistryService {
   private deviceRegistry: HomeAssistantDeviceRegistryEntry[] = [];
   private entityRegistry: HomeAssistantEntityRegistryEntry[] = [];
   private automationCategories: HomeAssistantCategoryRegistryEntry[] = [];
-  private registryLoadInProgress = false;
   private pendingRegistryLoad = false;
+  private loadPromise: Promise<void> | null = null;
+  private loadGeneration = 0;
+
+  resetRegistriesForSession(): void {
+    this.loadGeneration += 1;
+    this.loadPromise = null;
+    this.pendingRegistryLoad = false;
+    this.areas = [];
+    this.deviceRegistry = [];
+    this.entityRegistry = [];
+    this.automationCategories = [];
+  }
 
   constructor(private connection: () => Connection | null) {}
 
   /**
    * Load all registries from Home Assistant
    */
-  async loadRegistries(): Promise<void> {
+  loadRegistries(): Promise<void> {
+    if (this.loadPromise) {
+      this.pendingRegistryLoad = true;
+      return this.loadPromise;
+    }
+    const generation = this.loadGeneration;
+    const loadPromise = (async () => {
+      do {
+        this.pendingRegistryLoad = false;
+        await this.loadRegistrySnapshot();
+      } while (generation === this.loadGeneration && this.pendingRegistryLoad);
+    })().finally(() => {
+      if (this.loadPromise === loadPromise) this.loadPromise = null;
+    });
+    this.loadPromise = loadPromise;
+    return loadPromise;
+  }
+
+  private async loadRegistrySnapshot(): Promise<void> {
+    const generation = this.loadGeneration;
     const conn = this.connection();
     if (!conn) {
       return;
     }
-
-    if (this.registryLoadInProgress) {
-      this.pendingRegistryLoad = true;
-      return;
-    }
-
-    this.registryLoadInProgress = true;
-    this.pendingRegistryLoad = false;
 
     try {
       const [areas, devices, entities, automationCategories] = await Promise.all([
@@ -49,27 +71,22 @@ class HARegistryService {
         conn.sendMessagePromise({
           type: 'config/entity_registry/list',
         }) as Promise<HomeAssistantEntityRegistryEntry[]>,
-        conn.sendMessagePromise({
-          type: 'config/category_registry/list',
-          scope: 'automation',
-        }) as Promise<HomeAssistantCategoryRegistryEntry[]>,
+        conn
+          .sendMessagePromise({
+            type: 'config/category_registry/list',
+            scope: 'automation',
+          })
+          .catch(() => this.automationCategories) as Promise<HomeAssistantCategoryRegistryEntry[]>,
       ]);
 
+      if (generation !== this.loadGeneration) return;
       this.areas = areas;
       this.deviceRegistry = devices;
       this.entityRegistry = entities;
       this.automationCategories = automationCategories;
     } catch (error) {
       console.error('[HARegistryService] Failed to load registries:', error);
-      this.areas = [];
-      this.deviceRegistry = [];
-      this.entityRegistry = [];
-      this.automationCategories = [];
-    } finally {
-      this.registryLoadInProgress = false;
-      if (this.pendingRegistryLoad) {
-        void this.loadRegistries();
-      }
+      // Keep the last useful snapshot until the next successful refresh.
     }
   }
 

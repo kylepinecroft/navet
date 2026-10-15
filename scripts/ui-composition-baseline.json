@@ -28,13 +28,6 @@
     "reason": "Existing feature styling retained during source-catalog rollout; new occurrences must reuse Navet foundations."
   },
   {
-    "file": "packages/app/src/features/climate/components/humidifier-card/index.tsx",
-    "rule": "duplicate-card-surface",
-    "anchor": "3c057e0835c13f8b44208ab26e51046b39a588321c26a47b5456d810bc7d4458",
-    "occurrence": 1,
-    "reason": "Existing feature styling retained during source-catalog rollout; new occurrences must reuse Navet foundations."
-  },
-  {
     "file": "packages/app/src/features/dashboard/components/dashboard-card-item.tsx",
     "rule": "card-hardcoded-foundation",
     "anchor": "83e0620256d356720d5694243a6ea70c1eef3a782f2625235f3ef87c48b55cae",
@@ -115,13 +108,6 @@
     "file": "packages/app/src/features/lighting/components/fan-card/fan-settings-dialog.tsx",
     "rule": "duplicate-card-surface",
     "anchor": "f3b01bb8019cf2e201966e10b1fee3263e51a74c414c01f0fa0a48dba95e591b",
-    "occurrence": 1,
-    "reason": "Existing feature styling retained during source-catalog rollout; new occurrences must reuse Navet foundations."
-  },
-  {
-    "file": "packages/app/src/features/lighting/components/fan-card/index.tsx",
-    "rule": "card-hardcoded-foundation",
-    "anchor": "b3a7c03e767c230266f8bdf0dcb5e921c791af7c35debbb3da4c9fa781fae199",
     "occurrence": 1,
     "reason": "Existing feature styling retained during source-catalog rollout; new occurrences must reuse Navet foundations."
   },

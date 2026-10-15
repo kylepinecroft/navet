@@ -41,6 +41,10 @@ export const DEVICE_COLLECTION_KEYS = [
   'weather',
   'switches',
   'helpers',
+  'timers',
+  'counters',
+  'valves',
+  'remotes',
   'covers',
   'locks',
   'scenes',
@@ -359,6 +363,26 @@ function applyRoomOverrides(
     roomIdsByEntityId,
     roomPlacementLookup
   );
+  const timers = applyRoomOverridesToDevices(
+    collection.timers,
+    roomIdsByEntityId,
+    roomPlacementLookup
+  );
+  const counters = applyRoomOverridesToDevices(
+    collection.counters,
+    roomIdsByEntityId,
+    roomPlacementLookup
+  );
+  const valves = applyRoomOverridesToDevices(
+    collection.valves,
+    roomIdsByEntityId,
+    roomPlacementLookup
+  );
+  const remotes = applyRoomOverridesToDevices(
+    collection.remotes,
+    roomIdsByEntityId,
+    roomPlacementLookup
+  );
   const covers = applyRoomOverridesToDevices(
     collection.covers,
     roomIdsByEntityId,
@@ -414,6 +438,10 @@ function applyRoomOverrides(
     weather === collection.weather &&
     switches === collection.switches &&
     helpers === collection.helpers &&
+    timers === collection.timers &&
+    counters === collection.counters &&
+    valves === collection.valves &&
+    remotes === collection.remotes &&
     covers === collection.covers &&
     locks === collection.locks &&
     scenes === collection.scenes &&
@@ -438,6 +466,10 @@ function applyRoomOverrides(
     weather,
     switches,
     helpers,
+    timers,
+    counters,
+    valves,
+    remotes,
     covers,
     locks,
     scenes,
@@ -806,6 +838,10 @@ export function mergeDeviceCollections(...collections: DeviceCollection[]): Devi
       weather: [...merged.weather, ...collection.weather],
       switches: [...merged.switches, ...collection.switches],
       helpers: [...merged.helpers, ...collection.helpers],
+      timers: [...merged.timers, ...collection.timers],
+      counters: [...merged.counters, ...collection.counters],
+      valves: [...merged.valves, ...collection.valves],
+      remotes: [...merged.remotes, ...collection.remotes],
       covers: [...merged.covers, ...collection.covers],
       locks: [...merged.locks, ...collection.locks],
       scenes: [...merged.scenes, ...collection.scenes],
@@ -825,6 +861,10 @@ export function mergeDeviceCollections(...collections: DeviceCollection[]): Devi
       weather: [],
       switches: [],
       helpers: [],
+      timers: [],
+      counters: [],
+      valves: [],
+      remotes: [],
       covers: [],
       locks: [],
       scenes: [],
@@ -851,6 +891,10 @@ export function filterDeviceCollectionByProvider(
     weather: devices.weather.filter((device) => device.providerId === providerId),
     switches: devices.switches.filter((device) => device.providerId === providerId),
     helpers: devices.helpers.filter((device) => device.providerId === providerId),
+    timers: devices.timers.filter((device) => device.providerId === providerId),
+    counters: devices.counters.filter((device) => device.providerId === providerId),
+    valves: devices.valves.filter((device) => device.providerId === providerId),
+    remotes: devices.remotes.filter((device) => device.providerId === providerId),
     covers: devices.covers.filter((device) => device.providerId === providerId),
     locks: devices.locks.filter((device) => device.providerId === providerId),
     scenes: devices.scenes.filter((device) => device.providerId === providerId),

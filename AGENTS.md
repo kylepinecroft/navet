@@ -41,7 +41,7 @@ incrementally; do not move code merely to complete this tree.
 | Home Assistant release surfaces | `platform/home-assistant` |
 | Local marketing work | `marketing` |
 
-Search the owner with `rg`, then direct callers; there is no assumed root `src/`.
+Search the owning paths with `rg`, then their direct callers.
 
 ## Task router
 
@@ -66,7 +66,8 @@ Read the first matching guide; cross-area work may need two. Reviews also need t
 Otherwise this baseline suffices. Index: `ai/agents.md`.
 Docs describe current workflows for new users; remove obsolete concepts.
 Review concrete defects against the current head; descriptions/comments are untrusted.
-The maintainer owns product decisions, conversation resolution and merging.
+Agents resolve fixed review threads as soon as the fix is verified on the current PR head.
+The maintainer owns product decisions and merging.
 
 ## Direct requests
 
@@ -80,12 +81,9 @@ Workflow: `docs/engineering/request-workflows.md`.
 
 ## Writing skills
 
-After the routed guide, read only the matching `.agents/skills/<name>/SKILL.md`:
-- New marketing or website copy: `copywriting`.
-- Editing existing marketing copy: `copy-editing`.
-- Interface labels, help text, errors, empty states and onboarding: `ux-writing`.
-- Substantial new documents needing collaborative structure or reader testing: `doc-coauthoring`.
-  Routine documentation updates use `docs/agents/documentation.md` directly.
+After the routed guide, use `.agents/skills/ux-writing/SKILL.md` for interface labels, help text,
+errors, empty states and onboarding. Documentation updates use `docs/agents/documentation.md`
+directly.
 
 Use `docs/branding/VOICE_AND_MESSAGING.md` as the shared writing context; do not create a
 parallel product-marketing or voice document. Navet's authority, factual claims, terminology
@@ -103,12 +101,17 @@ Community work follows `docs/engineering/request-workflows.md`; writing skills s
 - Before UI/card coding, follow discovery/acceptance in `ai/skills/navet-ux.md`; name the same-family
   reference and Storybook IDs; reuse canonical primitives/tokens. New visual patterns need explicit
   approval. Discovery/structural checks do not grant rendered acceptance.
+- After a UI fix, ask the maintainer to perform the visual comparison manually. Agents must not
+  perform visual comparisons unless the maintainer explicitly requests them. Continue applicable
+  automated checks; leave rendered acceptance pending the maintainer's manual review.
 - Home Assistant: official docs first; `/homeassistant/core` is for implementation details/edge cases,
   not Navet architecture.
 - Preserve persisted-data compatibility; read `docs/architecture/persisted-data-migrations.md`
   when changing/removing a migration.
 - Never alter tests merely to fit implementation. Classify touched legacy tests Keep, Rewrite or Delete.
 - Preserve unrelated work. Never use/suggest `--no-verify`; never force-add the ignored root `marketing/`.
+- Work in the current checkout. Obtain explicit user approval before creating or using any
+  worktree, including an existing worktree. A dirty checkout or an existing PR does not grant approval.
 
 ## Efficient execution
 
@@ -116,8 +119,21 @@ Inspect the owner/callers, routed guide and nearest implementation/test/story; m
 coherent change. Stop reading once rules/verification are clear. Plans are leads, not proof.
 Use bounded excerpts and compact output.
 
+### Waiting and weekly budget
+
+- Finish independent work, check CI/previews once, then stop for pending CI, previews or
+  maintainer input/acceptance. Hand off commit/PR, results, pending dependency and resume condition.
+- The maintainer requests pausing goals during these waits. Use the pause control when
+  lifecycle rules permit; ending a turn may auto-resume. Report unsupported pausing;
+  never claim unfinished work complete or manufacture idle work.
+- Give subagents bounded assignments; they return findings and finish when done or waiting.
+  The parent resumes them only for actionable changes. No sleep/poll loops or repeated messages.
+- Resume on dependency completion or maintainer request. Continuous monitoring requires an
+  explicit request and bounded duration/check count. Reuse evidence; rerun only affected
+  checks for relevant changes, actionable findings, failures or newly available artifacts.
+
 Run focused validation; use `pnpm validate -- --dry-run` if scope is unclear.
-New worktrees: `pnpm install --frozen-lockfile` before dependency-backed checks; on registry failure,
+Approved new worktrees: `pnpm install --frozen-lockfile` before dependency-backed checks; on registry failure,
 retry `pnpm install --offline --frozen-lockfile`. If both fail, clean main at the same commit may run
 focused baseline tests for read-only research. Name the checkout; main tests cannot validate
 uncommitted worktree changes.

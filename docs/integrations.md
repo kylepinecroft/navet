@@ -33,18 +33,42 @@ on the capabilities of your devices.
 | Media browse, search, artwork, and grouping | Yes | No | No |
 | Camera snapshots and live streams | Yes | No | No |
 | Energy configuration and statistics | Yes | No | No |
-| Entity sensor history | Yes | Insights logs | No |
+| Entity state history | Yes | Supported Insights logs | No |
+| Recorded activity | Yes | No | No |
 | Calendar and weather data | Yes | No | No |
+| Calendar event creation (writable calendars) | Yes | No | No |
 | Notifications | Yes | Read and hide locally | No |
 | Updates and restart actions | Yes | No | No |
 | Runnable scenes, Flows, and Moods | Yes | Yes | No |
 | Household presence | Yes | View people | No |
 | Automation/task details and triggering | Yes | No | No |
+| Shared to-do and shopping list items | Yes | No | No |
 | Assist text, microphone, and response audio | Yes | No | No |
 | Provider room and entity administration | Yes | No | No |
 
 `No` means the feature is unavailable through that provider in Navet. The platform may support
 it in its own interface.
+
+### History and activity
+
+Open the user menu → **History and activity**, choose an entity, select a date/time range,
+and choose **State history** or **Activity**. Times use the display's time zone, shown in the form.
+State history preserves numeric readings and nonnumeric states; a retained state supplied at the
+range boundary is labelled **State at the start of the range**. Activity includes recorded cause
+details, such as an automation, service, or user action, when the source supplies them. Numeric
+energy statistics remain in Energy.
+
+Each request targets the entity's owning source. Home Assistant supplies state history and recorded
+activity; Homey supplies history for supported Insights entities. Unsupported sources show an
+unavailable message. Activity follows Home Assistant's filters and can omit frequently changing
+numeric sensors. An empty result can mean there were no records, the entity is excluded, or the
+source no longer retains that period. Navet cannot reconstruct deleted records.
+
+Queries cover up to 31 days. Navet reads recent records first, widens sparse requests, and stops
+once the newest 1,000 records and the limit indicator are known. Sources such as Homey that return
+a retained period are read once for the selected range. Results offer **Show more** for additional
+rows within that limit. Choose a shorter range for more detail.
+Home Assistant uses the existing authenticated transport in standalone, Ingress and custom panel.
 
 ### Home Assistant
 
@@ -52,6 +76,28 @@ Navet maps Home Assistant rooms and realtime entities for lights, switches, sens
 media players, cameras, energy, calendars, weather, notifications, updates, Assist pipelines, and
 supported task or automation surfaces. Home Assistant also provides the advanced dashboard and administration
 services marked **Yes** in the matrix above.
+
+Calendar cards can create events in selected writable Home Assistant calendars. Read-only calendars
+continue to show events. Timed events use the display's time zone, shown in the form; all-day events
+use calendar dates with a last included day. A failed create keeps the form details for retry.
+The owning adapter uses the existing authenticated transport in standalone, Ingress and custom panel.
+
+Supported household helpers include toggles, buttons, numeric values, dropdown options, text,
+and dates or times. Controls follow the entity's available options and limits.
+Native `datetime` values display and save in UTC, with the zone shown on the control.
+Date/time helpers use Home Assistant's local time.
+
+Room names and entity assignments refresh after external Home Assistant registry edits and after
+reconnection. A failed metadata refresh retains the last loaded rooms and entities. These features
+work in standalone, Ingress, and custom panel installations.
+
+Climate dialogs offer thermostat presets, climate fan modes, vertical and horizontal swing,
+and target humidity when the owning device advertises them. These controls use the climate
+device's options and limits.
+
+Open **Household → Lists** to view a connected source's shopping or to-do items. Supported lists allow adding,
+completing or reopening, editing, and removing items. Description and due-date fields appear only
+when that list supports them.
 
 ### Homey
 

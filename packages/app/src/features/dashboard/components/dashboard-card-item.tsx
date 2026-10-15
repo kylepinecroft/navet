@@ -792,7 +792,12 @@ function getAllowedSizes(
         return ['small', 'medium'];
       }
       return ['tiny', 'extra-small', 'small'];
+    case 'timers':
+    case 'counters':
+      return ['extra-small', 'small'];
     case 'helpers':
+    case 'valves':
+    case 'remotes':
       return ['tiny', 'extra-small', 'small'];
     case 'lights':
       return ['extra-small', 'small', 'medium'];
@@ -838,6 +843,10 @@ function supportsEditModeSettingsDock(device: DeviceWithType) {
     'fans',
     'switches',
     'helpers',
+    'timers',
+    'counters',
+    'valves',
+    'remotes',
     'climate',
     'hvac',
     'weather',
@@ -876,6 +885,14 @@ function getDeviceTypeEditLabel(type: DeviceWithType['type'], t: ReturnType<type
     case 'switches':
     case 'helpers':
       return t('lighting.type.switch');
+    case 'timers':
+      return t('deviceType.timer');
+    case 'counters':
+      return t('deviceType.counter');
+    case 'valves':
+      return t('deviceType.valve');
+    case 'remotes':
+      return t('deviceType.remote');
     case 'fans':
       return 'Fan';
     case 'climate':
