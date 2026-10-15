@@ -1,7 +1,11 @@
 import type { EnergySourceConfig } from './energy-types';
 import type { IntegrationServiceTarget } from './integration-service-target';
 import type {
+  PlatformActivityEntry,
+  PlatformActivityRequest,
   PlatformAutomationDetails,
+  PlatformCalendarCapabilities,
+  PlatformCalendarCreateEvent,
   PlatformCalendarEvent,
   PlatformCalendarRequestOptions,
   PlatformCameraCapabilities,
@@ -37,6 +41,12 @@ import type {
   PlatformWebRtcClientConfiguration,
   PlatformWebRtcOfferEvent,
 } from './provider-feature-models';
+import type {
+  NavetTodoItem,
+  NavetTodoItemInput,
+  NavetTodoItemUpdate,
+  NavetTodoList,
+} from './todo-types';
 
 export interface ProviderConversationFeatureService {
   getPipelines: () => Promise<PlatformConversationPipelineCollection>;
@@ -180,6 +190,12 @@ export interface ProviderRoomAdminFeatureService {
 }
 
 export interface ProviderAdminFeatureService extends ProviderRoomAdminFeatureService {
+  /** Whether this session can reload the integration behind this entity, regardless of its state. */
+  canReloadEntityIntegration?: (entityId: string) => boolean;
+  /** Watches live integration reload support; unknown support remains unavailable. */
+  subscribeEntityIntegrationReload?: (entityId: string, listener: () => void) => () => void;
+  /** Reloads the owning integration; completion does not establish entity recovery. */
+  reloadEntityIntegration?: (entityId: string) => Promise<void>;
   /**
    * Compatibility seam for callers that still model assign and unassign as one nullable update.
    */
@@ -188,6 +204,10 @@ export interface ProviderAdminFeatureService extends ProviderRoomAdminFeatureSer
 }
 
 export interface ProviderHistoryFeatureService {
+  /** Retained-series readers should receive one range, rather than refetching a fixed period. */
+  entityHistoryQueryMode?: 'time-range' | 'retained-series';
+  /** Recorded activity is separate from state history and numeric statistics. */
+  getActivity?: (request: PlatformActivityRequest) => Promise<PlatformActivityEntry[]>;
   getMessageClient: () => PlatformMessageClient | null;
   /** False means this entity has no history; transport failures must still reject requests. */
   supportsEntityHistory?: (entityId: string) => boolean;
@@ -227,6 +247,12 @@ export interface ProviderEntityRuntimeService {
 }
 
 export interface ProviderCalendarFeatureService {
+  getCapabilities?: (entityId: string) => PlatformCalendarCapabilities;
+  createEvent?: (
+    entityId: string,
+    event: PlatformCalendarCreateEvent,
+    options?: PlatformCalendarRequestOptions
+  ) => Promise<void>;
   getEvents: (
     entityId: string,
     options?: PlatformCalendarRequestOptions
@@ -272,4 +298,26 @@ export interface ProviderChoreProjectionFeatureService {
   subscribeActionRequests?: (
     listener: (request: import('./chore-projection').ChoreProjectionActionRequest) => void
   ) => Promise<() => void>;
+}
+
+export interface ProviderTodoListFeatureService {
+  getLists: () => Promise<NavetTodoList[]>;
+  subscribeLists: (
+    listener: (lists: NavetTodoList[]) => void,
+    onError?: (error: unknown) => void
+  ) => Promise<() => void>;
+  getItems: (listId: string) => Promise<NavetTodoItem[]>;
+  subscribeItems: (
+    listId: string,
+    listener: (items: NavetTodoItem[]) => void,
+    onError?: (error: unknown) => void
+  ) => Promise<() => void>;
+  addItem: (listId: string, item: NavetTodoItemInput, expectedSessionKey?: string) => Promise<void>;
+  updateItem: (
+    listId: string,
+    uid: string,
+    update: NavetTodoItemUpdate,
+    expectedSessionKey?: string
+  ) => Promise<void>;
+  removeItem: (listId: string, uid: string, expectedSessionKey?: string) => Promise<void>;
 }

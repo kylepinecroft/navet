@@ -1,4 +1,5 @@
 import { BaseCard } from '@navet/app/components/primitives';
+import { RoundControlButton } from '@navet/app/components/primitives/round-control-button';
 import {
   type CardSize,
   getCompactCardSize,
@@ -7,7 +8,10 @@ import {
 import { useEditModeSettingsRequest } from '@navet/app/components/shared/edit-mode-settings-request';
 import { getCustomCardTintSurface } from '@navet/app/components/shared/theme/custom-card-tint-surface';
 import { useI18n, useTheme } from '@navet/app/hooks';
+import { integrationCalendarFeatureService } from '@navet/app/services/integration-calendar-feature.service';
+import { Plus } from 'lucide-react';
 import { memo, useState } from 'react';
+import { CalendarCreateEventDialog } from './calendar/calendar-create-event-dialog';
 import { CalendarEventDialog } from './calendar/calendar-event-dialog';
 import { CalendarLargeView } from './calendar/calendar-large-view';
 import { CalendarMediumView } from './calendar/calendar-medium-view';
@@ -39,6 +43,7 @@ export const CalendarCard = memo(function CalendarCard({
   const { t } = useI18n();
   const { theme } = useTheme();
   const effectiveSize = getCompactCardSize(size);
+  const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(null);
   const {
@@ -51,6 +56,9 @@ export const CalendarCard = memo(function CalendarCard({
     tintColor,
     viewMode,
   } = useCalendarCardSources(id, events ?? []);
+  const writableCalendars = availableCalendars.filter(
+    (calendar) => selectedCalendarIds.includes(calendar.id) && calendar.canCreate
+  );
   const { nextEvent, smallGroups, mediumGroups, largeGroups } = useCalendarData(selectedEvents);
   const tintSurface = getCustomCardTintSurface(theme, tintColor);
   const hasCustomTint = Boolean(tintSurface.panelStyle);
@@ -102,8 +110,25 @@ export const CalendarCard = memo(function CalendarCard({
           </>
         }
         contentClassName="h-full"
+        actionRow={
+          !inEditMode && writableCalendars.length > 0
+            ? {
+                rightContent: (
+                  <RoundControlButton
+                    theme={theme}
+                    size="small"
+                    title={t('calendar.create.title')}
+                    disabled={!writableCalendars.some((calendar) => calendar.available)}
+                    onClick={() => setIsCreateOpen(true)}
+                  >
+                    <Plus className="h-4 w-4" aria-hidden="true" />
+                  </RoundControlButton>
+                ),
+              }
+            : undefined
+        }
       >
-        <div className="relative flex h-full flex-col">
+        <div className="relative flex h-full min-h-0 flex-col">
           {!nextEvent ? (
             <div
               className="flex flex-1 items-center justify-center text-sm"
@@ -143,6 +168,17 @@ export const CalendarCard = memo(function CalendarCard({
           )}
         </div>
       </BaseCard>
+
+      {isCreateOpen ? (
+        <CalendarCreateEventDialog
+          calendars={writableCalendars}
+          theme={theme}
+          onClose={() => setIsCreateOpen(false)}
+          onCreate={(entityId, event) =>
+            integrationCalendarFeatureService.createEvent(entityId, event)
+          }
+        />
+      ) : null}
 
       {isSettingsOpen ? (
         <CalendarSettingsDialog

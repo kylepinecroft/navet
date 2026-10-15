@@ -9,19 +9,6 @@ ARG NAVET_VERSION=0.0.0
 
 FROM --platform=$BUILDPLATFORM node:22-alpine AS build
 WORKDIR /app
-ARG NAVET_ENABLE_DEMO=false
-ARG NAVET_GIT_SHA
-ARG NAVET_BUILD_DATE
-ARG NAVET_RELEASE_CHANNEL
-ARG NAVET_BUILD_VERSION
-ARG NAVET_VERSION
-
-ENV NAVET_GIT_SHA=$NAVET_GIT_SHA
-ENV NAVET_BUILD_DATE=$NAVET_BUILD_DATE
-ENV NAVET_RELEASE_CHANNEL=$NAVET_RELEASE_CHANNEL
-ENV NAVET_BUILD_VERSION=$NAVET_BUILD_VERSION
-ENV NAVET_VERSION=$NAVET_VERSION
-
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY apps/standalone/package.json apps/standalone/package.json
 COPY packages/app/package.json packages/app/package.json
@@ -39,6 +26,21 @@ COPY assets assets
 COPY scripts scripts
 COPY docker/shared docker/shared
 COPY docker/njs/chore-durable-storage.js docker/njs/chore-durable-storage.js
+COPY docker/njs/chore-deflate-size.js docker/njs/chore-deflate-size.js
+# Apply release metadata after reusable dependency and source layers.
+ARG NAVET_ENABLE_DEMO=false
+ARG NAVET_GIT_SHA
+ARG NAVET_BUILD_DATE
+ARG NAVET_RELEASE_CHANNEL
+ARG NAVET_BUILD_VERSION
+ARG NAVET_VERSION
+
+ENV NAVET_GIT_SHA=$NAVET_GIT_SHA
+ENV NAVET_BUILD_DATE=$NAVET_BUILD_DATE
+ENV NAVET_RELEASE_CHANNEL=$NAVET_RELEASE_CHANNEL
+ENV NAVET_BUILD_VERSION=$NAVET_BUILD_VERSION
+ENV NAVET_VERSION=$NAVET_VERSION
+
 RUN NAVET_ENABLE_DEMO=$NAVET_ENABLE_DEMO pnpm build
 
 FROM --platform=$BUILDPLATFORM golang:1.25-alpine AS rss-transport-build
@@ -67,9 +69,11 @@ COPY docker/njs/profile-store.js /etc/nginx/njs/profile-store.js
 COPY docker/shared /etc/nginx/shared
 COPY docker/njs/chore-store.js /etc/nginx/njs/chore-store.js
 COPY docker/njs/chore-durable-storage.js /etc/nginx/njs/chore-durable-storage.js
+COPY docker/njs/chore-deflate-size.js /etc/nginx/njs/chore-deflate-size.js
 COPY docker/njs/chore-occurrence-policy.js /etc/nginx/njs/chore-occurrence-policy.js
 COPY docker/njs/chore-calendar-policy.js /etc/nginx/njs/chore-calendar-policy.js
 COPY docker/njs/chore-progress-policy.js /etc/nginx/njs/chore-progress-policy.js
+COPY docker/njs/chore-recurrence-policy.js /etc/nginx/njs/chore-recurrence-policy.js
 COPY docker/njs/auth-store.js /etc/nginx/njs/auth-store.js
 COPY docker/njs/provider-session-store.js /etc/nginx/njs/provider-session-store.js
 COPY docker/njs/installation-authority.js /etc/nginx/njs/installation-authority.js

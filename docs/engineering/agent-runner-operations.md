@@ -74,8 +74,9 @@ unresolved Codex review threads authored by `chatgpt-codex-connector[bot]`. It s
 links and IDs to the existing delivery task once, without creating a new task or making a public
 claim. The delivery task verifies each finding against the current PR head, fixes only valid issues,
 runs focused checks, and reports the current-head evidence with any remaining findings. Authorized
-review-thread replies use the maintainer's authenticated GitHub CLI or API. Resolving review
-conversations and merging remain with the maintainer. If a finding needs a product or architecture
+review-thread replies and resolution use the maintainer's authenticated GitHub CLI or API.
+The delivery task resolves verified fixes promptly under the [delivery review policy](agentic-development.md#pull-request-delivery).
+Merging remains with the maintainer. If a finding needs a product or architecture
 decision, the task asks the maintainer instead of guessing. The runner does not dispatch comments
 on unrelated PRs, and review feedback never authorizes a merge.
 
@@ -121,6 +122,15 @@ CLI review uses general Codex allowance. Root/scoped instructions and the routed
 [code-review guide](../agents/code-review.md) apply. `@codex review` requests an existing PR
 review; verify the posted result from `chatgpt-codex-connector[bot]` and its reviewed commit.
 Keep one general reviewer; findings are advisory, CI and maintainer acceptance authoritative.
+
+`Record Codex Review Completion` listens for created or edited summary comments from the
+verified Codex bot. When Code Review completes for an open, non-draft PR's current head, it
+submits a formal `COMMENT` review as `github-actions[bot]`, linking the summary even when
+there are no findings. Runs serialize per PR and skip commits already recorded by this workflow
+or a submitted Codex review. It uses the default-branch script and `pull-requests: write` from
+`GITHUB_TOKEN`. Nisse permissions stay read-only for PRs. Summary format changes fail closed.
+The workflow starts receiving events after merging to the default branch; completion records
+are advisory and grant no approval.
 
 ### Merge protection and previews
 

@@ -1,4 +1,6 @@
 import type { ProviderCalendarFeatureService } from '@navet/core/provider-feature-services';
+import { getHomeAssistantCalendarCapabilities } from './homeassistant-calendar-capabilities';
+import { lazyCreateHomeAssistantCalendarEvent } from './homeassistant-calendar-feature.service.lazy';
 import { getHomeAssistantConnection } from './homeassistant-service-bridge';
 
 type CalendarServiceEvent = Record<string, unknown>;
@@ -23,6 +25,8 @@ function getActiveMessageClient(
 }
 
 export const homeAssistantCalendarFeatureService: ProviderCalendarFeatureService = {
+  getCapabilities: getHomeAssistantCalendarCapabilities,
+  createEvent: lazyCreateHomeAssistantCalendarEvent,
   async getEvents(entityId, options) {
     const messageClient = getActiveMessageClient(options?.messageClient);
     if (!messageClient) {

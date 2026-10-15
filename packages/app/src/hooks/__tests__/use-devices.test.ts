@@ -384,6 +384,37 @@ describe('useDevices', () => {
     ]);
   });
 
+  function householdDevice(
+    type: 'timer' | 'counter' | 'valve' | 'remote',
+    externalId: string,
+    name: string,
+    room: string
+  ) {
+    const id = `home_assistant:${externalId}`;
+    return {
+      id,
+      nativeId: externalId,
+      canonicalId: id,
+      providerId: 'home_assistant' as const,
+      name,
+      room,
+      size: 'small' as const,
+      normalizedEntity: {
+        id,
+        canonicalId: id,
+        externalId,
+        providerId: 'home_assistant' as const,
+        type,
+        name,
+        room,
+        primaryState: 'idle',
+        availability: 'available' as const,
+        attributes: {},
+        capabilities: [],
+      },
+    };
+  }
+
   it('applies dashboard entity display names on top of provider names', async () => {
     await resetAppStores();
 
@@ -405,11 +436,21 @@ describe('useDevices', () => {
               temp: 3200,
             },
           ],
+          timers: [householdDevice('timer', 'timer.kitchen', 'Kitchen Timer', 'Kitchen')],
+          counters: [householdDevice('counter', 'counter.guests', 'Guest Count', 'Kitchen')],
+          valves: [householdDevice('valve', 'valve.main', 'Main Valve', 'Utility')],
+          remotes: [
+            householdDevice('remote', 'remote.living_room', 'Living Room Remote', 'Living Room'),
+          ],
         },
       },
       selectedProviderIds: ['home_assistant'],
     });
     useSettingsStore.getState().setEntityDisplayName('light.kitchen', 'Island');
+    useSettingsStore.getState().setEntityDisplayName('timer.kitchen', 'Pasta Timer');
+    useSettingsStore.getState().setEntityDisplayName('counter.guests', 'Visitors');
+    useSettingsStore.getState().setEntityDisplayName('valve.main', 'Shutoff');
+    useSettingsStore.getState().setEntityDisplayName('remote.living_room', 'Sofa Remote');
 
     const { result } = renderHookWithProviders(() => useDevices());
 
@@ -417,6 +458,21 @@ describe('useDevices', () => {
       expect.objectContaining({
         id: 'home_assistant:light.kitchen',
         name: 'Island',
+      }),
+    ]);
+    expect(result.current.timers).toEqual([
+      expect.objectContaining({ id: 'home_assistant:timer.kitchen', name: 'Pasta Timer' }),
+    ]);
+    expect(result.current.counters).toEqual([
+      expect.objectContaining({ id: 'home_assistant:counter.guests', name: 'Visitors' }),
+    ]);
+    expect(result.current.valves).toEqual([
+      expect.objectContaining({ id: 'home_assistant:valve.main', name: 'Shutoff' }),
+    ]);
+    expect(result.current.remotes).toEqual([
+      expect.objectContaining({
+        id: 'home_assistant:remote.living_room',
+        name: 'Sofa Remote',
       }),
     ]);
   });

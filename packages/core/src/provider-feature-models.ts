@@ -161,11 +161,35 @@ export interface PlatformEntityHistoryPoint {
   changedAt: string;
   updatedAt?: string;
   attributes?: Record<string, unknown>;
+  /** A retained initial state supplied at the requested range boundary. */
+  atStart?: boolean;
 }
 
 export interface PlatformEntityHistorySeries {
   entityId: string;
   points: PlatformEntityHistoryPoint[];
+}
+
+export interface PlatformActivityRequest {
+  entityIds: string[];
+  startTime: string;
+  endTime: string;
+  signal?: AbortSignal;
+}
+
+export interface PlatformActivityEntry {
+  entityId: string;
+  timestamp: string;
+  state?: string;
+  name?: string;
+  message?: string;
+  context?: {
+    name?: string;
+    message?: string;
+    service?: string;
+    source?: string;
+    userId?: string;
+  };
 }
 
 export type PlatformStatisticsPeriod = '5minute' | 'hour' | 'day' | 'week' | 'month' | 'year';
@@ -178,6 +202,7 @@ export interface PlatformStatisticsHistoryRequest {
   endTime?: string;
   period: PlatformStatisticsPeriod;
   types: PlatformStatisticsType[];
+  /** Target units keyed by measurement category (for example, energy: 'kWh'). */
   units?: Record<string, string>;
 }
 
@@ -245,6 +270,21 @@ export interface PlatformTaskRuntimeSnapshot {
 export interface PlatformAutomationDetails {
   config: Record<string, unknown>;
 }
+
+export interface PlatformCalendarCapabilities {
+  canCreate: boolean;
+  available: boolean;
+}
+
+/** Dates use YYYY-MM-DD; timed events require an explicit UTC offset. End is exclusive. */
+export type PlatformCalendarCreateEvent = {
+  title: string;
+  description?: string;
+  location?: string;
+} & (
+  | { allDay: true; startDate: string; endDate: string }
+  | { allDay: false; startDateTime: string; endDateTime: string }
+);
 
 export interface PlatformCalendarRequestOptions extends PlatformFeatureRequestOptions {
   startDateTime?: string;

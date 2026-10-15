@@ -1,14 +1,25 @@
+import { dispatchEntityCommand } from '@navet/app/commands';
+import { EntityHelperControls } from '@navet/app/components/shared/device-editor/entity-helper-controls';
+import { UpsWidget } from '@navet/app/features/dashboard/components/widgets/ups-widget';
+import { FanCard } from '@navet/app/features/lighting/components/fan-card';
+import { SwitchCard } from '@navet/app/features/lighting/components/switch-card';
+import { getProviderRuntimeRegistration } from '@navet/app/provider-runtime-registry';
 import { integrationStore } from '@navet/app/stores/integration-store';
+import { renderWithProviders } from '@navet/app/test/render';
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it } from 'vitest';
+import { DEMO_ROOM_ENTITY_IDS } from '../preview/demo-room-entities';
 import {
   getPreviewRuntimeScenario,
   installPreviewRuntime,
   resetPreviewRuntime,
 } from '../preview/runtime';
+import { demoHomeLibraryCards } from './demo-card-library';
 
 describe('demo preview runtime', () => {
   afterEach(() => {
     resetPreviewRuntime();
+    delete document.documentElement.dataset.navetPreviewRuntime;
   });
 
   it('hydrates the demo preview through the provider-backed runtime', () => {
@@ -40,6 +51,266 @@ describe('demo preview runtime', () => {
           supportedColorModes: ['brightness'],
         }),
       })
+    );
+  });
+
+  it('backs every named-room card with an entity in its room and compatibility registries', () => {
+    const scenario = getPreviewRuntimeScenario('demo');
+    for (const [room, ids] of Object.entries(DEMO_ROOM_ENTITY_IDS)) {
+      const providerRoom = scenario.rooms.find((entry) => entry.name === room);
+      expect(providerRoom, room).toBeDefined();
+      for (const id of ids) {
+        const entity = scenario.entities.find((entry) => entry.externalId === id);
+        expect(entity, `${room}: ${id}`).toBeDefined();
+        expect(entity?.room).toBe(room);
+        expect(providerRoom?.memberIds).toContain(entity?.canonicalId);
+        expect(scenario.homeAssistant.entities?.[id]).toBeDefined();
+        const registryEntry = scenario.homeAssistant.entityRegistry.find(
+          (entry) => entry.entity_id === id
+        );
+        expect(registryEntry?.area_id).toBe(providerRoom?.externalId);
+        expect(
+          scenario.homeAssistant.deviceRegistry.some(
+            (device) =>
+              device.id === registryEntry?.device_id && device.area_id === registryEntry?.area_id
+          )
+        ).toBe(true);
+      }
+    }
+    expect(new Set(scenario.entities.map((entity) => entity.canonicalId)).size).toBe(
+      scenario.entities.length
+    );
+    expect(
+      getPreviewRuntimeScenario().entities.some(
+        (entity) => entity.externalId === 'light.bathroom_mirror'
+      )
+    ).toBe(false);
+  });
+
+  it('keeps room controls in shared provider state and restores defaults on reset', async () => {
+    document.documentElement.dataset.navetPreviewRuntime = 'demo';
+    installPreviewRuntime(getPreviewRuntimeScenario('demo'));
+    await dispatchEntityCommand({
+      type: 'turn_off',
+      entityId: 'home_assistant:light.bathroom_mirror',
+    });
+    await dispatchEntityCommand({
+      type: 'set_temperature',
+      entityId: 'home_assistant:climate.bathroom_floor',
+      temperature: 25,
+    });
+    await dispatchEntityCommand({
+      type: 'set_position',
+      entityId: 'home_assistant:cover.office_blind',
+      position: 20,
+    });
+    await dispatchEntityCommand({ type: 'turn_on', entityId: 'home_assistant:switch.spare_plug' });
+    const entities = integrationStore.getState().providerEntitiesByCanonicalId;
+    expect(entities['home_assistant:light.bathroom_mirror']?.primaryState).toBe('off');
+    expect(entities['home_assistant:climate.bathroom_floor']?.attributes.temperature).toBe(25);
+    expect(entities['home_assistant:cover.office_blind']?.attributes.position).toBe(20);
+    expect(entities['home_assistant:switch.spare_plug']?.primaryState).toBe(true);
+    installPreviewRuntime(getPreviewRuntimeScenario('demo'));
+    expect(
+      integrationStore.getState().providerEntitiesByCanonicalId[
+        'home_assistant:climate.bathroom_floor'
+      ]?.attributes.temperature
+    ).toBe(24);
+  });
+
+  it('renders boolean switches from live snapshots and retains commanded on/off state', async () => {
+    document.documentElement.dataset.navetPreviewRuntime = 'demo';
+    const scenario = getPreviewRuntimeScenario('demo');
+    expect(scenario.homeAssistant.entities?.['switch.espresso']?.state).toBe('on');
+    expect(scenario.homeAssistant.entities?.['switch.spare_plug']?.state).toBe('off');
+    installPreviewRuntime(scenario);
+    const runtime = getProviderRuntimeRegistration('home_assistant').entityRuntimeService;
+    expect(runtime?.getEntitySnapshot?.('switch.laundry')?.state).toBe('on');
+    expect(runtime?.getEntitySnapshot?.('switch.gym_air_purifier')?.state).toBe('on');
+    expect(runtime?.getEntitySnapshot?.('input_boolean.guest_mode')?.state).toBe('on');
+    expect(runtime?.getEntitySnapshot?.('switch.kitchen_night_mode')?.state).toBe('off');
+    renderWithProviders(
+      <SwitchCard
+        id="switch.espresso"
+        name="Espresso machine"
+        initialState={false}
+        size="small"
+        isEditMode={false}
+      />
+    );
+    const card = screen.getByRole('button', { name: 'Espresso machine' });
+    await waitFor(() => expect(card).toHaveAttribute('aria-pressed', 'true'));
+    await act(() =>
+      dispatchEntityCommand({ type: 'turn_off', entityId: 'home_assistant:switch.espresso' })
+    );
+    expect(runtime?.getEntitySnapshot?.('switch.espresso')?.state).toBe('off');
+    await waitFor(() => expect(card).toHaveAttribute('aria-pressed', 'false'));
+    await act(() =>
+      dispatchEntityCommand({ type: 'turn_on', entityId: 'home_assistant:switch.espresso' })
+    );
+    expect(runtime?.getEntitySnapshot?.('switch.espresso')?.state).toBe('on');
+    await waitFor(() => expect(card).toHaveAttribute('aria-pressed', 'true'));
+    expect(
+      integrationStore.getState().providerEntitiesByCanonicalId['home_assistant:switch.espresso']
+        ?.primaryState
+    ).toBe(true);
+  });
+
+  it('saves linked helper values and keeps unavailable helpers without an editor', async () => {
+    document.documentElement.dataset.navetPreviewRuntime = 'demo';
+    installPreviewRuntime(getPreviewRuntimeScenario('demo'));
+    renderWithProviders(<EntityHelperControls entityId="home_assistant:light.kitchen_island" />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Turn-off delay' }));
+    const numberInput = screen.getByRole('spinbutton');
+    const numberForm = numberInput.closest('form');
+    if (!numberForm) throw new Error('Expected number helper form');
+    fireEvent.change(numberInput, { target: { value: '10' } });
+    fireEvent.click(within(numberForm).getByRole('button', { name: 'Save' }));
+    await waitFor(() =>
+      expect(
+        integrationStore.getState().providerEntitiesByCanonicalId[
+          'home_assistant:number.kitchen_turn_off_delay'
+        ]?.attributes.value
+      ).toBe(10)
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Power-on behavior' }));
+    const selectInput = screen.getByRole('combobox');
+    const selectForm = selectInput.closest('form');
+    if (!selectForm) throw new Error('Expected selection helper form');
+    fireEvent.change(selectInput, { target: { value: 'Off' } });
+    fireEvent.click(within(selectForm).getByRole('button', { name: 'Save' }));
+    await waitFor(() =>
+      expect(
+        integrationStore.getState().providerEntitiesByCanonicalId[
+          'home_assistant:select.kitchen_power_on_behavior'
+        ]?.attributes.value
+      ).toBe('Off')
+    );
+
+    fireEvent.click(screen.getByRole('switch', { name: 'Night mode' }));
+    await waitFor(() => expect(screen.getByRole('switch')).toBeChecked());
+    fireEvent.click(screen.getByRole('button', { name: 'Run Identify light' }));
+    await waitFor(() =>
+      expect(
+        integrationStore.getState().providerEntitiesByCanonicalId[
+          'home_assistant:button.kitchen_identify'
+        ]?.primaryState
+      ).toEqual(expect.any(String))
+    );
+    expect(screen.getByText('Transition time')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Transition time' })).not.toBeInTheDocument();
+    expect(
+      getProviderRuntimeRegistration('home_assistant').entityRuntimeService?.getEntitySnapshot?.(
+        'number.kitchen_turn_off_delay'
+      )?.state
+    ).toBe('10');
+  });
+
+  it('acknowledges advanced climate edits and restores sample defaults on reinstall', async () => {
+    document.documentElement.dataset.navetPreviewRuntime = 'demo';
+    const scenario = getPreviewRuntimeScenario('demo');
+    installPreviewRuntime(scenario);
+    for (const command of [
+      { type: 'set_climate_preset', preset: 'Away' },
+      { type: 'set_climate_fan_mode', mode: 'High' },
+      { type: 'set_climate_swing_mode', mode: 'Vertical' },
+      { type: 'set_climate_swing_horizontal_mode', mode: 'Horizontal' },
+      { type: 'set_climate_humidity', humidity: 50 },
+    ] as const) {
+      await act(() =>
+        dispatchEntityCommand({ ...command, entityId: 'home_assistant:climate.main_floor' })
+      );
+    }
+    expect(
+      integrationStore.getState().providerEntitiesByCanonicalId['home_assistant:climate.main_floor']
+        ?.attributes.climateControls
+    ).toMatchObject({
+      preset: { value: 'Away' },
+      fanMode: { value: 'High' },
+      swingMode: { value: 'Vertical' },
+      swingHorizontalMode: { value: 'Horizontal' },
+      targetHumidity: { value: 50 },
+    });
+    resetPreviewRuntime();
+    installPreviewRuntime(scenario);
+    expect(
+      integrationStore.getState().providerEntitiesByCanonicalId['home_assistant:climate.main_floor']
+        ?.attributes.climateControls
+    ).toMatchObject({ preset: { value: 'Comfort' }, targetHumidity: { value: 45 } });
+  });
+
+  it('keeps fan speed, direction and oscillation synchronized with provider snapshots', async () => {
+    document.documentElement.dataset.navetPreviewRuntime = 'demo';
+    installPreviewRuntime(getPreviewRuntimeScenario('demo'));
+    await dispatchEntityCommand({
+      type: 'set_fan_speed',
+      entityId: 'home_assistant:fan.bedroom_ceiling',
+      percentage: 33,
+    });
+    renderWithProviders(
+      <FanCard
+        id="fan.bedroom_ceiling"
+        name="Bedroom fan"
+        room="Bedroom"
+        initialState
+        initialPercentage={66}
+        size="small"
+        isEditMode={false}
+        onSizeChange={() => {}}
+      />
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Open settings for Bedroom fan' }));
+    const dialog = within(screen.getByRole('dialog'));
+    fireEvent.click(dialog.getByRole('button', { name: 'Fan direction' }));
+    fireEvent.click(dialog.getByRole('radio', { name: 'Reverse' }));
+    await waitFor(() =>
+      expect(dialog.getByRole('button', { name: 'Fan direction' })).toHaveTextContent('Reverse')
+    );
+    fireEvent.click(dialog.getByRole('switch', { name: 'Fan oscillation' }));
+    await waitFor(() =>
+      expect(dialog.getByRole('switch', { name: 'Fan oscillation' })).not.toBeChecked()
+    );
+    expect(
+      getProviderRuntimeRegistration('home_assistant').entityRuntimeService?.getEntitySnapshot?.(
+        'fan.bedroom_ceiling'
+      )?.attributes
+    ).toMatchObject({ percentage: 33, direction: 'reverse', oscillating: false });
+    expect(
+      integrationStore.getState().providerEntitiesByCanonicalId[
+        'home_assistant:fan.bedroom_ceiling'
+      ]?.attributes
+    ).toMatchObject({ percentage: 33, direction: 'reverse', oscillating: false });
+  });
+
+  it('renders the seeded UPS through the production widget', async () => {
+    installPreviewRuntime(getPreviewRuntimeScenario('demo'));
+    renderWithProviders(<UpsWidget size="medium" data={{ deviceId: 'device-ups' }} />);
+    expect(await screen.findByText('Rack UPS')).toBeInTheDocument();
+    expect(screen.getByText('97')).toBeInTheDocument();
+    expect(screen.getByText('14')).toBeInTheDocument();
+  });
+
+  it('offers available demo device families in the library', () => {
+    const scenario = getPreviewRuntimeScenario('demo');
+    const entities = new Map(scenario.entities.map((entity) => [entity.canonicalId, entity]));
+    expect(demoHomeLibraryCards.map((card) => card.entityType)).toEqual(
+      expect.arrayContaining([
+        'fan',
+        'hvac',
+        'helper',
+        'vacuum',
+        'weather',
+        'cover',
+        'media_player',
+      ])
+    );
+    for (const card of demoHomeLibraryCards) {
+      expect(entities.has(card.id)).toBe(true);
+    }
+    expect(new Set(demoHomeLibraryCards.map((card) => card.id)).size).toBe(
+      demoHomeLibraryCards.length
     );
   });
 });

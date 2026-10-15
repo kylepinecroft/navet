@@ -4,6 +4,7 @@ import { EntityCardHeaderIcon } from '@navet/app/components/primitives/entity-ca
 import { EntityCardTitleBlock } from '@navet/app/components/primitives/entity-card-title-block';
 import { CardSettingsActionButton } from '@navet/app/components/shared/card-settings-action-button';
 import { isTinyCardSize } from '@navet/app/components/shared/card-size-selector';
+import { DeviceControlRow } from '@navet/app/components/shared/device-editor/device-control-row';
 import { getCardReadableTextTokens } from '@navet/app/components/shared/theme/card-readable-text-tokens';
 import { getCardShellSurfaceTokens } from '@navet/app/components/shared/theme/card-shell-surface-tokens';
 import {
@@ -86,6 +87,19 @@ export const SwitchCard = memo(function SwitchCard(props: Omit<SwitchCardProps, 
         selectedIcon={controller.selectedIcon}
         onIconChange={controller.setSelectedIcon}
         siblingEntities={controller.siblingEntities}
+        customControls={
+          props.binaryControl ? (
+            <DeviceControlRow
+              kind="toggle"
+              theme="dark"
+              label={props.name}
+              checked={controller.isOn}
+              disabled={controller.toggleDisabled}
+              onCheckedChange={props.binaryControl.onToggle}
+              status={props.binaryControl.status}
+            />
+          ) : undefined
+        }
         tintColor={controller.tintColor}
         onTintColorChange={controller.setTintColor}
       />
@@ -96,6 +110,7 @@ export const SwitchCard = memo(function SwitchCard(props: Omit<SwitchCardProps, 
         <BaseCard
           size="tiny"
           {...controller.cardInteraction.cardProps}
+          aria-disabled={controller.toggleDisabled || props.isEditMode}
           interactive={!props.isEditMode}
           className={`${CARD_VISUAL_TRANSITION_CLASS} ${!props.isEditMode ? 'cursor-pointer' : ''}`}
           frameClassName={frameClassName}
@@ -148,6 +163,7 @@ export const SwitchCard = memo(function SwitchCard(props: Omit<SwitchCardProps, 
             </div>
             <span />
           </div>
+          {props.binaryControl?.status}
         </BaseCard>
 
         {controlsDialog}
@@ -161,6 +177,7 @@ export const SwitchCard = memo(function SwitchCard(props: Omit<SwitchCardProps, 
         <BaseCard
           size="extra-small"
           {...controller.cardInteraction.cardProps}
+          aria-disabled={controller.toggleDisabled || props.isEditMode}
           interactive={!props.isEditMode}
           className={`${CARD_VISUAL_TRANSITION_CLASS} ${!props.isEditMode ? 'cursor-pointer' : ''}`}
           frameClassName={frameClassName}
@@ -212,11 +229,13 @@ export const SwitchCard = memo(function SwitchCard(props: Omit<SwitchCardProps, 
                   size="tiny"
                   tone={controller.isOn ? 'primary' : 'neutral'}
                   ariaLabel={controller.cardInteraction.iconButtonProps['aria-label']}
+                  disabled={controller.toggleDisabled}
                   onClick={controller.cardInteraction.iconButtonProps.onClick}
                 />
               }
             />
           </div>
+          {props.binaryControl?.status}
         </BaseCard>
 
         {controlsDialog}
@@ -229,6 +248,7 @@ export const SwitchCard = memo(function SwitchCard(props: Omit<SwitchCardProps, 
       <BaseCard
         size={controller.isExtraSmall ? 'extra-small' : 'small'}
         {...controller.cardInteraction.cardProps}
+        aria-disabled={controller.toggleDisabled || props.isEditMode}
         interactive={!props.isEditMode}
         className={`${CARD_VISUAL_TRANSITION_CLASS} ${!props.isEditMode ? 'cursor-pointer' : ''}`}
         frameClassName={frameClassName}
@@ -278,6 +298,7 @@ export const SwitchCard = memo(function SwitchCard(props: Omit<SwitchCardProps, 
                 size={controller.isExtraSmall ? 'extra-small' : 'small'}
                 tone={controller.isOn ? 'primary' : 'neutral'}
                 ariaLabel={controller.cardInteraction.iconButtonProps['aria-label']}
+                disabled={controller.toggleDisabled}
                 onClick={controller.cardInteraction.iconButtonProps.onClick}
               />
             }
@@ -326,6 +347,7 @@ export const SwitchCard = memo(function SwitchCard(props: Omit<SwitchCardProps, 
             )}
           </div>
         </div>
+        {props.binaryControl?.status}
       </BaseCard>
 
       {controlsDialog}

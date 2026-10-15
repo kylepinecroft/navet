@@ -2,7 +2,7 @@
 
 This checkout is `kylepinecroft/navet`, a fork of [`navet-app/navet`](https://github.com/navet-app/navet).
 
-- **Last synced:** upstream `v0.17.8`
+- **Last synced:** upstream `v0.18.1`
 - **Remote:** `upstream` → `https://github.com/navet-app/navet.git`
 
 Keep this file current. It is the routing list for new fork features and for upstream merges. Do not turn it into a design doc or a hunk-by-hunk patch archive.
@@ -102,7 +102,7 @@ Publish container images to `ghcr.io/<repository owner>/...` with `GITHUB_TOKEN`
 - **Owned:** `scripts/release-ghcr-namespace.mjs`
 - **Seams:** `.github/workflows/release-image.yml`, `dev-tag-release.yml`, `release.yml`, `release-runtime.yml`, `ci.yml`; `scripts/release-dev-channels.mjs`, `release-prebuilt-runtime.mjs`, `release-channels.mjs`, `release-evidence.mjs`, `release-preflight.mjs`, `release-promotion.mjs`, `create-dev-release.mjs`, `pages-gate.mjs`
 - **Tests:** `scripts/release-ghcr-namespace.test.mjs`, `scripts/release-promotion.test.mjs`, `scripts/create-dev-release.test.mjs`, `scripts/dev-tag-release-workflow.test.mjs`
-- **Verify:** Dispatch Prepare Navet Dev Publish from `main`. A main-backed run pushes `ghcr.io/kylepinecroft/navet:dev` for linux/amd64 and linux/arm64. On sync, keep the repository-owner namespace, `GITHUB_TOKEN` login, and the upstream-only skips in these seams.
+- **Verify:** Dispatch Prepare Navet Dev Publish from `main`. A main-backed run pushes `ghcr.io/kylepinecroft/navet:dev` for linux/amd64 and linux/arm64. On sync, keep the repository-owner namespace, `GITHUB_TOKEN` login, and the upstream-only skips in these seams. The published-runtime job must run on this repository's `main` and `navet-dev-*` tags. Do not pin that job to `navet-app/navet`; a skipped runtime job also skips the dev alias move.
 
 ## Shared mechanical seams
 

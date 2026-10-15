@@ -100,6 +100,10 @@ const SECURITY_SECTION_DEVICE_KEYS = [
   'sensors',
   'persons',
   'helpers',
+  'timers',
+  'counters',
+  'valves',
+  'remotes',
 ] as const;
 const MEDIA_SECTION_DEVICE_KEYS = ['media'] as const;
 const CLIMATE_SECTION_DEVICE_KEYS = [
@@ -196,8 +200,13 @@ export function useDashboardController(): DashboardComposition {
   );
   const roomWorkspace = useRoomWorkspaceStore((state) => state.workspace);
 
-  const { hiddenEntityIds, shownSensorEntityIds, hideAutoEntity, showAutoEntity } =
-    useDashboardEntityVisibility();
+  const {
+    hiddenEntityIds,
+    shownSensorEntityIds,
+    explicitlyShownEntityIds,
+    hideAutoEntity,
+    showAutoEntity,
+  } = useDashboardEntityVisibility();
 
   const activeDashboard = useDashboardCollectionStore(
     (state) => state.collection.dashboardsById[state.activeDashboardId]
@@ -231,9 +240,10 @@ export function useDashboardController(): DashboardComposition {
       buildDashboardVisibilityResult(
         allDevices,
         hiddenEntityIds,
-        resolveDashboardShownSensorEntityIds(activeSection, allDevices, shownSensorEntityIds)
+        resolveDashboardShownSensorEntityIds(activeSection, allDevices, shownSensorEntityIds),
+        explicitlyShownEntityIds
       ),
-    [activeSection, allDevices, hiddenEntityIds, shownSensorEntityIds]
+    [activeSection, allDevices, hiddenEntityIds, shownSensorEntityIds, explicitlyShownEntityIds]
   );
   const devices = dashboardVisibility.visibleDevices;
   const availableDevices = dashboardVisibility.availableDevices;
@@ -882,6 +892,10 @@ const EMPTY_DEVICE_COLLECTION: DeviceCollection = {
   weather: [],
   switches: [],
   helpers: [],
+  timers: [],
+  counters: [],
+  valves: [],
+  remotes: [],
   covers: [],
   locks: [],
   scenes: [],

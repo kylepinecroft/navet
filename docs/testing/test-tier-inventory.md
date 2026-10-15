@@ -13,6 +13,7 @@ These suites block release-oriented workflows and should stay intentionally smal
 
 | Group | Why it exists | Status |
 |---|---|---|
+| `packages/provider-homeassistant/src/homeassistant-calendar-feature.service.lazy.test.ts` | Deferred calendar creation preserves synchronous reads/capabilities and rejects writes across a household-session change | Keep |
 | `scripts/agent-validation-receipt.test.mjs` | Native validation receipt provenance, exact commit/hook identity and redaction | Keep |
 | `scripts/agent-codex-usage.test.mjs` | Private execution accounting verifies thread identity, cumulative counter integrity, incomplete-write handling and redacted observations | Keep |
 | `scripts/agent-task-usage.test.mjs` | Verified participant inventory, accepted observable units and complete native turn coverage protect aggregate budgets; historical participants and per-thread monotonic counters survive restart | Keep |
@@ -72,6 +73,7 @@ rerun as a tagged-release publishing gate. Storybook browser coverage is a separ
 
 | Group | Why it exists | Status |
 |---|---|---|
+| `scripts/codex-review-completion.test.mjs` | Verified Codex completion produces a current-head COMMENT receipt; stale summaries, forged authors and duplicate events cannot create extra reviews | Keep |
 | `packages/app/src/features/dashboard/**` | Largest user-facing regression surface for layout, editing, widgets, and navigation | Keep |
 | `packages/app/src/features/media/**`, `lighting/**`, `security/**`, `energy/**`, `climate/**`, `rss/**`, `tasks/**`, `settings/**`, `sensors/**`, `vacuum/**`, `calendar/**`, `notifications/**` | User-visible feature regressions and UI behavior | Keep |
 | `packages/app/src/components/**` | Shared UI and interaction regressions | Keep |

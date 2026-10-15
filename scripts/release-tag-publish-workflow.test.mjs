@@ -1,4 +1,6 @@
-import { readFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { parse } from 'yaml';
 import { describe, expect, it } from 'vitest';
@@ -10,6 +12,72 @@ const releaseWorkflow = parse(
 );
 
 describe('production release tag publisher', () => {
+  // Rewrite: production stays main-backed; immutable Dev builds admit only their annotated tag source.
+  // The runtime job is not pinned to navet-app, so this fork still verifies images before moving dev.
+  it('admits main-backed sources and only matching annotated branch Dev sources', () => {
+    const runtime = parse(readFileSync('.github/workflows/release-runtime.yml', 'utf8'));
+    expect(runtime.jobs.runtime.if).toBe("github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/navet-dev-')");
+    expect(runtime.jobs.runtime.steps.filter((step) => step.uses === 'actions/checkout@v5')
+      .every((step) => step.with.ref === 'main')).toBe(true);
+    const jobs = [releaseWorkflow.jobs['custom-panel-artifact'], runtime.jobs.runtime];
+    const root = mkdtempSync(resolve(tmpdir(), 'navet-release-checkout-'));
+    const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('GIT_')));
+    const git = (...args) => execFileSync('git', args, { cwd: root, env, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
+    try {
+      git('init', '--quiet');
+      git('-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '--allow-empty', '-m', 'test: trusted source');
+      const trusted = git('rev-parse', 'HEAD');
+      git('update-ref', 'refs/remotes/origin/main', trusted);
+      git('-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '--allow-empty', '-m', 'test: untrusted source');
+      const untrusted = git('rev-parse', 'HEAD');
+      for (const job of jobs) {
+        const verify = job.steps.find((step) => step.name === 'Checkout verified release source');
+        for (const checkout of job.steps.filter((step) => step.uses === 'actions/checkout@v5')) {
+          expect(checkout.with.ref ?? '').not.toContain('release_sha');
+          expect(checkout.with.ref ?? '').not.toContain('inputs.sha');
+          expect(checkout.with['persist-credentials']).toBe(false);
+          expect(job.steps.indexOf(checkout)).toBeLessThan(job.steps.indexOf(verify));
+        }
+        const run = (sha, context = {}) => execFileSync('bash', ['-c', verify.run], {
+          cwd: root, env: { ...env, RELEASE_SHA: sha, GITHUB_REF: 'refs/heads/main', RELEASE_CHANNEL: 'stable', RELEASE_VERSION: '1.0.0', ...context }, stdio: ['ignore', 'pipe', 'pipe'],
+        });
+        run(trusted);
+        expect(git('rev-parse', 'HEAD')).toBe(trusted);
+        for (const rejected of [untrusted, 'refs/pull/1/head', trusted.slice(0, 8), '-B attacker']) {
+          expect(() => run(rejected)).toThrow();
+          expect(git('rev-parse', 'HEAD')).toBe(trusted);
+        }
+        const tag = 'navet-dev-1.0.0-dev.20261012000000';
+        git('-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'tag', '-f', '-a', tag, untrusted, '-m', 'Navet Dev\n\nSource-Branch: feature/example');
+        const devContext = { GITHUB_REF: `refs/tags/${tag}`, RELEASE_CHANNEL: 'dev', RELEASE_VERSION: tag.slice('navet-dev-'.length) };
+        if (job === runtime.jobs.runtime) {
+          // An arbitrary off-main SHA still fails even when the caller is a valid Dev tag.
+          git('-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '--allow-empty', '-m', 'test: other off-main source');
+          const other = git('rev-parse', 'HEAD');
+          git('checkout', '--detach', trusted);
+          expect(() => run(other, devContext)).toThrow();
+          for (const context of [
+            { ...devContext, RELEASE_CHANNEL: 'stable' },
+            { ...devContext, RELEASE_VERSION: '1.0.0-dev.wrong' },
+            { ...devContext, GITHUB_REF: 'refs/heads/feature/example' },
+          ]) expect(() => run(untrusted, context)).toThrow();
+          run(untrusted, devContext);
+          expect(git('rev-parse', 'HEAD')).toBe(untrusted);
+          git('checkout', '--detach', trusted);
+          git('tag', '-f', tag, untrusted);
+          expect(() => run(untrusted, devContext)).toThrow();
+          git('-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', 'tag', '-f', '-a', tag, untrusted, '-m', 'Missing provenance');
+          expect(() => run(untrusted, devContext)).toThrow();
+        } else {
+          expect(() => run(untrusted, devContext)).toThrow();
+        }
+        expect(git('rev-parse', 'HEAD')).toBe(trusted);
+      }
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it('resolves optional tags and only publishes outside preview without advancing protected main', () => {
     expect(workflow.on.workflow_dispatch.inputs.source_tag).toMatchObject({
       type: 'string',
@@ -90,6 +158,10 @@ describe('production release tag publisher', () => {
     expect(releaseWorkflow.jobs['publish-channels'].needs).toContain('publish-addon-metadata');
     expect(releaseWorkflow.jobs['release-context'].if).toBe("github.ref == 'refs/heads/main'");
     expect(contextRun).toContain('INSTALLATION_TESTED');
+    // Keep: user-selected release tags may execute only code already admitted to main.
+    expect(contextRun).toContain('git merge-base --is-ancestor "${RELEASE_SHA}" refs/remotes/origin/main');
+    const panelSteps = releaseWorkflow.jobs['custom-panel-artifact'].steps;
+    expect(panelSteps.find((step) => step.name === 'Setup pnpm').with.cache).toBe(false);
     expect(releaseWorkflow.concurrency.group).toBe('navet-release-publication');
     const imageWorkflow = parse(readFileSync('.github/workflows/release-image.yml', 'utf8'));
     const build = imageWorkflow.jobs.image.steps.find(

@@ -1,5 +1,37 @@
 # Changelog
 
+## 0.18.0
+
+## New features
+
+- Use supported thermostat modes and humidity controls, and manage Home Assistant shopping and to-do lists separately from routines and chores.
+- Added integration reload for Home Assistant entities, including unavailable cards.
+- Home Assistant timers, counters, valves, and remotes now have dashboard cards with their supported controls.
+- Control supported household helpers and refresh room and entity metadata after external Home Assistant edits.
+
+## Improvements and bug fixes
+
+- Keep after-completion chores actionable until finished, restart each person's interval independently, and move superseded scheduled chores into missed history.
+- Device dialogs gain consistent, accessible controls and weather forecasts recover reliably. The demo adds advanced controls, helpers, and cards.
+- Deployed Dev builds show their version in About Navet; published Dev builds retain their identity on loopback addresses too.
+- Fixed stale provider state after reconnecting and missed openHAB live updates.
+
+## 0.17.8
+
+## Improvements and bug fixes
+
+- Household guides explain that See rewards appears after creating a mission or enabled reward goal.
+- Hide unsupported Stop controls on cover cards and use the standard card surface for covers without position controls.
+- Keep keyboard focus inside device controls dialogs and return it to the opener on dismissal.
+- Restore keyboard tab switching and card-action focus, separate lighting-row controls, and keep lighting previews consistent after brightness edits.
+- Scroll long light-effect menus and keep animated colors inside the card's rounded corners.
+- Restore keyboard focus after card settings and disable unavailable overflow actions.
+- Improve search touch targets and keyboard focus, hide unsupported speaker actions, and retain failed chore imports for retry.
+
+## Security
+
+- Harden session storage, imported household data, media URLs and legacy resource redirects, and update vulnerable dependencies.
+
 ## 0.17.7
 
 ## Improvements and bug fixes

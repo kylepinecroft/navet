@@ -1,10 +1,26 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import durableStorage from '@docker/njs/chore-durable-storage.js';
 import { createChoreExperienceState } from '@navet/core/chore-experience';
 import { createViteChoreStoreRequestHandler } from '@scripts/vite-chore-store';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import {
+  continuousMaterializationFixture,
+  loneStaleRepeatFixture,
+  longIntervalRepairFixture,
+} from '../../../../../testing/chore-storage-fixture';
 
 const TENANT_ID = `hat_${'a'.repeat(64)}`;
 const PRINCIPAL = {
@@ -172,6 +188,61 @@ afterEach(() => {
 });
 
 describe('Vite chore workspace store', () => {
+  it('persists legacy marker-only scheduler backfill without requiring new activities', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-08-18T08:00:00.000Z'));
+    const directory = mkdtempSync(join(tmpdir(), 'navet-chore-marker-'));
+    tempDirs.push(directory);
+    const filePath = join(directory, 'chores.json');
+    const handler = createViteChoreStoreRequestHandler({
+      filePath,
+      resolvePrincipal: () => PRINCIPAL,
+    });
+    const participant = createResponse();
+    await handler(
+      createRequest(
+        'POST',
+        '/commands',
+        { 'x-navet-base-revision': '0' },
+        participantActionBody('marker-manager', 0)
+      ),
+      participant.response
+    );
+    const document = JSON.parse(readFileSync(filePath, 'utf8'));
+    document.data.definitionsById.dishes = fixtureDefinition;
+    document.data.occurrencesById[OCCURRENCE_ID] = {
+      id: OCCURRENCE_ID,
+      definitionId: 'dishes',
+      scheduledAt: '2026-08-10T10:00:00.000Z',
+      dueAt: '2026-08-20T12:00:00.000Z',
+      assigneeIds: ['maya'],
+      assignmentSlot: 'maya',
+      status: 'missed',
+      updatedAt: '2026-08-17T10:00:00.000Z',
+    };
+    document.data.activity.push({
+      id: 'legacy-missed',
+      commandId: 'legacy-missed',
+      type: 'missed',
+      occurrenceId: OCCURRENCE_ID,
+      definitionId: 'dishes',
+      reason: 'Next scheduled occurrence started',
+      timestamp: '2026-08-17T10:00:00.000Z',
+    });
+    writeFileSync(filePath, JSON.stringify(document));
+    const read = createResponse();
+    await handler(createRequest('GET', '/workspace'), read.response);
+    expect(read.status).toBe(200);
+    const updated = JSON.parse(read.body);
+    expect(updated.data.activity).toEqual(document.data.activity);
+    expect(updated.data.occurrencesById[OCCURRENCE_ID].supersededAt).toBe(
+      '2026-08-17T10:00:00.000Z'
+    );
+    expect(
+      JSON.parse(readFileSync(filePath, 'utf8')).data.occurrencesById[OCCURRENCE_ID].supersededAt
+    ).toBe('2026-08-17T10:00:00.000Z');
+  });
+
   it('reports authenticated standalone runtime capabilities', async () => {
     const directory = mkdtempSync(join(tmpdir(), 'navet-chore-store-'));
     tempDirs.push(directory);
@@ -1004,5 +1075,158 @@ describe('Vite chore workspace store', () => {
       revision: 0,
       data: { participantsById: {}, definitionsById: {} },
     });
+  });
+});
+
+describe('Vite automatic chore storage repair', () => {
+  afterEach(() => vi.useRealTimers());
+  function seedLegacy(longIntervals = false, staleInterval?: number) {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-10-13T10:00:00.000Z'));
+    const directory = mkdtempSync(join(tmpdir(), 'navet-chore-upgrade-'));
+    tempDirs.push(directory);
+    const filePath = join(directory, 'chores.json');
+    const { document, events } =
+      staleInterval !== undefined
+        ? loneStaleRepeatFixture(staleInterval)
+        : longIntervals
+          ? longIntervalRepairFixture()
+          : continuousMaterializationFixture();
+    const hash = (value: string) => createHash('sha256').update(value).digest('hex');
+    const stored = durableStorage.encode(document, 2 * 1024 * 1024, hash, (key, chunk) =>
+      writeFileSync(`${filePath}.chunk-${key}`, JSON.stringify(durableStorage.unpack(chunk, hash)))
+    );
+    writeFileSync(filePath, JSON.stringify(durableStorage.unpack(stored, hash)));
+    writeFileSync(`${filePath}.events`, JSON.stringify({ contractVersion: 1, events }));
+    return {
+      filePath,
+      directory,
+      document,
+      events,
+      handler: createViteChoreStoreRequestHandler({ filePath, resolvePrincipal: () => PRINCIPAL }),
+    };
+  }
+
+  it('repairs an affected workspace on upgrade while preserving event offsets and restart state', async () => {
+    const { filePath, directory, document, events, handler } = seedLegacy();
+    const orphan = `${filePath}.chunk-${'f'.repeat(64)}`;
+    writeFileSync(orphan, 'obsolete');
+    const bytes = () =>
+      readdirSync(directory).reduce(
+        (sum, name) => sum + readFileSync(join(directory, name)).length,
+        0
+      );
+    const beforeBytes = bytes();
+    const read = createResponse();
+    await handler(createRequest('GET', '/workspace'), read.response);
+    expect(read.status).toBe(200);
+    const saved = JSON.parse(read.body);
+    expect(Object.values(saved.data.occurrencesById)).toEqual(
+      Object.values(document.data.occurrencesById).filter((item) => item.status !== 'available')
+    );
+    expect(bytes()).toBeLessThan(beforeBytes * 0.3);
+    expect(existsSync(orphan)).toBe(false);
+    const history = createResponse();
+    await handler(createRequest('GET', '/history'), history.response);
+    expect(JSON.parse(history.body).events).toEqual(events);
+    const feed = createResponse();
+    await handler(createRequest('GET', '/events?after=50&limit=1'), feed.response);
+    expect(JSON.parse(feed.body)).toMatchObject({ cursor: '101', events: [events[100]] });
+    const filesBeforeReload = readdirSync(directory).map((name) => {
+      const stats = statSync(join(directory, name));
+      return { name, inode: stats.ino, modified: stats.mtimeMs };
+    });
+    const restarted = createViteChoreStoreRequestHandler({
+      filePath,
+      resolvePrincipal: () => PRINCIPAL,
+    });
+    const reload = createResponse();
+    await restarted(createRequest('GET', '/workspace'), reload.response);
+    expect(JSON.parse(reload.body)).toEqual(saved);
+    expect(
+      readdirSync(directory).map((name) => {
+        const stats = statSync(join(directory, name));
+        return { name, inode: stats.ino, modified: stats.mtimeMs };
+      })
+    ).toEqual(filesBeforeReload);
+    const outstanding = Object.values(document.data.occurrencesById).find(
+      (item) => item.status === 'missed'
+    );
+    if (!outstanding) throw new Error('Expected outstanding work in regression fixture');
+    const complete = createResponse();
+    await restarted(
+      createRequest(
+        'POST',
+        '/commands',
+        { 'x-navet-base-revision': String(saved.revision) },
+        JSON.stringify({
+          commandId: 'complete-upgraded',
+          baseRevision: saved.revision,
+          action: {
+            type: 'occurrence_action',
+            occurrenceId: outstanding.id,
+            action: { type: 'complete', participantId: 'manager' },
+          },
+        })
+      ),
+      complete.response
+    );
+    expect(complete.status).toBe(200);
+    expect(JSON.parse(complete.body).data.occurrencesById[outstanding.id].status).toBe('done');
+  });
+
+  it('reconciles obsolete long-interval repeats while preserving protected future work', async () => {
+    const { handler } = seedLegacy(true);
+    const { document, obsoleteIds } = longIntervalRepairFixture();
+    const read = createResponse();
+    await handler(createRequest('GET', '/workspace'), read.response);
+    expect(read.status).toBe(200);
+    expect(JSON.parse(read.body).data.occurrencesById).toEqual(
+      Object.fromEntries(
+        Object.entries(document.data.occurrencesById).filter(([id]) => !obsoleteIds.includes(id))
+      )
+    );
+  });
+
+  it.each([14, 120])(
+    'recomputes a lone stale future repeat for a %i-day interval',
+    async (intervalDays) => {
+      const { handler, filePath } = seedLegacy(false, intervalDays);
+      const { document, obsoleteIds } = loneStaleRepeatFixture(intervalDays);
+      const read = createResponse();
+      await handler(createRequest('GET', '/workspace'), read.response);
+      expect(read.status).toBe(200);
+      const saved = JSON.parse(read.body);
+      expect(saved.data.occurrencesById).toEqual(
+        Object.fromEntries(
+          Object.entries(document.data.occurrencesById).filter(([id]) => !obsoleteIds.includes(id))
+        )
+      );
+      const restarted = createViteChoreStoreRequestHandler({
+        filePath,
+        resolvePrincipal: () => PRINCIPAL,
+      });
+      const reload = createResponse();
+      await restarted(createRequest('GET', '/workspace'), reload.response);
+      expect(JSON.parse(reload.body)).toEqual(saved);
+    }
+  );
+
+  it('retains the legacy primary and retries a failed upgrade commit', async () => {
+    const { filePath, document, events, handler } = seedLegacy();
+    const primary = readFileSync(filePath, 'utf8');
+    mkdirSync(`${filePath}.tmp`);
+    const failed = createResponse();
+    await handler(createRequest('GET', '/workspace'), failed.response);
+    expect(failed.status).toBe(503);
+    expect(readFileSync(filePath, 'utf8')).toBe(primary);
+    rmSync(`${filePath}.tmp`, { recursive: true });
+    const retry = createResponse();
+    await handler(createRequest('GET', '/workspace'), retry.response);
+    expect(retry.status).toBe(200);
+    expect(JSON.parse(retry.body).data.participantsById).toEqual(document.data.participantsById);
+    const history = createResponse();
+    await handler(createRequest('GET', '/history'), history.response);
+    expect(JSON.parse(history.body).events).toEqual(events);
   });
 });

@@ -7,7 +7,16 @@ import conformanceVectors from '@navet/core/chore-conformance-vectors.json';
 import { createChoreExperienceState } from '@navet/core/chore-experience';
 import type { ApplyChoreCommandInput, ChoreOccurrence } from '@navet/core/chores';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import {
+  continuousMaterializationFixture,
+  loneStaleRepeatFixture,
+  longIntervalRepairFixture,
+} from '../../../../../testing/chore-storage-fixture';
 import { fileDescriptorFixture } from '../../../../../testing/file-descriptors';
+import {
+  getChoreMaterializationRange,
+  materializeChoreWorkspace,
+} from '../../features/chores/chore-workspace-model';
 
 const WORKSPACE_PATH = '/data/navet-dashboard-workspace.json';
 const CHORE_PATH = '/data/navet-chore-workspace.json';
@@ -85,6 +94,12 @@ function createMockFs() {
       if (!files.delete(path)) throw missing(path);
     }),
     getFile: (path: string) => files.get(path),
+    listFiles: () => [...files.keys()],
+    readdirSync: vi.fn((directory: string) =>
+      [...files.keys()]
+        .filter((path) => path.startsWith(`${directory}/`))
+        .map((path) => path.slice(directory.length + 1))
+    ),
   };
 }
 
@@ -372,6 +387,87 @@ describe('NJS chore workspace store', () => {
     choreStore.handle(recovered);
     expect(parseResponse(recovered).data.experience.pointTransactions).toHaveLength(12001);
   }, 15_000);
+
+  it('persists fixed missed history through successor retention and frequency edits, then clears it on reopen', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-08-10T08:00:00.000Z'));
+    const mockFs = createMockFs();
+    choreStore.setChoreStoreFsForTests(mockFs);
+    choreStore.setChoreStorePrincipalResolverForTests(() => PRINCIPAL);
+    seedOccurrenceWorkspace();
+    const stored = JSON.parse(mockFs.getFile(CHORE_PATH) ?? '{}');
+    stored.data.definitionsById.dishes.schedule = {
+      frequency: 'weekly',
+      startDate: '2026-08-10',
+      time: '10:00',
+      timeZone: 'UTC',
+      daysOfWeek: [1],
+    };
+    const older = stored.data.occurrencesById[OCCURRENCE_ID];
+    older.status = 'missed';
+    stored.data.occurrencesById.successor = {
+      ...older,
+      id: 'successor',
+      scheduledAt: '2026-08-17T10:00:00.000Z',
+      dueAt: '2026-08-17T12:00:00.000Z',
+      status: 'done',
+      completedAt: '2026-08-17T12:00:00.000Z',
+      updatedAt: '2026-08-17T12:00:00.000Z',
+    };
+    mockFs.writeFileSync(CHORE_PATH, JSON.stringify(stored));
+    vi.setSystemTime(new Date('2026-12-01T08:00:00.000Z'));
+    const read = createRequest();
+    choreStore.handle(read);
+    const materialize = createActionRequest(
+      'prune-historical-successor',
+      parseResponse(read).revision,
+      {
+        type: 'materialize_occurrences',
+        rangeStart: '2026-12-01T00:00:00.000Z',
+        rangeEnd: '2026-12-02T00:00:00.000Z',
+      }
+    );
+    choreStore.handle(materialize);
+    const retained = parseResponse(materialize);
+    expect(retained.data.occurrencesById.successor).toBeUndefined();
+    expect(retained.data.occurrencesById[OCCURRENCE_ID]).toMatchObject({
+      status: 'missed',
+      supersededAt: '2026-08-17T10:00:00.000Z',
+    });
+    expect(
+      JSON.parse(mockFs.getFile(CHORE_PATH) ?? '{}').data.occurrencesById[OCCURRENCE_ID]
+        .supersededAt
+    ).toBe('2026-08-17T10:00:00.000Z');
+    const edit = createActionRequest('edit-historical-frequency', retained.revision, {
+      type: 'definition_update',
+      actorParticipantId: 'maya',
+      definition: {
+        ...retained.data.definitionsById.dishes,
+        schedule: {
+          frequency: 'after_completion',
+          startDate: '2026-12-01',
+          time: '10:00',
+          timeZone: 'UTC',
+          intervalDays: 7,
+        },
+      },
+    });
+    choreStore.handle(edit);
+    const edited = parseResponse(edit);
+    expect(edited.data.occurrencesById[OCCURRENCE_ID].supersededAt).toBe(
+      '2026-08-17T10:00:00.000Z'
+    );
+    const reopen = createActionRequest('reopen-historical-work', edited.revision, {
+      type: 'occurrence_action',
+      occurrenceId: OCCURRENCE_ID,
+      action: { type: 'reopen', participantId: 'maya', reason: 'Again' },
+    });
+    choreStore.handle(reopen);
+    expect(parseResponse(reopen).data.occurrencesById[OCCURRENCE_ID]).toMatchObject({
+      status: 'available',
+    });
+    expect(parseResponse(reopen).data.occurrencesById[OCCURRENCE_ID].supersededAt).toBeUndefined();
+  });
 
   it('matches standby and fair rotation assignment in the packaged policy', () => {
     const timestamp = '2026-08-01T00:00:00.000Z';
@@ -680,6 +776,10 @@ describe('NJS chore workspace store', () => {
         nextAttemptAt: '2026-09-28T08:00:00.000Z',
       }));
       mockFs.writeFileSync(CHORE_PATH, JSON.stringify(stored));
+      const tick = createRequest();
+      choreStore.handle(tick);
+      const scheduled = JSON.parse(mockFs.getFile(CHORE_PATH) ?? '{}');
+      for (const id of Object.keys(preserved)) preserved[id] = scheduled.data.occurrencesById[id];
       const updated = send({
         type: 'definition_update',
         actorParticipantId: 'maya',
@@ -2013,4 +2113,345 @@ describe('shared occurrence transition conformance', () => {
       }
     });
   }
+});
+
+describe('NJS outstanding after-completion intervals', () => {
+  afterEach(() => {
+    choreStore.resetChoreStoreForTests();
+    vi.useRealTimers();
+  });
+  it('removes legacy future repeats once, preserving outstanding work and stopping browser rescheduling', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-10-13T10:00:00.000Z'));
+    const mockFs = createMockFs();
+    choreStore.setChoreStoreFsForTests(mockFs);
+    choreStore.setChoreStorePrincipalResolverForTests(() => PRINCIPAL);
+    seedOccurrenceWorkspace();
+    const document = JSON.parse(mockFs.getFile(CHORE_PATH) ?? '{}');
+    document.data.definitionsById.dishes.schedule = {
+      frequency: 'after_completion',
+      startDate: '2026-08-10',
+      time: '10:00',
+      timeZone: 'UTC',
+      intervalDays: 14,
+    };
+    const outstanding = document.data.occurrencesById[OCCURRENCE_ID];
+    outstanding.status = 'missed';
+    const staleId = 'dishes:2026-10-20T10:00:00.000Z:maya';
+    document.data.occurrencesById[staleId] = {
+      ...outstanding,
+      id: staleId,
+      status: 'available',
+      scheduledAt: '2026-10-20T10:00:00.000Z',
+      dueAt: '2026-10-20T11:00:00.000Z',
+    };
+    document.data.outbox = ['pending', 'delivered'].map((status) => ({
+      id: `legacy-${status}`,
+      activityId: 'legacy-reminder',
+      eventType: 'reminder_due',
+      occurrenceId: staleId,
+      status,
+      attempts: 0,
+      createdAt: '2026-10-13T10:00:00.000Z',
+      nextAttemptAt: '2026-10-13T10:00:00.000Z',
+    }));
+    mockFs.writeFileSync(CHORE_PATH, JSON.stringify(document));
+    const now = new Date();
+    const before = materializeChoreWorkspace(document.data, now);
+    expect(before.changed).toBe(true);
+    const request = createActionRequest('reconcile-legacy-repeats', document.revision, {
+      type: 'materialize_occurrences',
+      ...getChoreMaterializationRange(now),
+    });
+    choreStore.handle(request);
+    expect(request.return).toHaveBeenCalledWith(200, expect.any(String));
+    const saved = parseResponse(request);
+    expect(saved.data.occurrencesById[staleId]).toBeUndefined();
+    expect(saved.data.occurrencesById[OCCURRENCE_ID].status).toBe('missed');
+    expect(
+      saved.data.outbox.filter((item: { occurrenceId?: string }) => item.occurrenceId === staleId)
+    ).toEqual([expect.objectContaining({ status: 'delivered' })]);
+    expect(materializeChoreWorkspace(saved.data, now).changed).toBe(false);
+    const complete = createActionRequest('complete-after-reconciliation', saved.revision, {
+      type: 'occurrence_action',
+      occurrenceId: OCCURRENCE_ID,
+      action: { type: 'complete', participantId: 'maya' },
+    });
+    choreStore.handle(complete);
+    expect(complete.return).toHaveBeenCalledWith(200, expect.any(String));
+    expect(parseResponse(complete).data.occurrencesById[OCCURRENCE_ID].status).toBe('done');
+  });
+  it('persists completion of work older than 90 days and its next interval after reload', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-12-11T10:00:00.000Z'));
+    const mockFs = createMockFs();
+    choreStore.setChoreStoreFsForTests(mockFs);
+    choreStore.setChoreStorePrincipalResolverForTests(() => PRINCIPAL);
+    seedOccurrenceWorkspace();
+    const document = JSON.parse(mockFs.getFile(CHORE_PATH) ?? '{}');
+    document.data.definitionsById.dishes.schedule = {
+      frequency: 'after_completion',
+      startDate: '2026-08-10',
+      time: '10:00',
+      timeZone: 'UTC',
+      intervalDays: 14,
+    };
+    document.data.occurrencesById[OCCURRENCE_ID].status = 'missed';
+    mockFs.writeFileSync(CHORE_PATH, JSON.stringify(document));
+    const complete = createActionRequest('complete-old', document.revision, {
+      type: 'occurrence_action',
+      occurrenceId: OCCURRENCE_ID,
+      action: { type: 'complete', participantId: 'maya' },
+    });
+    choreStore.handle(complete);
+    expect(complete.return).toHaveBeenCalledWith(200, expect.any(String));
+    const saved = parseResponse(complete);
+    expect(saved.data.occurrencesById[OCCURRENCE_ID]).toMatchObject({
+      status: 'done',
+      completedAt: '2026-12-11T10:00:00.000Z',
+    });
+    expect(
+      Object.values(saved.data.occurrencesById as Record<string, ChoreOccurrence>)
+        .filter((item) => item.status === 'available')
+        .map((item) => item.scheduledAt)
+    ).toEqual(['2026-12-25T10:00:00.000Z']);
+    choreStore.resetChoreStoreForTests();
+    choreStore.setChoreStoreFsForTests(mockFs);
+    choreStore.setChoreStorePrincipalResolverForTests(() => PRINCIPAL);
+    const reload = createRequest();
+    choreStore.handle(reload);
+    expect(parseResponse(reload).data.occurrencesById).toEqual(saved.data.occurrencesById);
+  });
+  it('keeps everyone clocks independent and holds missed work outside the rolling window', () => {
+    const source = seededData('everyone');
+    const definition = {
+      ...source.definitionsById.dishes,
+      assignment: { mode: 'everyone', participantIds: ['maya', 'sofia'] },
+      schedule: {
+        frequency: 'after_completion',
+        startDate: '2026-08-10',
+        time: '10:00',
+        timeZone: 'UTC',
+        intervalDays: 14,
+      },
+    };
+    const original = source.occurrencesById[OCCURRENCE_ID];
+    const existing = {
+      maya: { ...original, status: 'done', completedAt: '2026-12-11T10:00:00.000Z' },
+      sofia: {
+        ...original,
+        id: 'old-sofia',
+        assignmentSlot: 'sofia',
+        assigneeIds: ['sofia'],
+        status: 'missed',
+      },
+    };
+    const result = choreStore.materializeDefinitionForTests(
+      definition,
+      { maya: managerParticipant(), sofia: managerParticipant('sofia') },
+      '2026-09-12T00:00:00.000Z',
+      '2027-01-25T00:00:00.000Z',
+      existing,
+      '2026-12-11T10:00:00.000Z',
+      true
+    );
+    expect(result.map((item) => [item.assigneeIds, item.scheduledAt])).toEqual([
+      [['maya'], '2026-12-25T10:00:00.000Z'],
+      [['sofia'], '2026-08-10T10:00:00.000Z'],
+    ]);
+  });
+});
+
+describe('automatic chore storage upgrade', () => {
+  afterEach(() => {
+    choreStore.resetChoreStoreForTests();
+    vi.useRealTimers();
+  });
+  function seedLegacy(schemaVersion = 2, longIntervals = false, staleInterval?: number) {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-10-13T10:00:00.000Z'));
+    const mockFs = createMockFs();
+    choreStore.setChoreStoreFsForTests(mockFs);
+    choreStore.setChoreStorePrincipalResolverForTests(() => PRINCIPAL);
+    const { document, events } =
+      staleInterval !== undefined
+        ? loneStaleRepeatFixture(staleInterval)
+        : longIntervals
+          ? longIntervalRepairFixture()
+          : continuousMaterializationFixture();
+    const hash = (value: string) => createHash('sha256').update(value).digest('hex');
+    const legacyDocument =
+      schemaVersion === 1
+        ? { ...document, data: { ...document.data, schemaVersion: 1, outbox: undefined } }
+        : document;
+    const stored = durableStorage.encode(legacyDocument, 2 * 1024 * 1024, hash, (key, chunk) => {
+      mockFs.writeFileSync(
+        `${CHORE_PATH}.chunk-${key}`,
+        JSON.stringify(durableStorage.unpack(chunk, hash))
+      );
+    });
+    mockFs.writeFileSync(CHORE_PATH, JSON.stringify(durableStorage.unpack(stored, hash)));
+    mockFs.writeFileSync(EVENT_HISTORY_PATH, JSON.stringify({ contractVersion: 1, events }));
+    return { mockFs, document, events, hash };
+  }
+
+  it('deflates legacy records on load, preserves history/cursors and recovery, and repairs completion', () => {
+    const { mockFs, document, events, hash } = seedLegacy();
+    const orphanPath = `${CHORE_PATH}.chunk-${'f'.repeat(64)}`;
+    mockFs.writeFileSync(orphanPath, 'obsolete');
+    mockFs.writeFileSync(`${CHORE_PATH}.chunk-unrelated`, 'preserve');
+    const bytes = () =>
+      mockFs
+        .listFiles()
+        .reduce((sum, path) => sum + Buffer.byteLength(mockFs.getFile(path) ?? ''), 0);
+    const beforeBytes = bytes();
+    const read = createRequest();
+    choreStore.handle(read);
+    expect(read.return).toHaveBeenCalledWith(200, expect.any(String));
+    const saved = parseResponse(read);
+    const retained = Object.values(document.data.occurrencesById).filter(
+      (item) => item.status !== 'available'
+    );
+    expect(Object.values(saved.data.occurrencesById)).toEqual(retained);
+    expect(saved.data.participantsById).toEqual(document.data.participantsById);
+    expect(saved.data.definitionsById).toEqual(document.data.definitionsById);
+    expect(bytes()).toBeLessThan(beforeBytes * 0.3);
+    expect(mockFs.getFile(orphanPath)).toBeUndefined();
+    expect(mockFs.getFile(`${CHORE_PATH}.chunk-unrelated`)).toBe('preserve');
+    const backupDocument = durableStorage.decode(
+      JSON.parse(mockFs.getFile(CHORE_LAST_GOOD_PATH) ?? 'null'),
+      hash,
+      (key) => JSON.parse(mockFs.getFile(`${CHORE_PATH}.chunk-${key}`) ?? 'null')
+    ) as { data: unknown };
+    expect(backupDocument.data).toEqual(document.data);
+    const history = createRequest({ uri: '/__navet_chores__/history' });
+    choreStore.handle(history);
+    expect(parseResponse(history).events).toEqual(events);
+    const feed = createRequest({ uri: '/__navet_chores__/events', args: 'after=50&limit=1' });
+    choreStore.handle(feed);
+    expect(parseResponse(feed)).toMatchObject({ cursor: '101', events: [events[100]] });
+    mockFs.writeFileSync.mockClear();
+    const again = createRequest();
+    choreStore.handle(again);
+    expect(parseResponse(again).revision).toBe(saved.revision);
+    expect(mockFs.writeFileSync).not.toHaveBeenCalled();
+    const outstanding = retained.find((item) => item.status === 'missed');
+    if (!outstanding) throw new Error('Expected outstanding work in regression fixture');
+    const complete = createActionRequest('complete-repaired-work', saved.revision, {
+      type: 'occurrence_action',
+      occurrenceId: outstanding.id,
+      action: { type: 'complete', participantId: 'manager' },
+    });
+    choreStore.handle(complete);
+    expect(complete.return).toHaveBeenCalledWith(200, expect.any(String));
+    expect(parseResponse(complete).data.occurrencesById[outstanding.id].status).toBe('done');
+  });
+
+  it('repairs supported schema-v1 data before recording maintenance as complete', () => {
+    const { mockFs, document, events, hash } = seedLegacy(1);
+    const read = createRequest();
+    choreStore.handle(read);
+    expect(read.return).toHaveBeenCalledWith(200, expect.any(String));
+    const saved = parseResponse(read);
+    expect(saved.data.schemaVersion).toBe(2);
+    expect(Object.values(saved.data.occurrencesById)).toEqual(
+      Object.values(document.data.occurrencesById).filter((item) => item.status !== 'available')
+    );
+    const persisted = durableStorage.decode(
+      JSON.parse(mockFs.getFile(CHORE_PATH) ?? 'null'),
+      hash,
+      (key) => JSON.parse(mockFs.getFile(`${CHORE_PATH}.chunk-${key}`) ?? 'null')
+    );
+    expect(persisted).toMatchObject({ storageMaintenanceVersion: 1 });
+    const history = createRequest({ uri: '/__navet_chores__/history' });
+    choreStore.handle(history);
+    expect(parseResponse(history).events).toEqual(events);
+    mockFs.writeFileSync.mockClear();
+    const again = createRequest();
+    choreStore.handle(again);
+    expect(parseResponse(again)).toEqual(saved);
+    expect(mockFs.writeFileSync).not.toHaveBeenCalled();
+  });
+
+  it('reconciles obsolete long-interval repeats while preserving protected future work', () => {
+    seedLegacy(2, true);
+    const { document, obsoleteIds } = longIntervalRepairFixture();
+    const read = createRequest();
+    choreStore.handle(read);
+    expect(read.return).toHaveBeenCalledWith(200, expect.any(String));
+    expect(parseResponse(read).data.occurrencesById).toEqual(
+      Object.fromEntries(
+        Object.entries(document.data.occurrencesById).filter(([id]) => !obsoleteIds.includes(id))
+      )
+    );
+  });
+
+  it.each([14, 120])(
+    'recomputes a lone stale future repeat for a %i-day interval',
+    (intervalDays) => {
+      const { mockFs } = seedLegacy(2, false, intervalDays);
+      const { document, obsoleteIds } = loneStaleRepeatFixture(intervalDays);
+      const read = createRequest();
+      choreStore.handle(read);
+      expect(read.return).toHaveBeenCalledWith(200, expect.any(String));
+      const saved = parseResponse(read);
+      expect(saved.data.occurrencesById).toEqual(
+        Object.fromEntries(
+          Object.entries(document.data.occurrencesById).filter(([id]) => !obsoleteIds.includes(id))
+        )
+      );
+      mockFs.writeFileSync.mockClear();
+      const again = createRequest();
+      choreStore.handle(again);
+      expect(parseResponse(again)).toEqual(saved);
+      expect(mockFs.writeFileSync).not.toHaveBeenCalled();
+    }
+  );
+
+  it('retries an interrupted upgrade without losing the old workspace, history or chunks', () => {
+    const { mockFs, document, events } = seedLegacy();
+    const originalPrimary = mockFs.getFile(CHORE_PATH);
+    const orphanPath = `${CHORE_PATH}.chunk-${'f'.repeat(64)}`;
+    mockFs.writeFileSync(orphanPath, 'obsolete');
+    const rename = mockFs.renameSync.getMockImplementation();
+    if (!rename) throw new Error('Expected file-system fixture rename');
+    mockFs.renameSync.mockImplementation((source, destination) => {
+      if (destination === CHORE_PATH) throw new Error('Interrupted upgrade');
+      rename(source, destination);
+    });
+    const failed = createRequest();
+    choreStore.handle(failed);
+    expect(failed.return.mock.calls.at(-1)?.[0]).toBe(503);
+    expect(mockFs.getFile(CHORE_PATH)).toBe(originalPrimary);
+    expect(mockFs.getFile(orphanPath)).toBe('obsolete');
+    mockFs.renameSync.mockImplementation(rename);
+    const retry = createRequest();
+    choreStore.handle(retry);
+    expect(retry.return).toHaveBeenCalledWith(200, expect.any(String));
+    expect(parseResponse(retry).data.participantsById).toEqual(document.data.participantsById);
+    const history = createRequest({ uri: '/__navet_chores__/history' });
+    choreStore.handle(history);
+    expect(parseResponse(history).events).toEqual(events);
+  });
+
+  it('rejects damaged compressed payloads and repairs from the healthy copy', () => {
+    const { mockFs, hash } = seedLegacy();
+    choreStore.handle(createRequest());
+    const history = JSON.parse(mockFs.getFile(EVENT_HISTORY_PATH) ?? 'null');
+    expect(history.storageEncoding).toBe('deflate-v1');
+    expect(() => durableStorage.unpack({ ...history, checksum: '0'.repeat(64) }, hash)).toThrow();
+    expect(() =>
+      durableStorage.unpack({ ...history, uncompressedBytes: 65 * 1024 * 1024 }, hash)
+    ).toThrow();
+    const stored = JSON.parse(mockFs.getFile(CHORE_PATH) ?? 'null');
+    const packed = durableStorage.pack({ ...stored, padding: 'x'.repeat(50_000) }, hash) as Record<
+      string,
+      unknown
+    >;
+    mockFs.writeFileSync(CHORE_PATH, JSON.stringify({ ...packed, checksum: '0'.repeat(64) }));
+    const read = createRequest();
+    choreStore.handle(read);
+    expect(read.return).toHaveBeenCalledWith(200, expect.any(String));
+    expect(parseResponse(read).data.participantsById.manager).toBeDefined();
+  });
 });

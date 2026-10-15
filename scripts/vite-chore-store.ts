@@ -7,6 +7,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import path from 'node:path'
 import type {
   ChoreWorkspaceAction,
+  ChoreOccurrence,
   ChoreActivity,
   ChoreWorkspaceData,
 } from '../packages/core/src/chores.ts'
@@ -17,6 +18,8 @@ import {
   createEmptyChoreWorkspace,
   DEFAULT_CHORE_HISTORY_RETENTION,
   migrateChoreWorkspaceData,
+  materializeChoreOccurrences,
+  isChoreParticipantPausedAt,
   runChoreWorkspaceScheduler,
 } from '../packages/core/src/chores.ts'
 import { applyChoreHistoryRetention } from '../packages/core/src/chore-insights.ts'
@@ -53,6 +56,7 @@ const MANAGEMENT_PIN_PATTERN = /^\d{4,8}$/
 interface PersistedChoreWorkspaceDocument extends Omit<ChoreWorkspaceDocument, 'management'> {
   contractVersion: typeof CONTRACT_VERSION
   tenantId: string
+  storageMaintenanceVersion?: number
 }
 
 interface ChoreManagementSecurityDocument {
@@ -371,13 +375,28 @@ export function createViteChoreStoreRequestHandler(options: {
 
   const readEventHistory = (fallbackEvents: ChoreActivity[] = []): ChoreEventHistory => {
     try {
-      const history = readJson<ChoreEventHistory>(
+      const stored = readJson<unknown>(
         eventHistoryPath,
         { contractVersion: CONTRACT_VERSION, events: [] },
-        MAX_EVENT_HISTORY_BYTES
+        MAX_EVENT_HISTORY_BYTES,
       )
+      const history = choreDurableStorage.unpack(
+        stored,
+        durableHash,
+        MAX_EVENT_HISTORY_BYTES,
+      ) as ChoreEventHistory
       if (history.contractVersion !== CONTRACT_VERSION || !Array.isArray(history.events)) {
         throw new Error('Chore event history is invalid')
+      }
+      if (isRecord(stored) && !stored.storageEncoding) {
+        const compact = choreDurableStorage.pack(history, durableHash)
+        if (compact !== history) {
+          try {
+            writeJson(eventHistoryPath, compact, MAX_EVENT_HISTORY_BYTES)
+          } catch {
+            /* An interrupted rewrite retains the original history; retry next read. */
+          }
+        }
       }
       return history
     } catch {
@@ -385,14 +404,18 @@ export function createViteChoreStoreRequestHandler(options: {
         contractVersion: CONTRACT_VERSION,
         events: applyChoreHistoryRetention(fallbackEvents, DEFAULT_CHORE_HISTORY_RETENTION),
       } satisfies ChoreEventHistory
-      writeJson(eventHistoryPath, repaired, MAX_EVENT_HISTORY_BYTES)
+      writeJson(
+        eventHistoryPath,
+        choreDurableStorage.pack(repaired, durableHash),
+        MAX_EVENT_HISTORY_BYTES,
+      )
       return repaired
     }
   }
 
   const appendEventHistory = (
     events: ChoreActivity[],
-    policy = DEFAULT_CHORE_HISTORY_RETENTION
+    policy = DEFAULT_CHORE_HISTORY_RETENTION,
   ): void => {
     if (events.length === 0) return
     const history = readEventHistory(events)
@@ -401,19 +424,22 @@ export function createViteChoreStoreRequestHandler(options: {
     if (additions.length === 0) return
     writeJson(
       eventHistoryPath,
-      {
-        ...history,
-        events: applyChoreHistoryRetention([...history.events, ...additions], policy),
-      },
-      MAX_EVENT_HISTORY_BYTES
+      choreDurableStorage.pack(
+        {
+          ...history,
+          events: applyChoreHistoryRetention([...history.events, ...additions], policy),
+        },
+        durableHash,
+      ),
+      MAX_EVENT_HISTORY_BYTES,
     )
   }
 
   const replaceEventHistory = (events: ChoreActivity[]): void => {
     writeJson(
       eventHistoryPath,
-      { contractVersion: CONTRACT_VERSION, events },
-      MAX_EVENT_HISTORY_BYTES
+      choreDurableStorage.pack({ contractVersion: CONTRACT_VERSION, events }, durableHash),
+      MAX_EVENT_HISTORY_BYTES,
     )
   }
 
@@ -440,6 +466,7 @@ export function createViteChoreStoreRequestHandler(options: {
         revision: Number(value.revision),
         updatedAt: value.updatedAt,
         data: migrateChoreWorkspaceData(value.data),
+        ...(value.storageMaintenanceVersion === 1 ? { storageMaintenanceVersion: 1 } : {}),
       }
     } catch {
       return null
@@ -469,10 +496,45 @@ export function createViteChoreStoreRequestHandler(options: {
 
   const persistDocument = (
     previous: PersistedChoreWorkspaceDocument,
-    next: PersistedChoreWorkspaceDocument
+    next: PersistedChoreWorkspaceDocument,
   ): void => {
+    next.storageMaintenanceVersion = 1
     writeStoredDocument(lastGoodWorkspacePath, previous)
     writeStoredDocument(filePath, next)
+    collectUnreferencedChunks()
+  }
+
+  const collectUnreferencedChunks = (): void => {
+    try {
+      const retained = new Set<string>()
+      for (const candidatePath of [filePath, lastGoodWorkspacePath]) {
+        const stored = choreDurableStorage.unpack(
+          readJson<unknown>(candidatePath, null, MAX_DOCUMENT_BYTES),
+          durableHash,
+          MAX_DOCUMENT_BYTES,
+        )
+        if (!isRecord(stored)) return
+        const manifest = stored.durableCollections
+        if (!manifest) continue
+        if (!isRecord(manifest) || manifest.version !== 1) return
+        for (const [name, keys] of Object.entries(manifest)) {
+          if (name === 'version') continue
+          if (!Array.isArray(keys)) return
+          for (const key of keys) retained.add(key)
+        }
+      }
+      const prefix = path.basename(filePath) + '.chunk-'
+      const entries = fileSystem.readdirSync(path.dirname(filePath))
+      if (entries.some((name) => name.startsWith(path.basename(filePath) + '.failed-'))) return
+      for (const name of entries) {
+        if (!name.startsWith(prefix)) continue
+        const key = name.slice(prefix.length)
+        if (/^[a-f0-9]{64}$/.test(key) && !retained.has(key))
+          unlinkSync(path.join(path.dirname(filePath), name))
+      }
+    } catch {
+      /* Retry collection after the next successful write. */
+    }
   }
 
   const readDocument = (tenantId: string): PersistedChoreWorkspaceDocument => {
@@ -496,7 +558,7 @@ export function createViteChoreStoreRequestHandler(options: {
     let documentNeedsMigration = Boolean(
       document &&
         isRecord(rawDocument) &&
-        (rawDocument.tenantId !== tenantId || document.data !== rawDocument.data)
+        (rawDocument.tenantId !== tenantId || document.data !== rawDocument.data),
     )
     if (!document) {
       const backup = readDocumentCandidate(lastGoodWorkspacePath, tenantId)
@@ -514,6 +576,68 @@ export function createViteChoreStoreRequestHandler(options: {
       documentNeedsMigration = false
     }
     const timestamp = new Date().toISOString()
+    if (document.storageMaintenanceVersion !== 1) {
+      appendEventHistory(document.data.activity, document.data.historyRetention)
+      const definitionsById = document.data.definitionsById
+      const participantsById = document.data.participantsById
+      const needsRecomputation = (item: ChoreOccurrence): boolean =>
+        definitionsById[item.definitionId]?.schedule.frequency === 'after_completion' &&
+        item.status === 'available' && Date.parse(item.scheduledAt) > Date.parse(timestamp) &&
+        item.carriedForwardFrom === undefined && !item.assigneeIds.some((participantId) => {
+          const participant = participantsById[participantId]
+          return participant && isChoreParticipantPausedAt(participant, item.scheduledAt)
+        })
+      const trustedOccurrences = Object.fromEntries(
+        Object.entries(document.data.occurrencesById).filter(([, item]) => !needsRecomputation(item)),
+      )
+      const scheduledByDefinition = new Map<string, Set<string>>()
+      for (const definition of Object.values(definitionsById)) {
+        if (definition.schedule.frequency !== 'after_completion') continue
+        const latestCompletedAt = Object.values(document.data.occurrencesById)
+          .filter((item) => item.definitionId === definition.id)
+          .flatMap((item) => item.completedAt ? [item.completedAt] : [])
+          .sort((left, right) => Date.parse(left) - Date.parse(right))
+          .at(-1)
+        const scheduled = materializeChoreOccurrences({
+          definition, participantsById,
+          existingOccurrences: trustedOccurrences, latestCompletedAt,
+          rangeStart: new Date(Date.parse(timestamp) - 90 * 86400000).toISOString(),
+          rangeEnd: new Date(Date.parse(timestamp) + 45 * 86400000).toISOString(),
+        }, true)
+        scheduledByDefinition.set(definition.id, new Set(scheduled.map((item) => item.id)))
+      }
+      const removed = new Set(
+        Object.values(document.data.occurrencesById)
+          .filter(
+            (item) =>
+              needsRecomputation(item) && !scheduledByDefinition.get(item.definitionId)?.has(item.id),
+          )
+          .map((item) => item.id),
+      )
+      const changed = removed.size > 0 || documentNeedsMigration
+      const next = {
+        ...document,
+        storageMaintenanceVersion: 1,
+        revision: document.revision + (changed ? 1 : 0),
+        updatedAt: changed ? timestamp : document.updatedAt,
+        data:
+          removed.size > 0
+            ? {
+                ...document.data,
+                occurrencesById: Object.fromEntries(
+                  Object.entries(document.data.occurrencesById).filter(([id]) => !removed.has(id)),
+                ),
+                outbox: document.data.outbox.filter(
+                  (item) => item.status === 'delivered' || !removed.has(item.occurrenceId ?? ''),
+                ),
+              }
+            : document.data,
+      }
+      persistDocument(document, next)
+      appendEventHistory(next.data.activity, next.data.historyRetention)
+      document = next
+      documentNeedsMigration = false
+    }
     const history = readEventHistory(document.data.activity)
     const scheduled = runChoreWorkspaceScheduler(document.data, timestamp, {
       existingEventIds: new Set(history.events.map((event) => event.id)),
@@ -521,7 +645,11 @@ export function createViteChoreStoreRequestHandler(options: {
     if (
       !documentNeedsMigration &&
       scheduled.activities.length === 0 &&
-      scheduled.outboxItems.length === 0
+      scheduled.outboxItems.length === 0 &&
+      !Object.values(scheduled.data.occurrencesById).some(
+        (occurrence) =>
+          occurrence.supersededAt !== document.data.occurrencesById[occurrence.id]?.supersededAt,
+      )
     ) {
       appendEventHistory(document.data.activity, document.data.historyRetention)
       return document
