@@ -384,6 +384,37 @@ describe('useDevices', () => {
     ]);
   });
 
+  function householdDevice(
+    type: 'timer' | 'counter' | 'valve' | 'remote',
+    externalId: string,
+    name: string,
+    room: string
+  ) {
+    const id = `home_assistant:${externalId}`;
+    return {
+      id,
+      nativeId: externalId,
+      canonicalId: id,
+      providerId: 'home_assistant' as const,
+      name,
+      room,
+      size: 'small' as const,
+      normalizedEntity: {
+        id,
+        canonicalId: id,
+        externalId,
+        providerId: 'home_assistant' as const,
+        type,
+        name,
+        room,
+        primaryState: 'idle',
+        availability: 'available' as const,
+        attributes: {},
+        capabilities: [],
+      },
+    };
+  }
+
   it('applies dashboard entity display names on top of provider names', async () => {
     await resetAppStores();
 
@@ -405,49 +436,11 @@ describe('useDevices', () => {
               temp: 3200,
             },
           ],
-          timers: [
-            {
-              id: 'home_assistant:timer.kitchen',
-              nativeId: 'timer.kitchen',
-              canonicalId: 'home_assistant:timer.kitchen',
-              providerId: 'home_assistant',
-              name: 'Kitchen Timer',
-              room: 'Kitchen',
-              size: 'small',
-            },
-          ],
-          counters: [
-            {
-              id: 'home_assistant:counter.guests',
-              nativeId: 'counter.guests',
-              canonicalId: 'home_assistant:counter.guests',
-              providerId: 'home_assistant',
-              name: 'Guest Count',
-              room: 'Kitchen',
-              size: 'small',
-            },
-          ],
-          valves: [
-            {
-              id: 'home_assistant:valve.main',
-              nativeId: 'valve.main',
-              canonicalId: 'home_assistant:valve.main',
-              providerId: 'home_assistant',
-              name: 'Main Valve',
-              room: 'Utility',
-              size: 'small',
-            },
-          ],
+          timers: [householdDevice('timer', 'timer.kitchen', 'Kitchen Timer', 'Kitchen')],
+          counters: [householdDevice('counter', 'counter.guests', 'Guest Count', 'Kitchen')],
+          valves: [householdDevice('valve', 'valve.main', 'Main Valve', 'Utility')],
           remotes: [
-            {
-              id: 'home_assistant:remote.living_room',
-              nativeId: 'remote.living_room',
-              canonicalId: 'home_assistant:remote.living_room',
-              providerId: 'home_assistant',
-              name: 'Living Room Remote',
-              room: 'Living Room',
-              size: 'small',
-            },
+            householdDevice('remote', 'remote.living_room', 'Living Room Remote', 'Living Room'),
           ],
         },
       },
