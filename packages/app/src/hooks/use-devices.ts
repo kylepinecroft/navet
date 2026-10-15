@@ -254,6 +254,10 @@ function applyEntityDisplayNameOverrides(
     entityDisplayNames
   );
   const helpers = applyEntityDisplayNameOverridesToDevices(collection.helpers, entityDisplayNames);
+  const timers = applyEntityDisplayNameOverridesToDevices(collection.timers, entityDisplayNames);
+  const counters = applyEntityDisplayNameOverridesToDevices(collection.counters, entityDisplayNames);
+  const valves = applyEntityDisplayNameOverridesToDevices(collection.valves, entityDisplayNames);
+  const remotes = applyEntityDisplayNameOverridesToDevices(collection.remotes, entityDisplayNames);
   const covers = applyEntityDisplayNameOverridesToDevices(collection.covers, entityDisplayNames);
   const locks = applyEntityDisplayNameOverridesToDevices(collection.locks, entityDisplayNames);
   const scenes = applyEntityDisplayNameOverridesToDevices(collection.scenes, entityDisplayNames);
@@ -279,6 +283,10 @@ function applyEntityDisplayNameOverrides(
     weather === collection.weather &&
     switches === collection.switches &&
     helpers === collection.helpers &&
+    timers === collection.timers &&
+    counters === collection.counters &&
+    valves === collection.valves &&
+    remotes === collection.remotes &&
     covers === collection.covers &&
     locks === collection.locks &&
     scenes === collection.scenes &&
@@ -303,6 +311,10 @@ function applyEntityDisplayNameOverrides(
     weather,
     switches,
     helpers,
+    timers,
+    counters,
+    valves,
+    remotes,
     covers,
     locks,
     scenes,
