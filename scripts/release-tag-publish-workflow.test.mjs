@@ -13,9 +13,10 @@ const releaseWorkflow = parse(
 
 describe('production release tag publisher', () => {
   // Rewrite: production stays main-backed; immutable Dev builds admit only their annotated tag source.
+  // The runtime job is not pinned to navet-app, so this fork still verifies images before moving dev.
   it('admits main-backed sources and only matching annotated branch Dev sources', () => {
     const runtime = parse(readFileSync('.github/workflows/release-runtime.yml', 'utf8'));
-    expect(runtime.jobs.runtime.if).toBe("github.repository == 'navet-app/navet' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/navet-dev-'))");
+    expect(runtime.jobs.runtime.if).toBe("github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/navet-dev-')");
     expect(runtime.jobs.runtime.steps.filter((step) => step.uses === 'actions/checkout@v5')
       .every((step) => step.with.ref === 'main')).toBe(true);
     const jobs = [releaseWorkflow.jobs['custom-panel-artifact'], runtime.jobs.runtime];
