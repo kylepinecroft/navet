@@ -255,7 +255,10 @@ function applyEntityDisplayNameOverrides(
   );
   const helpers = applyEntityDisplayNameOverridesToDevices(collection.helpers, entityDisplayNames);
   const timers = applyEntityDisplayNameOverridesToDevices(collection.timers, entityDisplayNames);
-  const counters = applyEntityDisplayNameOverridesToDevices(collection.counters, entityDisplayNames);
+  const counters = applyEntityDisplayNameOverridesToDevices(
+    collection.counters,
+    entityDisplayNames
+  );
   const valves = applyEntityDisplayNameOverridesToDevices(collection.valves, entityDisplayNames);
   const remotes = applyEntityDisplayNameOverridesToDevices(collection.remotes, entityDisplayNames);
   const covers = applyEntityDisplayNameOverridesToDevices(collection.covers, entityDisplayNames);
