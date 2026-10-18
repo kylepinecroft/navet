@@ -8,7 +8,9 @@ import { readViteDynamicPreloadAssetPaths } from './vite-preload-graph.mjs';
 const MAX_ENTRY_JS_BYTES = 48 * 1024;
 const MAX_EAGER_CHUNK_BYTES = 256 * 1024;
 // The patched dependency baseline is ~788 KiB; retain a small margin for dependency drift.
-const MAX_TOTAL_EAGER_JS_BYTES = 800 * 1024;
+// Fork overlay: upstream v0.18.1 measured 799.3 KB. Overlays add about 2.9 KB
+// (this fork measured 802.2 KB). Keep 820 * 1024 on sync. See docs/agents/fork-overlay.md.
+const MAX_TOTAL_EAGER_JS_BYTES = 820 * 1024;
 const MAX_AUTHENTICATED_TRANSITION_JS_BYTES = 320 * 1024;
 // Assist adds the shared conversation surface while keeping the stylesheet below 560 KiB.
 const MAX_MAIN_CSS_BYTES = 560 * 1024;
