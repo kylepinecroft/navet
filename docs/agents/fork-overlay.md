@@ -20,7 +20,7 @@ Product behavior, settings, persistence, or UX that upstream Navet does not have
 
 ## Upstream sync
 
-Merge an upstream **tag** onto a `sync/upstream-<version>` branch from current `main`. Never rebase published `main`. Take upstream release-managed files (`package.json`, `CHANGELOG.md`, add-on manifests). Keep-both locale and store-type conflicts first. On seam files, take upstream structure and re-insert overlay call sites. Run the tests listed here, then update **Last synced**.
+Merge an upstream **tag** onto a `sync/upstream-<version>` branch from current `main`. Never rebase published `main`. Take upstream release-managed files (`package.json`, `CHANGELOG.md`, add-on manifests). Keep-both locale and store-type conflicts first. On seam files, take upstream structure and re-insert overlay call sites. Run the tests listed here, evaluate the eager JavaScript budget under **Fork-only budgets**, then update **Last synced**.
 
 ## Overlap with upstream
 
@@ -108,7 +108,12 @@ Publish container images to `ghcr.io/<repository owner>/...` with `GITHUB_TOKEN`
 
 ### Eager JavaScript
 
-`scripts/check-bundle-budget.mjs` sets `MAX_TOTAL_EAGER_JS_BYTES` to `820 * 1024`. Upstream `v0.18.1` measured 799.3 KB against `800 * 1024`. Overlay code adds about 2.9 KB, so this fork measured 802.2 KB. On sync, keep `820 * 1024`. Do not take upstream's `800 * 1024`.
+Temporary override. `scripts/check-bundle-budget.mjs` sets `MAX_TOTAL_EAGER_JS_BYTES` to `820 * 1024` because upstream's `800 * 1024` cap does not fit this fork. Upstream `v0.18.1` measured 799.3 KB. Overlay code adds about 3 KB, and this fork measured 802.1 KB at `v0.18.4`.
+
+On each sync, compare upstream's `MAX_TOTAL_EAGER_JS_BYTES` with upstream's measured eager JavaScript:
+
+- If upstream raises the cap and the new limit is still about 3 KB above upstream's measured eager JavaScript, delete this override and use upstream's limit.
+- If the new limit does not leave that room, keep a fork override above the measured fork size.
 
 - **Owned:** the `MAX_TOTAL_EAGER_JS_BYTES` constant in `scripts/check-bundle-budget.mjs`
 - **Tests:** `pnpm build`, then `pnpm check:bundle-budget`
