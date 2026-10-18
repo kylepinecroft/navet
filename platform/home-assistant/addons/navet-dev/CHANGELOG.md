@@ -1,5 +1,39 @@
 # Changelog
 
+## 0.18.3-beta.1
+
+## New features
+
+- Export chore settings and appearance without completion history or earned progress.
+
+## Improvements and bug fixes
+
+- Fixed repeating chores failing to complete in Docker and the Home Assistant add-on.
+
+## 0.18.2-beta.2
+
+## Improvements and bug fixes
+
+- Reduce chore scheduling and concurrent write costs with paged accounting storage, preserving scores, rewards, history, and recovery.
+- Fixed Docker and Home Assistant add-on startup on hosts with larger memory pages.
+
+## 0.18.2-beta.1
+
+## Improvements and bug fixes
+
+- Reduce chore scheduling and concurrent write costs with paged accounting storage, preserving scores, rewards, history, and recovery.
+
+## 0.18.1-beta.1
+
+## New features
+
+- Create timed and all-day events from calendar cards when the selected calendar supports writing.
+- Explore entity state history and recorded Home Assistant activity for a selected date range from the user menu.
+
+## Improvements and bug fixes
+
+- Fix stuck chore completion and reset, and automatically repair and compress affected storage on upgrade without losing history.
+
 ## 0.18.0-beta.2
 
 ## New features

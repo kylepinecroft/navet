@@ -1,6 +1,7 @@
 import storage from '/etc/nginx/njs/chore-durable-storage.js';
 import choreStore from '/etc/nginx/njs/chore-store.js';
 import recurrence from '/etc/nginx/njs/chore-recurrence-policy.js';
+import storagePolicy from '/etc/nginx/njs/chore-storage-policy.js';
 import crypto from 'crypto';
 import zlib from 'zlib';
 let assertions = 0;
@@ -67,6 +68,12 @@ const manifest = storage.encode(doc, 2 * 1024 * 1024, hash, (key, chunk) => {
 });
 assert(Buffer.byteLength(JSON.stringify(manifest)) < 2 * 1024 * 1024, 'Manifest stays bounded');
 const restored = storage.decode(manifest, hash, (key) => files[key]);
+const verified = Object.create(null);
+storage.decode(manifest, hash, (key) => files[key], (key) => { verified[key] = true; });
+let repeatedChunkWrites = 0;
+storage.encode(restored, 2 * 1024 * 1024, hash, () => { repeatedChunkWrites++; },
+  (key) => verified[key] === true);
+assert(repeatedChunkWrites === 0, 'Verified immutable chunks are reused without compression or disk writes');
 assert(
   JSON.stringify(restored.data.experience.pointTransactions) ===
     JSON.stringify(doc.data.experience.pointTransactions),
@@ -78,13 +85,37 @@ for (let index = 0; index < 2000; index++) historyRows.push({
   type: 'workspace_materialized', timestamp, reason: 'Preserve åäö and event order',
 });
 const historyDocument = { contractVersion: 1, events: historyRows };
+const meaningfulEvent = { id: 'completion:keep', commandId: 'complete:keep', type: 'completed', timestamp };
+const cleanedHistory = storagePolicy.compactChoreHistory({ contractVersion: 1,
+  events: historyRows.concat([meaningfulEvent, meaningfulEvent]) });
+assert(cleanedHistory.events.length === 1 && cleanedHistory.events[0].id === meaningfulEvent.id,
+  'Native cleanup removes internal chatter and duplicate IDs, retaining completion');
+assert(storagePolicy.readChoreHistoryPage(cleanedHistory, 1999, 1, ['completed']).cursor === '2001',
+  'Native cleanup preserves legacy cursor positions');
+assert(storagePolicy.readChoreHistoryPage(cleanedHistory, 2001, 10, ['completed']).cursor === '2002',
+  'Native cursor advances past removed duplicates');
+const notification = { id: 'notification', eventType: 'completed', status: 'pending', attempts: 0 };
+const cleanedWorkspace = storagePolicy.compactChoreWorkspace(Object.assign({}, doc.data, {
+  activity: historyRows.slice(0, 5).concat([meaningfulEvent, meaningfulEvent]),
+  outbox: [notification, Object.assign({}, notification, { status: 'delivered' })],
+}));
+assert(cleanedWorkspace.experience === doc.data.experience && cleanedWorkspace.experience.pointTransactions.length === 12000,
+  'Native cleanup preserves the complete accounting ledger');
+assert(cleanedWorkspace.activity.length === 1 && cleanedWorkspace.outbox.length === 1 && cleanedWorkspace.outbox[0].status === 'delivered',
+  'Native cleanup retains a delivered notification rather than replaying a duplicate');
+let unsafeRecordRejected = false;
+try { storagePolicy.compactChoreHistory({ contractVersion: 1,
+  events: [Object.assign({}, meaningfulEvent, { id: '__proto__' })] }); }
+catch (error) { unsafeRecordRejected = error.message === 'Unsafe record key'; }
+assert(unsafeRecordRejected, 'Native cleanup rejects inherited-property record identifiers');
 const compressedHistory = storage.pack(historyDocument, hash);
 assert(compressedHistory.storageEncoding === 'deflate-v1', 'Native history uses deflate');
 assert(JSON.stringify(compressedHistory).length < JSON.stringify(historyDocument).length * 0.3, 'Native history compression shrinks repeated writes');
 assert(JSON.stringify(storage.unpack(compressedHistory, hash)) === JSON.stringify(historyDocument), 'Native deflate preserves every event and UTF-8 text');
 // Exercise stored, fixed-Huffman, and dynamic-Huffman blocks in the native runtime.
 const deflateText = JSON.stringify({ text: 'abc åäö '.repeat(20000) });
-const deflateOptions = [{ level: 0 }, { strategy: zlib.constants.Z_FIXED }, {}];
+const deflateOptions = [{ level: 0 }, { strategy: zlib.constants.Z_FIXED },
+  { strategy: zlib.constants.Z_HUFFMAN_ONLY }, { strategy: zlib.constants.Z_RLE }, {}];
 for (let index = 0; index < deflateOptions.length; index++) {
   const envelope = {
     storageEncoding: 'deflate-v1', uncompressedBytes: Buffer.byteLength(deflateText),
@@ -100,6 +131,22 @@ for (let index = 0; index < deflateOptions.length; index++) {
   zlib.inflateSync = inflate;
   assert(nativeInflations === 0 && sizeError.indexOf('exceeds expanded size') !== -1,
     'Underdeclared expansion is rejected before allocating native output');
+}
+// Skewed frequencies exercise long Huffman codes; short streams exercise the
+// end-of-input fallback where the nine-bit lookup cannot safely peek ahead.
+let skewed = '';
+for (let index = 0; index < 14; index++) skewed += String.fromCharCode(65 + index).repeat(1 << index);
+const edgeTexts = [JSON.stringify({ text: skewed }), '0', '{}', '"å"'];
+for (let index = 0; index < edgeTexts.length; index++) {
+  const text = edgeTexts[index];
+  const envelope = {
+    storageEncoding: 'deflate-v1', uncompressedBytes: Buffer.byteLength(text),
+    checksum: hash(text), payload: zlib.deflateSync(text, {
+      strategy: zlib.constants.Z_HUFFMAN_ONLY,
+    }).toString('base64'),
+  };
+  assert(JSON.stringify(storage.unpack(envelope, hash)) === text,
+    'Long Huffman codes and short final blocks round-trip');
 }
 const truncatedEnvelope = Object.assign({}, compressedHistory, {
   payload: Buffer.from(compressedHistory.payload, 'base64').subarray(0, 10).toString('base64'),
@@ -132,10 +179,13 @@ function missing() {
   throw err;
 }
 let failChunk = false;
+let writeCount = 0;
+let historyReadCount = 0;
 const descriptors = {};
 let nextDescriptor = 1;
 choreStore.setChoreStoreFsForTests({
   openSync: (path) => {
+    if (path === '/data/navet-chore-events.json') historyReadCount++;
     if (paths[path] === undefined) missing();
     const descriptor = nextDescriptor++;
     descriptors[descriptor] = { bytes: Buffer.from(paths[path]), offset: 0 };
@@ -154,10 +204,14 @@ choreStore.setChoreStoreFsForTests({
   readdirSync: (directory) => Object.keys(paths)
     .filter(function (path) { return path.indexOf(directory + '/') === 0; })
     .map(function (path) { return path.slice(directory.length + 1); }),
-  statSync: (path) =>
-    paths[path] === undefined ? missing() : { size: Buffer.byteLength(paths[path]) },
+  statSync: (path) => {
+    if (paths[path] === undefined) missing();
+    const version = Number.parseInt(hash(paths[path]).slice(0, 12), 16);
+    return { size: Buffer.byteLength(paths[path]), mtimeMs: version, ctimeMs: version, ino: 1 };
+  },
   readFileSync: (path) => (paths[path] === undefined ? missing() : paths[path]),
   writeFileSync: (path, value) => {
+    writeCount++;
     if (failChunk && path.indexOf('.chunk-') !== -1) throw new Error('Interrupted chunk write');
     paths[path] = value;
   },
@@ -176,11 +230,11 @@ choreStore.setChoreStorePrincipalResolverForTests(() => ({
   tenantId: 'hat_' + 'a'.repeat(64),
   sessionId: 'native',
 }));
-function request(method, uri, command) {
+function request(method, uri, command, args) {
   const r = {
     method,
     uri,
-    args: '',
+    args: args || '',
     headersOut: {},
     headersIn: { Host: 'navet.example', Origin: 'http://navet.example' },
     requestText: command ? JSON.stringify(command) : '',
@@ -193,9 +247,27 @@ function request(method, uri, command) {
   choreStore.handle(r);
   return r;
 }
+const beforeNoop = request('GET', '/__navet_chores__/workspace');
+const partialImport = request('POST', '/__navet_chores__/restore', {
+  commandId: 'reject-truncated-import', baseRevision: beforeNoop.body.revision,
+  actorParticipantId: 'manager', mode: 'replace', document: { contract: 'navet.chores', version: 1,
+    exportedAt: timestamp, workspace: beforeNoop.body.data, events: [] },
+});
+assert(partialImport.status === 400, 'A working projection cannot silently replace the complete accounting ledger');
+const beforeNoopHistoryReads = historyReadCount;
+request('GET', '/__navet_chores__/workspace');
+assert(historyReadCount === beforeNoopHistoryReads,
+  'Native settled refresh skips history hydration until a scheduler deadline');
+const beforeNoopWrites = writeCount;
+const nativeNoop = request('POST', '/__navet_chores__/commands', {
+  commandId: 'native-noop', baseRevision: beforeNoop.body.revision,
+  action: { type: 'materialize_occurrences', rangeStart: '2026-10-13T00:00:00.000Z', rangeEnd: '2026-10-14T00:00:00.000Z' },
+});
+assert(nativeNoop.status === 200 && nativeNoop.body.revision === beforeNoop.body.revision && writeCount === beforeNoopWrites,
+  'Native unchanged materialization performs zero writes and preserves revision');
 let result = request('POST', '/__navet_chores__/commands', {
   commandId: 'native-adjust',
-  baseRevision: 1,
+  baseRevision: beforeNoop.body.revision,
   action: {
     type: 'experience_points_adjust',
     actorParticipantId: 'manager',
@@ -205,8 +277,8 @@ let result = request('POST', '/__navet_chores__/commands', {
 });
 assert(result.status === 200, 'Native authority commits large ledger: ' + JSON.stringify(result));
 assert(
-  result.body.data.experience.pointTransactions.length === 12001,
-  'Native authority retains transactions'
+  result.body.data.experience.pointTransactions.length <= 128,
+  'Native authority bounds recent transactions'
 );
 assert(
   result.body.data.experience.earnedPointsByParticipant.manager === 12010,
@@ -214,7 +286,7 @@ assert(
 );
 result = request('POST', '/__navet_chores__/commands', {
   commandId: 'native-adjust',
-  baseRevision: 1,
+  baseRevision: beforeNoop.body.revision,
   action: {
     type: 'experience_points_adjust',
     actorParticipantId: 'manager',
@@ -223,18 +295,22 @@ result = request('POST', '/__navet_chores__/commands', {
   },
 });
 assert(result.status === 200, 'Committed command replay is accepted');
+const nativePointPage = request('GET', '/__navet_chores__/points', null, { after: '11990', limit: '20' });
+assert(nativePointPage.status === 200 && nativePointPage.body.points.length === 11 && !nativePointPage.body.hasMore,
+  'Native object query parameters preserve point pagination and cursor limits');
 assert(
-  result.body.data.experience.pointTransactions.length === 12001,
-  'Command replay retains one transaction'
+  request('GET', '/__navet_chores__/backup').body.workspace.experience.pointTransactions.length === 12001,
+  'Command replay retains every archived and recent transaction exactly once'
 );
 assert(
   result.body.data.experience.earnedPointsByParticipant.manager === 12010,
   'Command replay does not spend or award points twice'
 );
+const committedRevision = result.body.revision;
 failChunk = true;
 result = request('POST', '/__navet_chores__/commands', {
-  commandId: 'failed-adjust',
-  baseRevision: 2,
+  commandId: 'failed-adjust:' + 'x'.repeat(170),
+  baseRevision: committedRevision,
   action: {
     type: 'experience_points_adjust',
     actorParticipantId: 'manager',
@@ -426,4 +502,81 @@ for (let quietIndex = 0; quietIndex < quietEvidenceSources.length; quietIndex +=
   const quietRecovered = request('GET', '/__navet_chores__/workspace');
   assert(quietRecovered.status === 200 && quietRecovered.body.data.occurrencesById[quietOriginal.id].supersededAt === quietBoundary, 'Backup recovery retains quiet durable history without successor');
 }
+// Exercise the HTTP action path: direct materializer tests do not include the
+// large action-handler frame that exhausted the native NJS stack on completion.
+const completionAssignmentModes = ['person', 'everyone'];
+for (let modeIndex = 0; modeIndex < completionAssignmentModes.length; modeIndex++) {
+  const assignmentMode = completionAssignmentModes[modeIndex];
+  const completionDefinition = Object.assign({}, archiveDefinition, {
+    id: 'completion-stack',
+    assignment: { mode: assignmentMode, participantIds: ['manager'] },
+    schedule: { frequency: 'after_completion', startDate: new Date(Date.now() - 86400000).toISOString().slice(0, 10), time: '18:00', timeZone: 'Europe/Stockholm', intervalDays: 3 },
+  });
+  const completionOccurrence = Object.assign({}, historicalMissed, {
+    id: 'completion-stack:missed', definitionId: completionDefinition.id,
+    supersededAt: undefined, scheduledAt: new Date(Date.now() - 86400000).toISOString(),
+    dueAt: new Date(Date.now() - 82800000).toISOString(),
+  });
+  const completionData = Object.assign({}, archiveData, {
+    definitionsById: { 'completion-stack': completionDefinition },
+    occurrencesById: { 'completion-stack:missed': completionOccurrence },
+  });
+  const completionDocument = JSON.stringify(Object.assign({}, doc, { revision: 1, data: completionData }));
+  paths['/data/navet-chore-workspace.json'] = completionDocument;
+  paths['/data/navet-chore-workspace.last-good.json'] = completionDocument;
+  const completionRead = request('GET', '/__navet_chores__/workspace');
+  const completionResult = request('POST', '/__navet_chores__/commands', {
+    commandId: 'native-completion-stack-' + assignmentMode,
+    baseRevision: completionRead.body.revision,
+    action: { type: 'occurrence_action', occurrenceId: completionOccurrence.id, action: { type: 'complete', participantId: 'manager' } },
+  });
+  assert(completionResult.status === 200, 'Native repeating completion succeeds for ' + assignmentMode + ': ' + JSON.stringify(completionResult.body));
+  assert(completionResult.body.data.occurrencesById[completionOccurrence.id].status === 'done', 'Native completion is committed');
+  const completionReload = request('GET', '/__navet_chores__/workspace');
+  assert(completionReload.body.data.occurrencesById[completionOccurrence.id].status === 'done', 'Native completion survives reload');
+  assert(Object.values(completionReload.body.data.occurrencesById).some(function (item) {
+    return item.definitionId === completionDefinition.id && item.status === 'available' && Date.parse(item.scheduledAt) > Date.now();
+  }), 'Native completion persists the next interval');
+}
+// Configuration Merge must retain appearance/goals and remap their colliding IDs.
+const mergeCurrent = JSON.parse(JSON.stringify(archiveData));
+mergeCurrent.definitionsById = { 'archive-fixed': archiveDefinition };
+mergeCurrent.occurrencesById = {};
+mergeCurrent.experience.earnedPointsByParticipant = { manager: 50 };
+mergeCurrent.experience.pointTransactions = [{ id: 'merge-opening', participantId: 'manager', pointsDelta: 50, kind: 'opening_balance', timestamp }];
+mergeCurrent.experience.presentationByDefinitionId = { 'archive-fixed': { icon: 'house' } };
+mergeCurrent.experience.badgesById = { goal: { id: 'goal', title: 'Current goal', participantId: 'manager', definitionIds: ['archive-fixed'], metric: 'count', target: 5 } };
+const mergeImported = JSON.parse(JSON.stringify(mergeCurrent));
+mergeImported.participantsById.manager.displayName = 'Imported manager';
+mergeImported.definitionsById['archive-fixed'].title = 'Imported chore';
+mergeImported.experience.presentationByDefinitionId['archive-fixed'] = { icon: 'leaf' };
+mergeImported.experience.badgesById.goal.title = 'Imported goal';
+mergeImported.experience.achievementsById = JSON.parse(JSON.stringify(mergeImported.experience.badgesById));
+mergeImported.experience.missionsById = { garden: { id: 'garden', title: 'Garden', definitionIds: ['archive-fixed'], status: 'active', createdAt: timestamp, updatedAt: timestamp } };
+mergeImported.experience.rewardGoalsById = { movie: { id: 'movie', title: 'Movie', type: 'saving', participantId: 'manager', targetPoints: 100, enabled: true, createdAt: timestamp, updatedAt: timestamp } };
+mergeImported.experience.earnedPointsByParticipant = {};
+mergeImported.experience.pointTransactions = [];
+mergeImported.experience.awardedMissionIds = ['garden'];
+mergeImported.experience.progressAwards = [{ id: 'progress:goal:manager:once', targetId: 'goal', participantId: 'manager', cycleKey: 'once', awardedAt: timestamp }];
+const mergeDocument = JSON.stringify(Object.assign({}, doc, { revision: 20, data: mergeCurrent }));
+paths['/data/navet-chore-workspace.json'] = mergeDocument;
+paths['/data/navet-chore-workspace.last-good.json'] = mergeDocument;
+const mergeRead = request('GET', '/__navet_chores__/workspace');
+const mergeResult = request('POST', '/__navet_chores__/restore', {
+  commandId: 'native-configuration-merge', baseRevision: mergeRead.body.revision,
+  actorParticipantId: 'manager', mode: 'merge',
+  document: { contract: 'navet.chores', version: 1, exportedAt: timestamp, workspace: mergeImported, events: [] },
+});
+assert(mergeResult.status === 200, 'Native configuration merge succeeds: ' + JSON.stringify(mergeResult.body));
+const mergeExperience = mergeResult.body.data.experience;
+assert(mergeExperience.presentationByDefinitionId['archive-fixed'].icon === 'house' && mergeExperience.presentationByDefinitionId['archive-fixed~import-2'] && mergeExperience.presentationByDefinitionId['archive-fixed~import-2'].icon === 'leaf', 'Merge preserves both chore appearances');
+assert(mergeExperience.badgesById['goal~import-2'].definitionIds[0] === 'archive-fixed~import-2' && mergeExperience.badgesById['goal~import-2'].participantId === 'manager~import-2', 'Merge remaps badge references and collisions');
+assert(mergeExperience.achievementsById['goal~import-3'].participantId === 'manager~import-2', 'Merge remaps achievement references with a distinct progress-target ID');
+assert(mergeExperience.missionsById.garden.definitionIds[0] === 'archive-fixed~import-2', 'Merge remaps mission definitions');
+assert(mergeExperience.rewardGoalsById.movie.participantId === 'manager~import-2', 'Merge remaps reward participants');
+assert(mergeExperience.earnedPointsByParticipant.manager === 50 && mergeExperience.pointTransactions.length === 1, 'Merge preserves destination earned progress');
+assert(mergeExperience.awardedMissionIds.indexOf('garden') !== -1, 'Full backup merge retains mission award identity');
+assert(mergeExperience.progressAwards.length === 2 && mergeExperience.progressAwards[0].id === 'progress:goal~import-2:manager~import-2:once' && mergeExperience.progressAwards[1].id === 'progress:goal~import-3:manager~import-2:once', 'Full backup merge remaps progress awards for both target collections');
+const mergeReload = request('GET', '/__navet_chores__/workspace');
+assert(mergeReload.body.data.experience.presentationByDefinitionId['archive-fixed~import-2'].icon === 'leaf', 'Merged appearance survives reload');
 print('Passed native NJS chore recurrence assertions');

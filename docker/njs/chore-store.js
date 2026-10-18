@@ -5,6 +5,7 @@ import choreCalendarPolicy from './chore-calendar-policy.js';
 import choreOccurrencePolicy from './chore-occurrence-policy.js';
 import choreProgressPolicy from './chore-progress-policy.js';
 import choreRecurrencePolicy from './chore-recurrence-policy.js';
+import choreStoragePolicy from './chore-storage-policy.js';
 import fs from 'fs';
 import hashCrypto from 'crypto';
 import authStore from './auth-store.js';
@@ -57,8 +58,90 @@ let failedManagementAttempts = 0;
 let managementBlockedUntil = 0;
 let lastSchedulerRunAt = null;
 let lastDeliveryError = null;
-
+// NJS creates a VM per HTTP request. Reuse hydrated history only within one
+// synchronous transaction, never across requests or reminder-delivery awaits.
+let eventHistoryCache = null;
+let eventHistoryCacheEnabled = false;
+let storedDocumentCache = null;
+let verifiedChunks = null;
+let lastMaterializationKey = null;
+let schedulerCheckpoint = null;
+// Declare before the cache helpers for native NJS lexical binding support.
 let fsModule = fs;
+
+function getSchedulerCache() {
+  return typeof ngx !== 'undefined' && ngx && ngx.shared && ngx.shared.navet_chore_scheduler
+    ? ngx.shared.navet_chore_scheduler : null;
+}
+
+function getMaterializationKey() {
+  const cache = getSchedulerCache();
+  return cache ? cache.get('window') : lastMaterializationKey;
+}
+
+function setMaterializationKey(key) {
+  const cache = getSchedulerCache();
+  if (cache) {
+    if (key === null) cache.delete('window');
+    else cache.set('window', key);
+  } else lastMaterializationKey = key;
+}
+
+// Derived metadata only: a cache miss always falls back to the durable authority.
+// File identities detect repairs/external edits even when revision/size stay equal.
+function schedulerStorageIdentity() {
+  const paths = [CHORE_WORKSPACE_PATH, CHORE_EVENT_HISTORY_PATH];
+  const parts = [];
+  for (let index = 0; index < paths.length; index++) {
+    try {
+      const stat = fsModule.statSync(paths[index]);
+      if (!Number.isFinite(stat.mtimeMs) || !Number.isFinite(stat.ctimeMs) ||
+          !Number.isFinite(stat.ino)) return null;
+      parts.push([stat.ino, stat.size, stat.mtimeMs, stat.ctimeMs].join(':'));
+    } catch (error) {
+      if (!error || error.code !== 'ENOENT') return null;
+      parts.push('missing');
+    }
+  }
+  return parts.join('|');
+}
+
+function schedulerCanWait(timestamp, document) {
+  const cache = getSchedulerCache();
+  let checkpoint;
+  try { checkpoint = cache ? JSON.parse(cache.get('deadline') || 'null') : schedulerCheckpoint; }
+  catch (_error) { return false; }
+  const now = Date.parse(timestamp);
+  return Boolean(checkpoint && now >= checkpoint.checkedAt && now < checkpoint.nextAt &&
+    (!document || document.revision === checkpoint.revision) &&
+    checkpoint.identity === schedulerStorageIdentity());
+}
+
+function rememberSchedulerDeadline(document, timestamp) {
+  const identity = schedulerStorageIdentity();
+  if (identity === null) return;
+  const checkpoint = { identity, revision: document.revision, checkedAt: Date.parse(timestamp),
+    nextAt: choreStoragePolicy.getChoreSchedulerDeadline(document.data, timestamp) };
+  const cache = getSchedulerCache();
+  if (cache) cache.set('deadline', JSON.stringify(checkpoint));
+  else schedulerCheckpoint = checkpoint;
+}
+
+function withEventHistoryCache(action) {
+  eventHistoryCache = null;
+  storedDocumentCache = null;
+  verifiedChunks = Object.create(null);
+  eventHistoryCacheEnabled = true;
+  try {
+    return action();
+  } finally {
+    eventHistoryCache = null;
+    storedDocumentCache = null;
+    verifiedChunks = null;
+    eventHistoryCacheEnabled = false;
+  }
+}
+
 function resolveChorePrincipal(r, options) {
   const principal = authStore.resolveAuthenticatedPrincipal(r, options);
   if (principal) return principal;
@@ -79,6 +162,8 @@ function setChoreStorePrincipalResolverForTests(resolver) {
 }
 
 function resetChoreStoreForTests() {
+  lastMaterializationKey = null;
+  schedulerCheckpoint = null;
   fsModule = fs;
   managementSessions = [];
   failedManagementAttempts = 0;
@@ -146,17 +231,27 @@ function sendJson(r, statusCode, payload) {
 
 function parseQueryArgs(value) {
   const result = Object.create(null);
+  function put(key, item) {
+    if (key !== '__proto__' && key !== 'constructor' && key !== 'prototype' && typeof item === 'string')
+      recordSafety.setOwnRecordValue(result, key, item);
+  }
+  // Native NJS exposes r.args as an object; test/compatibility callers may use a string.
+  if (value && typeof value === 'object' && !Array.isArray(value)) {
+    const keys = Object.keys(value);
+    for (let index = 0; index < keys.length; index++) {
+      const item = value[keys[index]];
+      put(keys[index], Array.isArray(item) ? item[item.length - 1] : item);
+    }
+    return result;
+  }
   if (typeof value !== 'string' || value.length === 0) return result;
   const pairs = value.split('&');
-  for (let index = 0; index < pairs.length; index += 1) {
+  for (let index = 0; index < pairs.length; index++) {
     const separator = pairs[index].indexOf('=');
     const rawKey = separator === -1 ? pairs[index] : pairs[index].slice(0, separator);
     const rawValue = separator === -1 ? '' : pairs[index].slice(separator + 1);
-    try {
-      result[decodeURIComponent(rawKey)] = decodeURIComponent(rawValue.replace(/\+/g, ' '));
-    } catch (_error) {
-      result[rawKey] = rawValue;
-    }
+    try { put(decodeURIComponent(rawKey), decodeURIComponent(rawValue.replace(/\+/g, ' '))); }
+    catch (_error) { put(rawKey, rawValue); }
   }
   return result;
 }
@@ -184,6 +279,7 @@ function writeJson(path, value, maxBytes) {
   const temporaryPath = path + '.tmp';
   fsModule.writeFileSync(temporaryPath, serialized, 'utf8');
   fsModule.renameSync(temporaryPath, path);
+  if (path === CHORE_EVENT_HISTORY_PATH) eventHistoryCache = null;
 }
 
 function deleteFile(path) {
@@ -433,6 +529,7 @@ function isValidChoreExperience(value) {
     !isRecord(value.missionsById) ||
     !isRecord(value.rewardGoalsById) ||
     !isRecord(value.rewardRequestsById) ||
+    (value.pointProgress !== undefined && !choreProgressPolicy.isChorePointProgress(value.pointProgress)) ||
     !Array.isArray(value.pointTransactions) ||
     !isRecord(value.badgesById) ||
     !isRecord(value.achievementsById) ||
@@ -519,12 +616,12 @@ function isValidChoreExperience(value) {
     if (!choreProgressPolicy.isProgressTarget(value.achievementsById[targetId], targetId)) return false;
   }
   if (!value.progressAwards.every(choreProgressPolicy.isProgressAward)) return false;
-  const transactionIds = [];
+  const transactionIds = Object.create(null);
   for (let index = 0; index < value.pointTransactions.length; index += 1) {
     const transaction = value.pointTransactions[index];
     if (!choreProgressPolicy.isPointTransaction(transaction) ||
-      transactionIds.indexOf(transaction.id) !== -1) return false;
-    transactionIds.push(transaction.id);
+      transactionIds[transaction.id]) return false;
+    recordSafety.setOwnRecordValue(transactionIds, transaction.id, true);
   }
   return true;
 }
@@ -542,23 +639,31 @@ function createOutboxItem(activity) {
 }
 
 function readEventHistory(fallbackEvents) {
+  if (eventHistoryCacheEnabled && eventHistoryCache) return eventHistoryCache;
+  const history = readEventHistoryFromDisk(fallbackEvents);
+  if (eventHistoryCacheEnabled) eventHistoryCache = history;
+  return history;
+}
+
+function readEventHistoryFromDisk(fallbackEvents) {
   try {
     const stored = readJson(
       CHORE_EVENT_HISTORY_PATH,
       { contractVersion: CONTRACT_VERSION, events: [] },
       MAX_CHORE_EVENT_HISTORY_BYTES
     );
-    const history = choreDurableStorage.unpack(stored, durableHash, MAX_CHORE_EVENT_HISTORY_BYTES);
+    const decoded = choreDurableStorage.unpack(stored, durableHash, MAX_CHORE_EVENT_HISTORY_BYTES);
     if (
-      !isRecord(history) ||
-      history.contractVersion !== CONTRACT_VERSION ||
-      !Array.isArray(history.events)
+      !isRecord(decoded) ||
+      decoded.contractVersion !== CONTRACT_VERSION ||
+      !Array.isArray(decoded.events)
     ) {
       throw new Error('Chore event history is invalid');
     }
-    if (!stored.storageEncoding) {
+    const history = choreStoragePolicy.compactChoreHistory(decoded);
+    if (history !== decoded || !stored.storageEncoding) {
       const compact = choreDurableStorage.pack(history, durableHash);
-      if (compact !== history) {
+      if (history !== decoded || compact !== history) {
         // A failed atomic rewrite leaves the legacy history intact for the next read.
         try { writeJson(CHORE_EVENT_HISTORY_PATH, compact, MAX_CHORE_EVENT_HISTORY_BYTES); }
         catch (_writeError) { /* Retry on the next read without rebuilding valid history. */ }
@@ -566,10 +671,10 @@ function readEventHistory(fallbackEvents) {
     }
     return history;
   } catch (_error) {
-    const repaired = {
+    const repaired = choreStoragePolicy.compactChoreHistory({
       contractVersion: CONTRACT_VERSION,
       events: Array.isArray(fallbackEvents) ? fallbackEvents.slice(-DEFAULT_HISTORY_RETENTION.maxEvents) : [],
-    };
+    });
     writeJson(CHORE_EVENT_HISTORY_PATH, choreDurableStorage.pack(repaired, durableHash), MAX_CHORE_EVENT_HISTORY_BYTES);
     return repaired;
   }
@@ -584,7 +689,7 @@ function appendEventHistory(events, policy) {
   }
   const additions = [];
   for (let index = 0; index < events.length; index += 1) {
-    if (!existingIds[events[index].id]) {
+    if (!choreStoragePolicy.isChoreBookkeeping(events[index].type) && !existingIds[events[index].id]) {
       recordSafety.setOwnRecordValue(existingIds, events[index].id, true);
       additions.push(events[index]);
     }
@@ -595,19 +700,19 @@ function appendEventHistory(events, policy) {
   const retainedEvents = history.events.concat(additions).filter(function (event) {
     return Date.parse(event.timestamp) >= boundary;
   }).slice(-retention.maxEvents);
-  writeJson(
-    CHORE_EVENT_HISTORY_PATH,
-    choreDurableStorage.pack({ contractVersion: CONTRACT_VERSION, events: retainedEvents }, durableHash),
-    MAX_CHORE_EVENT_HISTORY_BYTES
-  );
+  replaceEventHistory(retainedEvents, history);
 }
 
-function replaceEventHistory(events) {
+function replaceEventHistory(events, previous) {
+  const history = choreStoragePolicy.compactChoreHistory(Object.assign({}, previous || {}, {
+    contractVersion: CONTRACT_VERSION, events,
+  }));
   writeJson(
     CHORE_EVENT_HISTORY_PATH,
-    choreDurableStorage.pack({ contractVersion: CONTRACT_VERSION, events }, durableHash),
+    choreDurableStorage.pack(history, durableHash),
     MAX_CHORE_EVENT_HISTORY_BYTES
   );
+  if (eventHistoryCacheEnabled) eventHistoryCache = history;
 }
 
 function parseInterchangeDocument(value) {
@@ -622,7 +727,7 @@ function parseInterchangeDocument(value) {
     throw new Error('Unsupported chore interchange document');
   }
   const workspace = migrateChoreWorkspaceData(value.workspace);
-  if (!workspace) throw new Error('Unsupported chore workspace schema');
+  if (!workspace || workspace.experience.pointProgress !== undefined) throw new Error('Unsupported chore workspace schema');
   for (let index = 0; index < value.events.length; index += 1) {
     if (!isValidActivity(value.events[index])) throw new Error('Chore event history is invalid');
   }
@@ -638,6 +743,63 @@ function nextImportedId(sourceId, occupied) {
   let index = 2;
   while (occupied[sourceId + '~import-' + index]) index += 1;
   return sourceId + '~import-' + index;
+}
+
+function mergeExperienceConfiguration(current, imported, participantMap, definitionMap, adoptSettings) {
+  const experience = cloneValue(current || createEmptyChoreExperience());
+  if (!imported) return experience;
+  if (adoptSettings) {
+    experience.gamificationMode = imported.gamificationMode;
+    experience.setupStartedAt = imported.setupStartedAt;
+    experience.setupCompletedAt = imported.setupCompletedAt;
+  }
+  Object.keys(imported.presentationByDefinitionId).forEach(function (id) {
+    recordSafety.setOwnRecordValue(experience.presentationByDefinitionId, definitionMap[id] || id, cloneValue(imported.presentationByDefinitionId[id]));
+  });
+  const collections = ['missionsById', 'rewardGoalsById', 'badgesById', 'achievementsById'];
+  const progressTargetIds = Object.create(null);
+  const missionMap = Object.create(null);
+  const progressTargetMap = Object.create(null);
+  Object.keys(experience.badgesById).concat(Object.keys(experience.achievementsById), experience.progressAwards.map(function (award) { return award.targetId; })).forEach(function (id) { recordSafety.setOwnRecordValue(progressTargetIds, id, true); });
+  for (let index = 0; index < collections.length; index++) {
+    const name = collections[index];
+    const occupied = name === 'badgesById' || name === 'achievementsById' ? progressTargetIds : Object.create(null);
+    Object.keys(experience[name]).concat(name === 'missionsById' ? (experience.awardedMissionIds || []) : []).forEach(function (id) { recordSafety.setOwnRecordValue(occupied, id, true); });
+    Object.values(imported[name]).forEach(function (source) {
+      const item = cloneValue(source);
+      if (Array.isArray(item.definitionIds)) item.definitionIds = item.definitionIds.map(function (id) { return definitionMap[id] || id; });
+      if (item.participantId) item.participantId = participantMap[item.participantId] || item.participantId;
+      if (JSON.stringify(experience[name][item.id]) !== JSON.stringify(item)) {
+        item.id = nextImportedId(item.id, occupied);
+        recordSafety.setOwnRecordValue(occupied, item.id, true);
+        recordSafety.setOwnRecordValue(experience[name], item.id, item);
+      }
+      if (name === 'missionsById') recordSafety.setOwnRecordValue(missionMap, source.id, item.id);
+      if (name === 'badgesById' || name === 'achievementsById') {
+        recordSafety.setOwnRecordValue(progressTargetMap, source.id, (progressTargetMap[source.id] || []).concat([item.id]));
+      }
+    });
+  }
+  const awardedMissionIds = (experience.awardedMissionIds || []).slice();
+  (imported.awardedMissionIds || []).forEach(function (id) {
+    const targetId = missionMap[id];
+    if (targetId && awardedMissionIds.indexOf(targetId) === -1) awardedMissionIds.push(targetId);
+  });
+  experience.awardedMissionIds = awardedMissionIds;
+  const awardIds = Object.create(null);
+  experience.progressAwards.forEach(function (award) { recordSafety.setOwnRecordValue(awardIds, award.id, true); });
+  imported.progressAwards.forEach(function (award) {
+    const participantId = participantMap[award.participantId];
+    if (!participantId) return;
+    (progressTargetMap[award.targetId] || []).forEach(function (targetId) {
+      const id = 'progress:' + targetId + ':' + participantId + ':' + award.cycleKey;
+      if (awardIds[id]) return;
+      recordSafety.setOwnRecordValue(awardIds, id, true);
+      experience.progressAwards.push(Object.assign({}, award, { id, targetId, participantId }));
+    });
+  });
+  // Preserve imported award identities without replacing destination balances, ledgers or requests.
+  return experience;
 }
 
 function mergeImportedWorkspace(current, currentEvents, imported, timestamp) {
@@ -751,6 +913,7 @@ function mergeImportedWorkspace(current, currentEvents, imported, timestamp) {
       definitionsById,
       occurrencesById,
       activity: current.activity.concat(events.slice(currentEvents.length)).slice(-MAX_ACTIVITY_ITEMS),
+      experience: mergeExperienceConfiguration(current.experience, imported.workspace.experience, participantMap, definitionMap, Object.keys(current.definitionsById).length === 0),
       outbox: current.outbox,
     }),
     events,
@@ -1526,6 +1689,7 @@ function updateExperiencePoints(data, previousOccurrence, nextOccurrence, comman
         pointsDelta: becameFinal ? points : -points,
         kind: becameFinal ? 'completion' : 'reopen', timestamp, commandId,
         occurrenceId: previousOccurrence.id,
+        definitionId: previousOccurrence.definitionId,
       }]) });
   }
   const awardedMissionIds = (experience.awardedMissionIds || []).slice();
@@ -1564,6 +1728,7 @@ function updateExperiencePoints(data, previousOccurrence, nextOccurrence, comman
       occurrences: Object.values(dataWithNextOccurrence.occurrencesById),
       transactions: nextExperience.pointTransactions,
       existingAwards: nextExperience.progressAwards,
+      pointProgress: nextExperience.pointProgress,
       at: timestamp,
     });
     if (progress.awards.length > 0) {
@@ -1867,6 +2032,7 @@ function buildWorkspaceActivity(commandId, timestamp, type, details) {
 }
 
 function appendWorkspaceActivity(data, activity, enqueue) {
+  if (choreStoragePolicy.isChoreBookkeeping(activity.type)) return data;
   return Object.assign({}, data, {
     activity: data.activity.concat([activity]).slice(-MAX_ACTIVITY_ITEMS),
     outbox: enqueue === false
@@ -1883,7 +2049,7 @@ function appendWorkspaceActivities(data, activities) {
   return next;
 }
 
-function applyWorkspaceAction(data, commandId, action, timestamp, recurrenceDefinitionId) {
+function applyWorkspaceAction(data, commandId, action, timestamp) {
   recordSafety.assertSafeRecord(action);
   data = Object.assign({}, data, { occurrencesById: choreRecurrencePolicy.retainChoreSupersession(data.occurrencesById, data.definitionsById, timestamp, data.activity, Object.keys(data.participantsById)) });
   if (action.type === 'occurrence_action') {
@@ -1894,7 +2060,7 @@ function applyWorkspaceAction(data, commandId, action, timestamp, recurrenceDefi
     if (occurrence && previous.completedAt !== occurrence.completedAt &&
       definition && definition.schedule.frequency === 'after_completion') {
       const now = Date.parse(timestamp);
-      return applyWorkspaceAction(next, commandId + ':recurrence', {
+      return materializeWorkspaceOccurrences(next, commandId + ':recurrence', {
         type: 'materialize_occurrences',
         rangeStart: new Date(now - 90 * 86400000).toISOString(),
         rangeEnd: new Date(now + 45 * 86400000).toISOString(),
@@ -2155,6 +2321,7 @@ function applyWorkspaceAction(data, commandId, action, timestamp, recurrenceDefi
     const currentExperience = data.experience || createEmptyChoreExperience();
     if (JSON.stringify(action.experience.rewardRequestsById) !== JSON.stringify(currentExperience.rewardRequestsById) ||
       JSON.stringify(action.experience.pointTransactions) !== JSON.stringify(currentExperience.pointTransactions) ||
+      JSON.stringify(action.experience.pointProgress) !== JSON.stringify(currentExperience.pointProgress) ||
       JSON.stringify(action.experience.progressAwards) !== JSON.stringify(currentExperience.progressAwards) ||
       JSON.stringify(action.experience.earnedPointsByParticipant) !== JSON.stringify(currentExperience.earnedPointsByParticipant)) {
       throw new Error('Reward and point history can only change through household actions');
@@ -2440,6 +2607,11 @@ function applyWorkspaceAction(data, commandId, action, timestamp, recurrenceDefi
     return appendWorkspaceActivities(Object.assign({}, data, { occurrencesById, outbox }), activities);
   }
 
+  return materializeWorkspaceOccurrences(data, commandId, action, timestamp);
+}
+
+// Keep recurrence out of the large action frame: NJS has a small VM stack.
+function materializeWorkspaceOccurrences(data, commandId, action, timestamp, recurrenceDefinitionId) {
   const rangeStart = Date.parse(action.rangeStart);
   const rangeEnd = Date.parse(action.rangeEnd);
   if (
@@ -2588,17 +2760,103 @@ function durableHash(value) {
   return hashCrypto.createHash('sha256').update(value).digest('hex');
 }
 
+function readPointChunk(key) {
+  return readJson(CHORE_WORKSPACE_PATH + '.chunk-' + key, null, choreDurableStorage.CHUNK_BYTES);
+}
+
+function pointChunkIdentity(key) {
+  try {
+    const stat = fsModule.statSync(CHORE_WORKSPACE_PATH + '.chunk-' + key);
+    return Number.isFinite(stat.ino) && Number.isFinite(stat.mtimeMs) && Number.isFinite(stat.ctimeMs)
+      ? [stat.ino, stat.size, stat.mtimeMs, stat.ctimeMs].join(':') : null;
+  } catch (_error) { return null; }
+}
+
+function archiveStoredPoints(document) {
+  let experience = document.data.experience;
+  const rebuilding = document.pointHistory && (!experience.pointProgress || !experience.pointProgress.definitions);
+  if (rebuilding) {
+    const records = choreDurableStorage.readPointHistory(document.pointHistory, 0, document.pointHistory.count, durableHash, readPointChunk);
+    experience = Object.assign({}, experience, { pointProgress: choreProgressPolicy.archiveChorePointProgress(undefined,
+      records, Object.keys(document.data.occurrencesById), document.data.occurrencesById) });
+    document.data = Object.assign({}, document.data, { experience });
+  }
+  const compacting = experience.pointProgress && experience.pointProgress.definitions && Object.keys(experience.pointProgress.occurrences).length > 0;
+  if (compacting) {
+    experience = Object.assign({}, experience, { pointProgress: Object.assign({}, experience.pointProgress, { occurrences: {} }) });
+    document.data = Object.assign({}, document.data, { experience });
+  }
+  const split = choreDurableStorage.splitRecentPoints(experience.pointTransactions);
+  if (!split.archived.length) return Boolean(rebuilding || compacting);
+  const pointHistory = choreDurableStorage.appendPointHistory(document.pointHistory, split.archived,
+    durableHash, readPointChunk,
+    function (key, chunk) { writeJson(CHORE_WORKSPACE_PATH + '.chunk-' + key, chunk, choreDurableStorage.CHUNK_BYTES); },
+    pointChunkIdentity);
+  document.pointHistory = pointHistory;
+  document.data = Object.assign({}, document.data, { experience: Object.assign({}, experience, {
+    pointTransactions: split.recent,
+    pointProgress: choreProgressPolicy.archiveChorePointProgress(experience.pointProgress,
+      split.archived, Object.keys(document.data.occurrencesById), document.data.occurrencesById),
+  }) });
+  return true;
+}
+
+function needsPointMaintenance(document) {
+  return Boolean(choreDurableStorage.splitRecentPoints(document.data.experience.pointTransactions).archived.length ||
+      (document.pointHistory && (!document.data.experience.pointProgress || !document.data.experience.pointProgress.definitions || Object.keys(document.data.experience.pointProgress.occurrences).length)));
+}
+
+function prepareWorkingDocument(document) {
+  if (!needsPointMaintenance(document)) {
+    if (storedDocumentCache && storedDocumentCache.document === document && storedDocumentCache.pointIdentitiesChanged)
+      writeStoredDocument(CHORE_WORKSPACE_PATH, document);
+    return document;
+  }
+  const next = Object.assign({}, document, { revision: document.revision + 1, updatedAt: nowIso() });
+  persistDocument(document, next);
+  return next;
+}
+
+function fullPointData(document) {
+  if (!document.pointHistory) return document.data;
+  const experience = Object.assign({}, document.data.experience, { pointTransactions:
+    choreDurableStorage.readPointHistory(document.pointHistory, 0, document.pointHistory.count,
+      durableHash, readPointChunk).concat(document.data.experience.pointTransactions) });
+  delete experience.pointProgress;
+  return Object.assign({}, document.data, { experience });
+}
+
 function readStoredDocument(path, fallback) {
-  return choreDurableStorage.decode(
-    readJson(path, fallback, MAX_CHORE_WORKSPACE_BYTES), durableHash,
-    function (key) { return readJson(CHORE_WORKSPACE_PATH + '.chunk-' + key, null, choreDurableStorage.CHUNK_BYTES); }
+  const stored = readJson(path, fallback, MAX_CHORE_WORKSPACE_BYTES);
+  const document = choreDurableStorage.decode(
+    stored, durableHash,
+    function (key) { return readJson(CHORE_WORKSPACE_PATH + '.chunk-' + key, null, choreDurableStorage.CHUNK_BYTES); },
+    function (key) { if (verifiedChunks) recordSafety.setOwnRecordValue(verifiedChunks, key, true); }
   );
+  if (document && document.data && document.data.experience &&
+      document.data.experience.pointProgress !== undefined && document.pointHistory === undefined)
+    throw new Error('Chore point history manifest is invalid');
+  let pointIdentitiesChanged = false;
+  if (document && document.pointHistory !== undefined) {
+    const history = choreDurableStorage.validatePointHistory(document.pointHistory,
+      durableHash, readPointChunk, pointChunkIdentity);
+    pointIdentitiesChanged = history !== document.pointHistory;
+    document.pointHistory = history;
+  }
+  if (eventHistoryCacheEnabled && path === CHORE_WORKSPACE_PATH)
+    storedDocumentCache = { document, stored, pointIdentitiesChanged };
+  return document;
 }
 
 function writeStoredDocument(path, document) {
   const stored = choreDurableStorage.encode(document, MAX_CHORE_WORKSPACE_BYTES, durableHash,
-    function (key, chunk) { writeJson(CHORE_WORKSPACE_PATH + '.chunk-' + key, chunk, choreDurableStorage.CHUNK_BYTES); });
+    function (key, chunk) {
+      writeJson(CHORE_WORKSPACE_PATH + '.chunk-' + key, chunk, choreDurableStorage.CHUNK_BYTES);
+      if (verifiedChunks) recordSafety.setOwnRecordValue(verifiedChunks, key, true);
+    },
+    function (key) { return Boolean(verifiedChunks && verifiedChunks[key]); });
   writeJson(path, stored, MAX_CHORE_WORKSPACE_BYTES);
+  if (eventHistoryCacheEnabled && path === CHORE_WORKSPACE_PATH) storedDocumentCache = { document, stored };
 }
 
 function readDocumentCandidate(path) {
@@ -2622,9 +2880,19 @@ function readDocumentCandidate(path) {
   return null;
 }
 
-function persistDocument(previous, next) {
-  if (previous.storageMaintenanceVersion === 1) next.storageMaintenanceVersion = 1;
-  writeStoredDocument(CHORE_LAST_GOOD_WORKSPACE_PATH, previous);
+function persistDocument(previous, next, replacePointHistory) {
+  if (!replacePointHistory && previous.pointHistory && !next.pointHistory) next.pointHistory = previous.pointHistory;
+  archiveStoredPoints(next);
+  next.data = choreStoragePolicy.compactChoreWorkspace(next.data);
+  if (!next.storageMaintenanceVersion) next.storageMaintenanceVersion = previous.storageMaintenanceVersion;
+  const compactPrevious = choreStoragePolicy.compactChoreWorkspace(previous.data);
+  if (storedDocumentCache && storedDocumentCache.document === previous && compactPrevious === previous.data) {
+    // Already decoded and validated in this synchronous transaction. Preserve its exact
+    // durable representation instead of recompressing the whole recovery snapshot.
+    writeJson(CHORE_LAST_GOOD_WORKSPACE_PATH, storedDocumentCache.stored, MAX_CHORE_WORKSPACE_BYTES);
+  } else {
+    writeStoredDocument(CHORE_LAST_GOOD_WORKSPACE_PATH, Object.assign({}, previous, { data: compactPrevious }));
+  }
   writeStoredDocument(CHORE_WORKSPACE_PATH, next);
   collectUnreferencedChunks();
 }
@@ -2633,15 +2901,28 @@ function collectUnreferencedChunks() {
   // The Nginx authority has one worker and publishes synchronously before collecting.
   try {
     if (typeof fsModule.readdirSync !== 'function') return;
+    const prefix = 'navet-chore-workspace.json.chunk-';
+    const entries = fsModule.readdirSync('/data');
+    // Inline households have nothing to collect. Do not inflate two complete
+    // workspace snapshots merely to discover that their chunk sets are empty.
+    if (!entries.some(function (name) { return name.indexOf(prefix) === 0; })) return;
+    // Failed-file snapshots may reference chunks that cannot be safely enumerated.
+    if (entries.some(function (name) { return name.indexOf('navet-chore-workspace.json.failed-') === 0; })) return;
     const retained = Object.create(null);
     const paths = [CHORE_WORKSPACE_PATH, CHORE_LAST_GOOD_WORKSPACE_PATH];
     for (let pathIndex = 0; pathIndex < paths.length; pathIndex += 1) {
       const path = paths[pathIndex];
+      if (pathIndex > 0 && entries.indexOf('navet-chore-workspace.last-good.json') < 0) continue;
       const stored = choreDurableStorage.unpack(readJson(path, null, MAX_CHORE_WORKSPACE_BYTES), durableHash, MAX_CHORE_WORKSPACE_BYTES);
       if (!stored) return;
+      if (stored.pointHistory) {
+        if (!choreDurableStorage.validPointHistory(stored.pointHistory)) return;
+        for (let pageIndex = 0; pageIndex < stored.pointHistory.pages.length; pageIndex++)
+          recordSafety.setOwnRecordValue(retained, stored.pointHistory.pages[pageIndex].key, true);
+      }
       const manifest = stored.durableCollections;
       if (!manifest) continue;
-      if (manifest.version !== 1) return;
+      if (manifest.version !== 1 && manifest.version !== 2) return;
       const names = Object.keys(manifest);
       for (let nameIndex = 0; nameIndex < names.length; nameIndex += 1) {
         const name = names[nameIndex];
@@ -2651,21 +2932,32 @@ function collectUnreferencedChunks() {
           recordSafety.setOwnRecordValue(retained, manifest[name][keyIndex], true);
       }
     }
-    const prefix = 'navet-chore-workspace.json.chunk-';
-    const entries = fsModule.readdirSync('/data');
-    // Failed-file snapshots may reference chunks that cannot be safely enumerated.
-    if (entries.some(function (name) { return name.indexOf('navet-chore-workspace.json.failed-') === 0; })) return;
     for (let entryIndex = 0; entryIndex < entries.length; entryIndex += 1) {
       const name = entries[entryIndex];
       if (name.indexOf(prefix) !== 0) continue;
       const key = name.slice(prefix.length);
-      if (/^[a-f0-9]{64}$/.test(key) && !retained[key]) deleteFile('/data/' + name);
+      if (/^[a-f0-9]{64}$/.test(key) && !retained[key]) {
+        deleteFile('/data/' + name);
+        if (verifiedChunks) delete verifiedChunks[key];
+      }
     }
   } catch (_error) { /* Committed data remains usable; the next write retries collection. */ }
 }
 
 function repairStoredWorkspace(document, previous) {
-  if (document.storageMaintenanceVersion === 1) return document;
+  if (document.storageMaintenanceVersion >= 2) return document;
+  if (document.storageMaintenanceVersion === 1) {
+    appendEventHistory(document.data.activity, document.data.historyRetention);
+    const data = choreStoragePolicy.compactChoreWorkspace(document.data);
+    const changed = data !== document.data || needsPointMaintenance(document);
+    const next = Object.assign({}, document, {
+      storageMaintenanceVersion: 2, data,
+      revision: document.revision + (changed ? 1 : 0),
+      updatedAt: changed ? nowIso() : document.updatedAt,
+    });
+    persistDocument(document, next);
+    return next;
+  }
   const timestamp = nowIso();
   const now = Date.parse(timestamp);
   appendEventHistory(document.data.activity, document.data.historyRetention);
@@ -2714,14 +3006,15 @@ function repairStoredWorkspace(document, previous) {
       recordSafety.setOwnRecordValue(occurrences, id, item);
     }
   }
-  const changed = Object.keys(removed).length > 0;
+  const compacted = choreStoragePolicy.compactChoreWorkspace(document.data);
+  const changed = Object.keys(removed).length > 0 || compacted !== document.data || needsPointMaintenance(document);
   const next = Object.assign({}, document, {
-    storageMaintenanceVersion: 1,
+    storageMaintenanceVersion: 2,
     revision: document.revision + (changed ? 1 : 0),
     updatedAt: changed ? timestamp : document.updatedAt,
-    data: changed ? Object.assign({}, document.data, {
+    data: changed ? Object.assign({}, compacted, {
       occurrencesById: occurrences,
-      outbox: document.data.outbox.filter(function (item) {
+      outbox: compacted.outbox.filter(function (item) {
         return item.status === 'delivered' || !removed[item.occurrenceId];
       }),
     }) : document.data,
@@ -2733,10 +3026,12 @@ function repairStoredWorkspace(document, previous) {
 
 function applyScheduledState(document) {
   const timestamp = nowIso();
+  if (schedulerCanWait(timestamp, document)) return document;
   lastSchedulerRunAt = timestamp;
   const scheduled = runWorkspaceScheduler(document.data, timestamp);
   if (scheduled.activities.length === 0 && scheduled.outboxItems.length === 0 && sameObjectKeys(scheduled.data.occurrencesById, document.data.occurrencesById)) {
     appendEventHistory(document.data.activity, document.data.historyRetention);
+    rememberSchedulerDeadline(document, timestamp);
     return document;
   }
   const nextDocument = Object.assign({}, document, {
@@ -2760,6 +3055,10 @@ function sameObjectKeys(left, right) {
 }
 
 function materializePeriodicWindow(document, timestamp) {
+  const key = durableHash(JSON.stringify([
+    timestamp.slice(0, 10), document.data.definitionsById, document.data.participantsById,
+  ]));
+  if (getMaterializationKey() === key) return document;
   const now = Date.parse(timestamp);
   const commandId = 'periodic:materialize:' + timestamp;
   const candidate = applyWorkspaceAction(document.data, commandId, {
@@ -2767,7 +3066,8 @@ function materializePeriodicWindow(document, timestamp) {
     rangeStart: new Date(now - 90 * 86400000).toISOString(),
     rangeEnd: new Date(now + 45 * 86400000).toISOString(),
   }, timestamp);
-  if (sameObjectKeys(candidate.occurrencesById, document.data.occurrencesById)) {
+  if (choreStoragePolicy.isChoreMaterializationUnchanged(document.data, candidate)) {
+    setMaterializationKey(key);
     return document;
   }
   const next = {
@@ -2778,6 +3078,7 @@ function materializePeriodicWindow(document, timestamp) {
   };
   persistDocument(document, next);
   appendEventHistory(next.data.activity, next.data.historyRetention);
+  setMaterializationKey(key);
   return next;
 }
 
@@ -2864,19 +3165,23 @@ function recordPeriodicDelivery(item, status, errorMessage) {
 
 async function runPeriodic(_session) {
   const timestamp = nowIso();
+  if (getMaterializationKey() && schedulerCanWait(timestamp)) return;
   lastSchedulerRunAt = timestamp;
-  let document = materializePeriodicWindow(readDocument(), timestamp);
-  document = applyScheduledState(document);
+  const document = withEventHistoryCache(function () {
+    const current = readDocument();
+    const materialized = materializePeriodicWindow(current, timestamp);
+    return materialized === current ? current : applyScheduledState(materialized);
+  });
   const reminders = pendingHomeAssistantReminders(document, timestamp);
   for (let index = 0; index < reminders.length; index += 1) {
     try {
       await deliverHomeAssistantReminder(document, reminders[index]);
-      recordPeriodicDelivery(reminders[index], 'delivered');
+      withEventHistoryCache(function () { recordPeriodicDelivery(reminders[index], 'delivered'); });
       lastDeliveryError = null;
     } catch (error) {
       lastDeliveryError = error && error.message ? error.message : 'Reminder delivery failed';
       try {
-        recordPeriodicDelivery(reminders[index], 'failed', lastDeliveryError);
+        withEventHistoryCache(function () { recordPeriodicDelivery(reminders[index], 'failed', lastDeliveryError); });
       } catch (_recordError) {
         // The next periodic run reloads the workspace and retries the pending item.
       }
@@ -2900,7 +3205,7 @@ function readDocument() {
       data: emptyData(),
     };
   }
-  if (isValidDocument(document)) return applyScheduledState(repairStoredWorkspace(document));
+  if (isValidDocument(document)) return applyScheduledState(prepareWorkingDocument(repairStoredWorkspace(document)));
   if (
     isRecord(document) &&
     document.contractVersion === CONTRACT_VERSION &&
@@ -2923,13 +3228,14 @@ function readDocument() {
   }
   const backup = readDocumentCandidate(CHORE_LAST_GOOD_WORKSPACE_PATH);
   if (backup) {
+    setMaterializationKey(null);
     const recovered = Object.assign({}, backup, {
       revision: backup.revision + 1,
       updatedAt: nowIso(),
     });
     writeStoredDocument(CHORE_WORKSPACE_PATH, recovered);
     appendEventHistory(recovered.data.activity, recovered.data.historyRetention);
-    return applyScheduledState(repairStoredWorkspace(recovered));
+    return applyScheduledState(prepareWorkingDocument(repairStoredWorkspace(recovered)));
   }
   const error = new Error('Chore workspace document is invalid');
   error.code = 'NAVET_CHORE_WORKSPACE_INVALID';
@@ -3099,7 +3405,7 @@ function loadWorkspace(r, principal) {
 }
 
 function loadEventHistory(r) {
-  sendJson(r, 200, readEventHistory());
+  sendJson(r, 200, { contractVersion: CONTRACT_VERSION, events: readEventHistory().events });
 }
 
 function loadBackup(r, document) {
@@ -3107,7 +3413,7 @@ function loadBackup(r, document) {
     contract: 'navet.chores',
     version: 1,
     exportedAt: nowIso(),
-    workspace: document.data,
+    workspace: fullPointData(document),
     events: readEventHistory().events,
   });
 }
@@ -3172,22 +3478,9 @@ function loadAutomationEvents(r) {
       })
     : [];
   const allowedTypes = requestedTypes.length > 0 ? requestedTypes : CHORE_AUTOMATION_EVENT_TYPES;
-  const events = [];
-  let cursor = Math.min(after, history.events.length);
-  while (cursor < history.events.length && events.length < limit) {
-    const event = history.events[cursor];
-    cursor += 1;
-    if (!includesValue(allowedTypes, event.type)) continue;
-    if (args.occurrenceId && event.occurrenceId !== args.occurrenceId) continue;
-    if (args.definitionId && event.definitionId !== args.definitionId) continue;
-    events.push(event);
-  }
-  sendJson(r, 200, {
-    contractVersion: CONTRACT_VERSION,
-    cursor: String(cursor),
-    hasMore: cursor < history.events.length,
-    events,
-  });
+  sendJson(r, 200, choreStoragePolicy.readChoreHistoryPage(
+    history, after, limit, allowedTypes, args.occurrenceId, args.definitionId
+  ));
 }
 
 function hasCommand(document, journal, commandId) {
@@ -3351,6 +3644,7 @@ function recoverWorkspace(r, principal) {
     return;
   }
 
+  setMaterializationKey(null);
   if (restoreBackup) {
     const backup = readDocumentCandidate(CHORE_LAST_GOOD_WORKSPACE_PATH);
     if (!backup) {
@@ -3427,11 +3721,17 @@ function commitCommand(r, principal) {
     sendJson(r, 200, publicDocument(current, principal.tenantId));
     return;
   }
-  if (baseRevision !== current.revision) {
-    sendJson(r, 412, {
+  if (baseRevision >= 0 && baseRevision < current.revision &&
+      choreStoragePolicy.canRebaseChoreAction(request.action.type) &&
+      !choreStoragePolicy.hasChoreCommandCoverage(baseRevision, current.revision, journal.commands)) {
+    sendJson(r, 409, { error: 'Chore action could not be applied', code: 'command_expired' });
+    return;
+  }
+  if (baseRevision !== current.revision && !(baseRevision >= 0 && baseRevision < current.revision &&
+      choreStoragePolicy.canRebaseChoreAction(request.action.type))) {
+    sendJson(r, 412, Object.assign(publicDocument(current, principal.tenantId), {
       error: 'Chore workspace changed on another client',
-      revision: current.revision,
-    });
+    }));
     return;
   }
   if (
@@ -3450,6 +3750,12 @@ function commitCommand(r, principal) {
     sendJson(r, 409, {
       error: error && error.message ? error.message : 'Chore action could not be applied',
     });
+    return;
+  }
+
+  if (request.action.type === 'materialize_occurrences' &&
+      choreStoragePolicy.isChoreMaterializationUnchanged(current.data, nextData)) {
+    sendJson(r, 200, publicDocument(current, principal.tenantId));
     return;
   }
 
@@ -3566,7 +3872,7 @@ function commitAdministration(r, principal, operation) {
       });
     } else {
       const merged = mergeImportedWorkspace(
-        current.data,
+        fullPointData(current),
         readEventHistory().events,
         imported,
         timestamp
@@ -3604,6 +3910,7 @@ function commitAdministration(r, principal, operation) {
     deleteFile(CHORE_LAST_GOOD_WORKSPACE_PATH);
     deleteFile(CHORE_MANAGEMENT_SECURITY_PATH);
     clearManagementSession(principal.tenantId);
+    collectUnreferencedChunks();
   } else {
     const nextJournal = {
       contractVersion: CONTRACT_VERSION,
@@ -3613,15 +3920,20 @@ function commitAdministration(r, principal, operation) {
         timestamp,
       }]).slice(-MAX_COMMAND_JOURNAL_ITEMS),
     };
-    persistDocument(current, next);
+    persistDocument(current, next, true);
     writeJson(CHORE_JOURNAL_PATH, nextJournal, MAX_CHORE_JOURNAL_BYTES);
     replaceEventHistory(nextEvents);
   }
+  setMaterializationKey(null);
   applyRevisionHeader(r, next.revision);
   sendJson(r, 200, publicDocument(next, principal.tenantId));
 }
 
 function routeRequest(r, principal, options) {
+  return withEventHistoryCache(function () { return dispatchRequest(r, principal, options); });
+}
+
+function dispatchRequest(r, principal, options) {
   if (r.method !== 'GET' && !providerSessionStore.isStrictSameOriginMutation(r)) {
     sendJson(r, 403, { error: 'Cross-origin chore mutation is not allowed' });
     return;
@@ -3664,6 +3976,24 @@ function routeRequest(r, principal, options) {
   }
   if (uri === '/__navet_chores__/workspace' && r.method === 'GET') {
     loadWorkspace(r, principal);
+    return;
+  }
+  if (uri === '/__navet_chores__/points' && r.method === 'GET') {
+    const document = readDocument();
+    const args = parseQueryArgs(r.args);
+    const after = Number(args.after || 0);
+    const limit = Number(args.limit || 100);
+    if (!Number.isSafeInteger(after) || after < 0 || !Number.isSafeInteger(limit) || limit < 1 || limit > 500) {
+      sendJson(r, 400, { error: 'Chore event cursor is invalid' });
+      return;
+    }
+    const history = document.pointHistory || { version: 1, count: 0, pages: [] };
+    const archived = choreDurableStorage.readPointHistory(history, after, limit, durableHash, readPointChunk);
+    const start = Math.max(0, after - history.count);
+    const points = archived.concat(document.data.experience.pointTransactions.slice(start, start + limit - archived.length));
+    const cursor = after + points.length;
+    sendJson(r, 200, { contractVersion: 1, revision: document.revision, cursor: String(cursor),
+      hasMore: cursor < history.count + document.data.experience.pointTransactions.length, points });
     return;
   }
   if (uri === '/__navet_chores__/history' && r.method === 'GET') {
