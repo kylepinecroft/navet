@@ -2,7 +2,7 @@
 
 This checkout is `kylepinecroft/navet`, a fork of [`navet-app/navet`](https://github.com/navet-app/navet).
 
-- **Last synced:** upstream `v0.18.1`
+- **Last synced:** upstream `v0.18.4`
 - **Remote:** `upstream` → `https://github.com/navet-app/navet.git`
 
 Keep this file current. It is the routing list for new fork features and for upstream merges. Do not turn it into a design doc or a hunk-by-hunk patch archive.
@@ -20,7 +20,7 @@ Product behavior, settings, persistence, or UX that upstream Navet does not have
 
 ## Upstream sync
 
-Merge an upstream **tag** onto a `sync/upstream-<version>` branch from current `main`. Never rebase published `main`. Take upstream release-managed files (`package.json`, `CHANGELOG.md`, add-on manifests). Keep-both locale and store-type conflicts first. On seam files, take upstream structure and re-insert overlay call sites. Run the tests listed here, then update **Last synced**.
+Merge an upstream **tag** onto a `sync/upstream-<version>` branch from current `main`. Never rebase published `main`. Take upstream release-managed files (`package.json`, `CHANGELOG.md`, add-on manifests). Keep-both locale and store-type conflicts first. On seam files, take upstream structure and re-insert overlay call sites. Run the tests listed here, evaluate the eager JavaScript budget under **Fork-only budgets**, then update **Last synced**.
 
 ## Overlap with upstream
 
@@ -103,6 +103,20 @@ Publish container images to `ghcr.io/<repository owner>/...` with `GITHUB_TOKEN`
 - **Seams:** `.github/workflows/release-image.yml`, `dev-tag-release.yml`, `release.yml`, `release-runtime.yml`, `ci.yml`; `scripts/release-dev-channels.mjs`, `release-prebuilt-runtime.mjs`, `release-channels.mjs`, `release-evidence.mjs`, `release-preflight.mjs`, `release-promotion.mjs`, `create-dev-release.mjs`, `pages-gate.mjs`
 - **Tests:** `scripts/release-ghcr-namespace.test.mjs`, `scripts/release-promotion.test.mjs`, `scripts/create-dev-release.test.mjs`, `scripts/dev-tag-release-workflow.test.mjs`
 - **Verify:** Dispatch Prepare Navet Dev Publish from `main`. A main-backed run pushes `ghcr.io/kylepinecroft/navet:dev` for linux/amd64 and linux/arm64. On sync, keep the repository-owner namespace, `GITHUB_TOKEN` login, and the upstream-only skips in these seams. The published-runtime job must run on this repository's `main` and `navet-dev-*` tags. Do not pin that job to `navet-app/navet`; a skipped runtime job also skips the dev alias move.
+
+## Fork-only budgets
+
+### Eager JavaScript
+
+Temporary override. `scripts/check-bundle-budget.mjs` sets `MAX_TOTAL_EAGER_JS_BYTES` to `820 * 1024` because upstream's `800 * 1024` cap does not fit this fork. Upstream `v0.18.1` measured 799.3 KB. Overlay code adds about 3 KB, and this fork measured 802.1 KB at `v0.18.4`.
+
+On each sync, compare upstream's `MAX_TOTAL_EAGER_JS_BYTES` with upstream's measured eager JavaScript:
+
+- If upstream raises the cap and the new limit is still about 3 KB above upstream's measured eager JavaScript, delete this override and use upstream's limit.
+- If the new limit does not leave that room, keep a fork override above the measured fork size.
+
+- **Owned:** the `MAX_TOTAL_EAGER_JS_BYTES` constant in `scripts/check-bundle-budget.mjs`
+- **Tests:** `pnpm build`, then `pnpm check:bundle-budget`
 
 ## Shared mechanical seams
 
