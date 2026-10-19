@@ -28,6 +28,28 @@ describe('Navet Nisse GitHub App authentication', () => {
     ).toBe(true);
   });
 
+  // Keep JWT, permissions and issue-target safety coverage; add renamed-repository regression.
+  it('scopes a token to the configured repository name', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ token: 'installation-token' }),
+    });
+    const repository = 'navet-app/navet-renamed';
+    const operation = parseOperation(['react', '123', 'eyes'], repository);
+    await createInstallationToken({ appId: 123, installationId: 456, privateKey, repository, fetchImpl });
+    expect(operation.path).toContain(`/repos/${repository}/`);
+    expect(JSON.parse(fetchImpl.mock.calls[0][1].body)).toEqual({
+      repositories: ['navet-renamed'],
+      permissions: { issues: 'write', pull_requests: 'read', metadata: 'read' },
+    });
+  });
+
+  it('rejects invalid repository scope before contacting GitHub', async () => {
+    const fetchImpl = vi.fn();
+    await expect(createInstallationToken({ appId: 123, installationId: 456, privateKey, repository: 'bad/repo/extra', fetchImpl })).rejects.toThrow('owner/repository');
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
   it('requests an installation token with a signed app JWT', async () => {
     const fetchImpl = vi.fn().mockResolvedValue({
       ok: true,
@@ -39,6 +61,10 @@ describe('Navet Nisse GitHub App authentication', () => {
     const [url, request] = fetchImpl.mock.calls[0];
     expect(url).toBe('https://api.github.com/app/installations/456/access_tokens');
     expect(request).toMatchObject({ method: 'POST', signal: expect.any(AbortSignal) });
+    expect(JSON.parse(request.body)).toEqual({
+      repositories: ['navet'],
+      permissions: { issues: 'write', pull_requests: 'read', metadata: 'read' },
+    });
     const [header, payload, signature] = request.headers.Authorization.slice('Bearer '.length).split('.');
     expect(
       verify(
