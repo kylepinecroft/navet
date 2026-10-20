@@ -50,6 +50,26 @@ export function normalizeResourceUrl(
   return contract.normalizeResourceUrl?.(resourceUrl) ?? resourceUrl;
 }
 
+/** Preserve provider-owned authentication and expiry for display resources. */
+export async function resolveDisplayResource(
+  resourceUrl: string,
+  providerId?: IntegrationProviderId
+): Promise<ResolvedPlatformResource> {
+  const contract = getRegisteredProviderContract(resolveProviderId(resourceUrl, providerId));
+  if (contract.resolveDisplayResource) return await contract.resolveDisplayResource(resourceUrl);
+  return {
+    id: resourceUrl,
+    kind: 'image',
+    url: normalizeResourceUrl(resourceUrl, providerId) ?? undefined,
+    cacheKey: resourceUrl,
+    authStrategy: 'none',
+  };
+}
+
+export async function resolveResourceUrl(resourceUrl: string, providerId?: IntegrationProviderId) {
+  return (await resolveDisplayResource(resourceUrl, providerId)).url ?? null;
+}
+
 export async function resolveResource(
   deviceId: string,
   kind: NavetResourceKind,

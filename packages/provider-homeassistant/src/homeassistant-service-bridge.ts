@@ -153,6 +153,7 @@ export interface HomeAssistantServiceBridge {
     hassUrl?: string,
     options?: { proxyAvailable?: boolean }
   ): string | null;
+  resolveDisplayResource: (resourceUrl: string) => Promise<ResolvedPlatformResource>;
   getCameraPlaybackPlan(request: unknown): Promise<unknown>;
   resolveCameraStreamResource: (
     entityId: string,
@@ -389,6 +390,10 @@ export function resolveHomeAssistantProxyUrl(
   options?: { proxyAvailable?: boolean }
 ) {
   return getBridge().resolveProxyUrl(resourceUrl, hassUrl, options);
+}
+
+export function resolveHomeAssistantDisplayResource(resourceUrl: string) {
+  return getBridge().resolveDisplayResource(resourceUrl);
 }
 
 export function getHomeAssistantCameraPlaybackPlan(request: unknown) {
