@@ -3,9 +3,12 @@ import {
   createDashboardDefinition,
   createLegacyDashboardCollection,
   deleteDashboardFromCollection,
+  getCompanionCards,
   resolveDashboard,
+  resolveDashboardCompanion,
   resolveDashboardNavigationRooms,
   sanitizeDashboardCollection,
+  sanitizeDashboardCompanion,
 } from './dashboard-collection';
 
 describe('dashboard collection contract', () => {
@@ -165,5 +168,162 @@ describe('dashboard collection contract', () => {
     expect(next.order).toEqual(['home']);
     expect(next.dashboardIdByClientId).toEqual({ sonoff: 'home', phone: 'home' });
     expect(next.dashboardsById.upstairs).toBeUndefined();
+  });
+});
+
+// Companion configuration is additive to schema 1 and contains entity IDs, never resource URLs.
+describe('dashboard companion configuration', () => {
+  it('inherits the common panel only when a room override is absent', () => {
+    const dashboard = createDashboardDefinition({ id: 'home', name: 'Home' });
+    dashboard.companion = {
+      showSecurity: false,
+      cards: [{ id: 'note', type: 'note', text: 'Common' }],
+    };
+    dashboard.roomCompanions = { room_kitchen1: { showSecurity: false, cards: [] } };
+    expect(resolveDashboardCompanion(dashboard, 'room_office01')).toBe(dashboard.companion);
+    expect(getCompanionCards(resolveDashboardCompanion(dashboard, 'room_kitchen1'))).toEqual([]);
+    expect(resolveDashboardCompanion(dashboard)).toBe(dashboard.companion);
+  });
+
+  it('sanitizes saved room panels, retains empty overrides and copies them independently', () => {
+    const legacy = createLegacyDashboardCollection({ homeLayout: null });
+    const restored = sanitizeDashboardCollection(
+      {
+        ...legacy,
+        dashboardsById: {
+          home: {
+            ...legacy.dashboardsById.home,
+            roomCompanions: {
+              room_kitchen1: { showSecurity: false, cards: [] },
+              room_office01: {
+                showSecurity: false,
+                cards: [{ id: 'note', type: 'note', text: 'Office' }],
+              },
+              Kitchen: { showSecurity: true },
+              room_invalid1: null,
+              room_invalid2: [],
+            },
+            roomCompanionModes: {
+              room_kitchen1: 'dashboard',
+              room_office01: 'unsupported',
+              Kitchen: 'room',
+            },
+          },
+        },
+      },
+      legacy
+    ).dashboardsById.home;
+    expect(restored.roomCompanions).toEqual({
+      room_kitchen1: { showSecurity: false, cards: [] },
+      room_office01: { showSecurity: false, cards: [{ id: 'note', type: 'note', text: 'Office' }] },
+    });
+    const copy = createDashboardDefinition({
+      name: 'Copy',
+      source: { kind: 'copy', dashboard: restored },
+    });
+    expect(copy.roomCompanions).toEqual(restored.roomCompanions);
+    expect(restored.roomCompanionModes).toEqual({ room_kitchen1: 'dashboard' });
+    expect(copy.roomCompanionModes).toEqual(restored.roomCompanionModes);
+    expect(copy.roomCompanionModes).not.toBe(restored.roomCompanionModes);
+    expect(resolveDashboardCompanion(copy, 'room_kitchen1')).toBe(copy.companion);
+    expect(resolveDashboardCompanion(copy, 'room_office01')).toBe(
+      copy.roomCompanions?.room_office01
+    );
+    expect(copy.roomCompanions?.room_office01.cards).not.toBe(
+      restored.roomCompanions?.room_office01.cards
+    );
+    copy.roomCompanions?.room_office01.cards?.push({ id: 'another', type: 'clock' });
+    expect(restored.roomCompanions?.room_office01.cards).toHaveLength(1);
+  });
+
+  it('defaults old dashboards without replacing their Home layout', () => {
+    const legacy = createLegacyDashboardCollection({ homeLayout: { cardIds: ['light.kitchen'] } });
+    delete legacy.dashboardsById.home.companion;
+    const restored = sanitizeDashboardCollection(legacy, legacy).dashboardsById.home;
+    expect(restored.companion).toEqual({ showSecurity: true });
+    expect(restored.homeLayout.cardIds).toEqual(['home_assistant:light.kitchen']);
+  });
+  it('preserves explicit hidden selections and rejects malformed settings', () => {
+    expect(
+      sanitizeDashboardCompanion({
+        cameraEntityId: null,
+        weatherEntityId: 'homey:weather.outside',
+        showSecurity: false,
+      })
+    ).toEqual({
+      cameraEntityId: null,
+      weatherEntityId: 'homey:weather.outside',
+      showSecurity: false,
+    });
+    expect(
+      sanitizeDashboardCompanion({ cameraEntityId: [], weatherEntityId: 42, showSecurity: 'yes' })
+    ).toEqual({ showSecurity: true });
+  });
+  it('accepts entity references without allowing a snapshot URL into shared selections', () => {
+    expect(
+      sanitizeDashboardCompanion({
+        cameraEntityId: 'https://user:secret@example.com/snapshot',
+        weatherEntityId: null,
+      })
+    ).toEqual({ weatherEntityId: null, showSecurity: true });
+  });
+  it('copies selections independently when duplicating a dashboard', () => {
+    const source = createDashboardDefinition({ id: 'home', name: 'Home' });
+    source.companion = {
+      cameraEntityId: 'home_assistant:camera.front',
+      weatherEntityId: null,
+      showSecurity: true,
+    };
+    const copy = createDashboardDefinition({
+      name: 'Evening',
+      source: { kind: 'copy', dashboard: source },
+    });
+    expect(copy.companion).toEqual(source.companion);
+    expect(copy.companion).not.toBe(source.companion);
+  });
+});
+
+describe('ordered companion cards', () => {
+  it('retains legacy automatic, hidden and explicit source choices until edited', () => {
+    expect(
+      getCompanionCards({
+        cameraEntityId: null,
+        weatherEntityId: 'homey:weather.outside',
+        showSecurity: false,
+      })
+    ).toEqual([
+      { id: 'greeting', type: 'greeting' },
+      { id: 'clock', type: 'clock' },
+      { id: 'weather', type: 'weather', entityId: 'homey:weather.outside' },
+    ]);
+    expect(getCompanionCards({ showSecurity: true, cards: [] })).toEqual([]);
+  });
+
+  it('preserves calendar sources and household chores through sanitization', () => {
+    const cards = [
+      { id: 'agenda', type: 'calendar', entityId: 'home_assistant:calendar.home' },
+      { id: 'chores', type: 'chores' },
+    ];
+    const sanitized = sanitizeDashboardCompanion({ cards, showSecurity: false });
+    expect(sanitized.cards).toEqual(cards);
+    expect(
+      getCompanionCards(sanitizeDashboardCompanion(JSON.parse(JSON.stringify(sanitized))))
+    ).toEqual(cards);
+  });
+
+  it('rejects malformed identities, duplicate cards and URL sources while bounding note content', () => {
+    const settings = sanitizeDashboardCompanion({
+      cards: [
+        { id: 'one', type: 'note', text: 'a'.repeat(5000) },
+        { id: 'one', type: 'clock' },
+        { id: 'two', type: 'entity', entityId: 'https://user:secret@example.com' },
+        { id: 'three', type: 'entity', entityId: 'homey:light.kitchen', size: 'large' },
+        { id: 'four', type: 'iframe' },
+      ],
+    });
+    expect(settings.cards).toEqual([
+      { id: 'one', type: 'note', text: 'a'.repeat(4000) },
+      { id: 'three', type: 'entity', entityId: 'homey:light.kitchen' },
+    ]);
   });
 });

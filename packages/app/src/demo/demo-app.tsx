@@ -9,10 +9,8 @@ import { LoadingSpinner } from '@navet/app/components/primitives/loading-spinner
 import { SkipLink } from '@navet/app/components/primitives/skip-link';
 import {
   type CardSize,
-  getCardGridAutoRowsStyle,
   getCardSpanClass,
   getDashboardCardFootprint,
-  getDashboardGridColumnCount,
 } from '@navet/app/components/shared/card-size-selector';
 import { ALL_ROOMS_ID, isAllRooms } from '@navet/app/constants/rooms';
 import { ClimateCard } from '@navet/app/features/climate/components/climate-card';
@@ -21,7 +19,9 @@ import type { ClimateDashboardSection } from '@navet/app/features/climate/types/
 import type { CardTemplate } from '@navet/app/features/dashboard/components/add-entity-dialog/types';
 import { HomeEditCommandBar } from '@navet/app/features/dashboard/components/home-edit-command-bar';
 import { WidgetCard } from '@navet/app/features/dashboard/components/widget-card';
+import { useFitDashboardGrid } from '@navet/app/features/dashboard/hooks/use-fit-dashboard-grid';
 import { useProgressiveBatching } from '@navet/app/features/dashboard/hooks/use-progressive-batching';
+import { useRoomWorkspaceStore } from '@navet/app/features/dashboard/rooms/room-workspace-store';
 import { DashboardLayout } from '@navet/app/features/dashboard/shell';
 import type { CustomCard } from '@navet/app/features/dashboard/stores/custom-cards-store';
 import { useDashboardEntitiesStore } from '@navet/app/features/dashboard/stores/dashboard-entities-store';
@@ -42,6 +42,7 @@ import {
 import { SensorCard } from '@navet/app/features/sensors/components/sensor-card';
 import { useBreakpointCols } from '@navet/app/hooks/use-breakpoint-cols';
 import { useDeferredVisibility } from '@navet/app/hooks/use-deferred-visibility';
+import { useRoomNavigation } from '@navet/app/hooks/use-room-navigation';
 import { I18nProvider, useI18n } from '@navet/app/i18n';
 import { integrationSessionRuntime } from '@navet/app/integration-session-runtime';
 import type { Section } from '@navet/app/navigation/sections';
@@ -61,7 +62,6 @@ import { Fan, Lightbulb, ShieldCheck, Speaker, Zap } from 'lucide-react';
 import {
   Children,
   type ComponentProps,
-  type CSSProperties,
   lazy,
   type ReactNode,
   type Ref,
@@ -951,6 +951,8 @@ function useDemoDisplayDefaults() {
   const [runtimeReady, setRuntimeReady] = useState(false);
 
   useEffect(() => {
+    const previousNavigation = useNavigationStore.getState();
+    useNavigationStore.getState().setCurrentRoom(ALL_ROOMS_ID);
     const detectedEffectsQuality = useSettingsStore.getState().effectsQuality;
     const reduceEffects = detectedEffectsQuality === 'low';
     const kioskPreview = window.location.pathname.split('/').filter(Boolean).includes('kiosk');
@@ -961,6 +963,9 @@ function useDemoDisplayDefaults() {
     useThemeStore.getState().setWallpaper(null);
     useSettingsStore.getState().updateSettings({
       ...defaultSettings,
+      screensaverEnabled: useSettingsStore.getState().screensaverEnabled,
+      companionEnabled: useSettingsStore.getState().companionEnabled,
+      companionCollapsed: useSettingsStore.getState().companionCollapsed,
       username: 'Navet',
       language: 'en',
       temperatureUnit: 'celsius',
@@ -990,6 +995,12 @@ function useDemoDisplayDefaults() {
       restoreEntityVisibility();
       integrationSessionRuntime.replaceSession(previousSession);
       resetPreviewRuntime();
+      useNavigationStore.setState({
+        currentRoom: previousNavigation.currentRoom,
+        currentRoomId: previousNavigation.currentRoomId,
+        lastExplicitRoom: previousNavigation.lastExplicitRoom,
+        lastExplicitRoomId: previousNavigation.lastExplicitRoomId,
+      });
     };
   }, []);
 
@@ -1225,18 +1236,19 @@ function getRoomEntitySlug(room: string) {
 
 function DashboardGrid({ children }: { children: ReactNode }) {
   const breakpointCols = useBreakpointCols();
-
+  const { outerRef, innerRef, outerContainerStyle, innerContainerStyle, isAutoScaled, gridStyle } =
+    useFitDashboardGrid(breakpointCols);
   return (
-    <div
-      className="grid w-full grid-flow-row-dense gap-3 md:gap-3 lg:gap-4"
-      style={
-        {
-          ...getCardGridAutoRowsStyle(breakpointCols),
-          gridTemplateColumns: `repeat(${getDashboardGridColumnCount(breakpointCols)}, minmax(0, 1fr))`,
-        } as CSSProperties
-      }
-    >
-      {children}
+    <div ref={outerRef} className="relative w-full" style={outerContainerStyle}>
+      <div
+        ref={innerRef}
+        className={`w-full${isAutoScaled ? ' absolute left-0 top-0 origin-top-left' : ''}`}
+        style={innerContainerStyle}
+      >
+        <div className="grid w-full grid-flow-row-dense gap-3 md:gap-3 lg:gap-4" style={gridStyle}>
+          {children}
+        </div>
+      </div>
     </div>
   );
 }
@@ -1970,11 +1982,17 @@ function sanitizeDemoSection(value: unknown): DemoSection {
   return 'home';
 }
 
+const DemoChoreWorkspace = lazy(async () => {
+  const module = await import('./demo-chore-workspace');
+  return { default: module.DemoChoreWorkspace };
+});
+
 function DemoContent() {
   const { t } = useI18n();
   const runtimeReady = useDemoDisplayDefaults();
   const authSession = useOptionalAuthSession();
-  const [activeRoom, setActiveRoom] = useState<string>(ALL_ROOMS_ID);
+  const roomWorkspace = useRoomWorkspaceStore((state) => state.workspace);
+  const { activeRoom, changeRoom: setActiveRoom } = useRoomNavigation(ALL_ROOMS_ID, roomWorkspace);
   const [addCardOpen, setAddCardOpen] = useState(false);
   const [addedWidgets, setAddedWidgets] = useState<CustomCard[]>([]);
   const [removedWidgets, setRemovedWidgets] = useState<CustomCard[]>([]);
@@ -2143,7 +2161,11 @@ export default function DemoApp() {
   return (
     <I18nProvider>
       <AuthProvider>
-        <DemoContent />
+        <Suspense fallback={null}>
+          <DemoChoreWorkspace>
+            <DemoContent />
+          </DemoChoreWorkspace>
+        </Suspense>
       </AuthProvider>
     </I18nProvider>
   );

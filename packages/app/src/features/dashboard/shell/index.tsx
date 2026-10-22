@@ -1,18 +1,27 @@
+import { CompanionPanel } from '@navet/app/components/layout/companion-panel';
 import { Header } from '@navet/app/components/layout/header';
+import { HeaderDashboardActions } from '@navet/app/components/layout/header-dashboard-actions';
+import { RoomNavActionsContext } from '@navet/app/components/layout/room-nav-actions-context';
+import { getSectionNavigationItems } from '@navet/app/components/layout/section-navigation';
 import { Sidebar } from '@navet/app/components/layout/sidebar';
+import { useDashboardChromeLayout } from '@navet/app/components/layout/use-dashboard-sidebar-width';
 import { useHeaderController } from '@navet/app/components/layout/use-header-controller';
 import { useEffectiveEffectsQuality } from '@navet/app/components/shared/theme/effective-effects-quality';
 import { getThemeColorValue } from '@navet/app/components/shared/theme/theme-colors';
 import { getThemeSurfaceTokens } from '@navet/app/components/shared/theme/theme-surface-tokens';
 import { resolveWallpaperBackgroundImage } from '@navet/app/constants/built-in-wallpapers';
+import { NotificationPanel } from '@navet/app/features/notifications';
 import { useMediaQuery, usePrimaryColor, useThemeMode, useWallpaper } from '@navet/app/hooks';
+import { DashboardSidebarWidthContext } from '@navet/app/hooks/use-breakpoint-cols';
 import { useEditModeStore, useNavigationStore, useSettingsStore } from '@navet/app/stores';
 import { editModeSelectors, settingsSelectors } from '@navet/app/stores/selectors';
 import { detectDeviceTier } from '@navet/app/utils/detect-device-tier';
 import { getLowestEffectsQuality } from '@navet/app/utils/effects-quality';
-import { lazy, memo, Suspense, useMemo, useState } from 'react';
+import { type CSSProperties, lazy, memo, Suspense, useMemo, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
+import { useDashboardCollectionStore } from '../dashboards/dashboard-collection-store';
 import { resolveDashboardPerformanceProfile } from '../hooks/use-dashboard-performance-mode';
+import { ScreensaverGate } from '../screensaver/screensaver-gate';
 import type { DashboardLayoutProps } from './types';
 import { useKioskRoomSwipeNavigation } from './use-kiosk-room-swipe-navigation';
 
@@ -98,15 +107,15 @@ export const DashboardLayout = memo(function DashboardLayout({
   const accentColorValue = getThemeColorValue(primaryColor);
   const contentSpacingClassName = useReducedTabletPadding
     ? showNavetSidebar
-      ? 'ml-16 gap-4 px-4 py-5 pb-6'
+      ? 'gap-4 px-4 py-5 pb-6'
       : 'gap-4 px-3 py-4 pb-24'
     : !showNavetSidebar
       ? dashboardSpaceMode === 'more_space'
         ? 'gap-3 px-1.5 py-2 pb-24 md:gap-4 md:px-3 md:py-4 md:pb-24 lg:px-4 lg:py-5 lg:pb-24'
         : 'gap-3 p-2 pb-24 md:gap-4 md:p-4 md:pb-24 lg:p-5 lg:pb-24'
       : dashboardSpaceMode === 'more_space'
-        ? 'gap-3.5 px-2.5 py-3 pb-20 md:ml-16 md:gap-6 md:px-4 md:py-6 md:pb-6 lg:px-5 lg:py-8 lg:pb-8'
-        : 'gap-3.5 p-3 pb-20 md:ml-16 md:gap-6 md:p-6 md:pb-6 lg:p-8 lg:pb-8';
+        ? 'gap-3.5 px-2.5 py-3 pb-20 md:gap-6 md:px-4 md:py-6 md:pb-6 lg:px-5 lg:py-8 lg:pb-8'
+        : 'gap-3.5 p-3 pb-20 md:gap-6 md:p-6 md:pb-6 lg:p-8 lg:pb-8';
 
   const bgColor =
     theme === 'light'
@@ -280,11 +289,41 @@ function DashboardChrome({
   showNavetSidebar: boolean;
 }) {
   const headerController = useHeaderController();
+  const activeSection = useNavigationStore((state) => state.activeSection);
+  const customAction = useNavigationStore((state) => state.activeCustomSidebarActionId);
+  const choresEnabled = useSettingsStore((state) => state.choresEnabled);
+  const storeEditing = useEditModeStore((state) => state.isEditMode);
+  const panelEditing = useDashboardCollectionStore((state) => state.companionCustomizationOpen);
+  const { sidebarWidth, expanded, companionAvailable } = useDashboardChromeLayout();
+  const collapsed = useSettingsStore((state) => state.companionCollapsed);
+  const updateSettings = useSettingsStore((state) => state.updateSettings);
+  const companion = (
+    <CompanionPanel
+      controller={headerController}
+      editing={mobileEditActions?.isEditMode ?? storeEditing}
+      onDone={mobileEditActions?.onToggleEditMode}
+    />
+  );
+  const actionsBesideRooms =
+    showNavetHeader && expanded && activeSection === 'home' && customAction === null;
 
   return (
-    <>
+    <div
+      className="min-h-[100dvh]"
+      style={{ '--dashboard-sidebar-width': `${sidebarWidth}px` } as CSSProperties}
+    >
       {showNavetSidebar ? (
         <Sidebar
+          companion={expanded ? companion : undefined}
+          companionControlsId="dashboard-companion-panel"
+          companionExpanded={expanded}
+          onToggleCompanion={
+            kioskMode || !companionAvailable
+              ? undefined
+              : () => {
+                  updateSettings({ companionCollapsed: !collapsed });
+                }
+          }
           activeColorValue={headerController.activeColorValue}
           handleClearSearch={headerController.handleClearSearch}
           handleSearchChange={headerController.handleSearchChange}
@@ -309,19 +348,54 @@ function DashboardChrome({
         onPointerCancel={kioskSwipeHandlers.onPointerCancel}
         onPointerDown={kioskSwipeHandlers.onPointerDown}
         onPointerUp={kioskSwipeHandlers.onPointerUp}
+        style={{ marginLeft: sidebarWidth }}
         className={`safe-area-pt-5 min-w-0 flex flex-col overflow-x-clip ${contentSpacingClassName}`}
       >
-        {showNavetHeader ? (
+        {showNavetHeader && !actionsBesideRooms ? (
           <Header
             controller={headerController}
+            renderNotifications={false}
             mobileEditActions={mobileEditActions}
             mobileRoomNavigation={mobileRoomNavigation}
           />
         ) : null}
+        {actionsBesideRooms ? (
+          <h1 className="sr-only">
+            {
+              getSectionNavigationItems(headerController.t, choresEnabled).find(
+                (item) => item.section === activeSection
+              )?.label
+            }
+          </h1>
+        ) : null}
         <span id="dashboard-main-content" tabIndex={-1} className="sr-only" />
-        {children}
+        <DashboardSidebarWidthContext.Provider value={sidebarWidth}>
+          <RoomNavActionsContext.Provider
+            value={
+              actionsBesideRooms ? (
+                <HeaderDashboardActions
+                  controller={headerController}
+                  editActions={mobileEditActions}
+                />
+              ) : null
+            }
+          >
+            {children}
+          </RoomNavActionsContext.Provider>
+        </DashboardSidebarWidthContext.Provider>
       </div>
-    </>
+      <ScreensaverGate editing={Boolean(mobileEditActions?.isEditMode || panelEditing)} />
+      {headerController.isNotificationOpen ? (
+        <NotificationPanel
+          isOpen
+          onClose={headerController.closeNotifications}
+          triggerRefs={[
+            headerController.desktopNotificationButtonRef,
+            headerController.mobileNotificationButtonRef,
+          ]}
+        />
+      ) : null}
+    </div>
   );
 }
 

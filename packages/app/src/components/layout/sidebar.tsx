@@ -34,6 +34,8 @@ import { roomNamesMatch } from '@navet/app/utils/room-name';
 import {
   Check,
   ChevronDown,
+  ChevronsLeft,
+  ChevronsRight,
   Compass,
   DoorOpen,
   LogOut,
@@ -46,7 +48,17 @@ import {
   Search,
   X,
 } from 'lucide-react';
-import { lazy, memo, type RefObject, Suspense, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  lazy,
+  memo,
+  type ReactNode,
+  type RefObject,
+  Suspense,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { ImageWithFallback } from '../figma/ImageWithFallback';
 import { HeaderAssistAction } from './header-assist-action';
@@ -64,6 +76,10 @@ const CustomExtensionsDialog = lazy(async () => {
 });
 
 interface SidebarProps {
+  companion?: ReactNode;
+  companionControlsId?: string;
+  companionExpanded?: boolean;
+  onToggleCompanion?: () => void;
   activeColorValue?: string;
   handleClearSearch?: () => void;
   handleSearchChange?: (value: string) => void;
@@ -82,6 +98,10 @@ interface SidebarProps {
 }
 
 export const Sidebar = memo(function Sidebar({
+  companion,
+  companionControlsId = 'dashboard-companion-panel',
+  companionExpanded = false,
+  onToggleCompanion,
   activeColorValue,
   handleClearSearch = () => {},
   handleSearchChange = () => {},
@@ -294,10 +314,10 @@ export const Sidebar = memo(function Sidebar({
       <div
         data-testid="desktop-sidebar"
         data-density={useCompactDesktopRail ? 'compact' : 'comfortable'}
-        className={`fixed left-0 top-0 hidden h-full w-16 ${surface.shellPanel} border-r md:flex z-50`}
+        className={`fixed left-0 top-0 hidden h-full w-[var(--dashboard-sidebar-width,64px)] ${surface.shellPanel} border-r md:flex z-50`}
       >
         <div
-          className={`flex w-full flex-col items-center justify-between px-0 ${
+          className={`flex w-16 shrink-0 flex-col items-center justify-between px-0 ${
             useCompactDesktopRail ? 'py-3' : 'py-5'
           }`}
         >
@@ -407,6 +427,26 @@ export const Sidebar = memo(function Sidebar({
             ) : null}
           </div>
           <div className="flex flex-col gap-4">
+            {onToggleCompanion ? (
+              <Button
+                variant="ghost"
+                size="default"
+                iconOnly
+                onClick={onToggleCompanion}
+                label={t(
+                  companionExpanded ? 'sidebar.companion.collapse' : 'sidebar.companion.expand'
+                )}
+                aria-expanded={companionExpanded}
+                aria-controls={companionControlsId}
+                className={inactiveColor}
+              >
+                {companionExpanded ? (
+                  <ChevronsLeft className="h-5 w-5" />
+                ) : (
+                  <ChevronsRight className="h-5 w-5" />
+                )}
+              </Button>
+            ) : null}
             {homeAssistantShell.canToggleKiosk ? (
               <InteractivePill
                 onClick={() => {
@@ -422,6 +462,16 @@ export const Sidebar = memo(function Sidebar({
               </InteractivePill>
             ) : null}
           </div>
+        </div>
+        <div
+          id="dashboard-companion-panel"
+          className={
+            companion
+              ? `hidden h-full min-h-0 w-[276px] shrink-0 border-l min-[1100px]:block ${surface.border}`
+              : 'hidden'
+          }
+        >
+          {companion}
         </div>
       </div>
 
