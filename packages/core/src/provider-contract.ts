@@ -72,6 +72,8 @@ export interface NavetProviderContract {
     request: NavetResourceResolveRequest
   ) => Promise<ResolvedPlatformResource> | ResolvedPlatformResource;
   normalizeResourceUrl?: (resourceUrl: string) => string | null;
+  /** Obtain a display URL, including any provider-owned asynchronous authentication. */
+  resolveDisplayResource?: (resourceUrl: string) => Promise<ResolvedPlatformResource>;
 }
 
 export interface SmartHomeProviderAdapter {

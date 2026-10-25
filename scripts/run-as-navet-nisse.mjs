@@ -44,7 +44,15 @@ async function fetchWithTimeout(url, init, fetchImpl) {
   }
 }
 
-export async function createInstallationToken({ appId, installationId, privateKey, fetchImpl = fetch }) {
+function validateRepository(repository) {
+  if (!/^[\w.-]+\/[\w.-]+$/.test(repository)) {
+    throw new Error('NAVET_NISSE_REPOSITORY must use the owner/repository format.');
+  }
+  return repository;
+}
+
+export async function createInstallationToken({ appId, installationId, privateKey, repository = DEFAULT_REPOSITORY, fetchImpl = fetch }) {
+  const repositoryName = validateRepository(repository).split('/')[1];
   const jwt = createAppJwt({ appId, privateKey });
   const response = await fetchWithTimeout(
     `${API_ROOT}/app/installations/${installationId}/access_tokens`,
@@ -55,6 +63,12 @@ export async function createInstallationToken({ appId, installationId, privateKe
         Authorization: `Bearer ${jwt}`,
         'X-GitHub-Api-Version': '2022-11-28',
       },
+      // An organization installation can cover other integrations. This runner
+      // receives access only to Navet issues and read-only PR monitoring.
+      body: JSON.stringify({
+        repositories: [repositoryName],
+        permissions: { issues: 'write', pull_requests: 'read', metadata: 'read' },
+      }),
     },
     fetchImpl
   );
@@ -67,9 +81,7 @@ export async function createInstallationToken({ appId, installationId, privateKe
 }
 
 export function parseOperation(args, repository = DEFAULT_REPOSITORY) {
-  if (!/^[\w.-]+\/[\w.-]+$/.test(repository)) {
-    throw new Error('NAVET_NISSE_REPOSITORY must use the owner/repository format.');
-  }
+  validateRepository(repository);
   const [operation, first, second, third] = args;
   if (operation === 'comment' && second === '--body-file' && third && args.length === 4) {
     const number = numeric(first, 'Issue number');
@@ -186,7 +198,7 @@ async function main() {
   }
 
   const operation = parseOperation(process.argv.slice(2), repository);
-  const token = await createInstallationToken({ appId, installationId, privateKey });
+  const token = await createInstallationToken({ appId, installationId, privateKey, repository });
   const result = await performOperation({ token, operation });
   if (result?.id) process.stdout.write(`${result.id}\n`);
 }

@@ -1,4 +1,6 @@
 import previewMediaArtwork from '@assets/reference/media/artworks-original.avif';
+import previewCameraImageAvif from '@assets/reference/media/camera-sample.avif';
+import previewCameraImage from '@assets/reference/media/camera-sample.webp';
 import { mapNavetEntitiesToDeviceCollection } from '@navet/app/core/navet-device-collections';
 import { setProviderPackageRegistrationOverride } from '@navet/app/provider-package-registry';
 import { resetProviderRuntimeRegistrationCache } from '@navet/app/provider-runtime-registry';
@@ -14,6 +16,7 @@ import type {
   PlatformTaskRuntimeSnapshot,
 } from '@navet/core/provider-feature-models';
 import type {
+  ProviderCalendarFeatureService,
   ProviderClimateFeatureService,
   ProviderHistoryFeatureService,
   ProviderLightFeatureService,
@@ -738,10 +741,10 @@ function createPreviewScenario(): PreviewRuntimeScenario {
       'idle',
       {
         value: 'idle',
-        entityPicture: '/assets/reference/media/camera-sample.webp',
+        entityPicture: previewCameraImage,
         entityPictureSources: [
-          { srcSet: '/assets/reference/media/camera-sample.avif', type: 'image/avif' },
-          { srcSet: '/assets/reference/media/camera-sample.webp', type: 'image/webp' },
+          { srcSet: previewCameraImageAvif, type: 'image/avif' },
+          { srcSet: previewCameraImage, type: 'image/webp' },
         ],
         supportedFeatures: 0,
         isStreamCapable: false,
@@ -1296,6 +1299,38 @@ async function executePreviewCommand(entity: NavetEntity, command: NavetCommand)
   );
 }
 
+const previewCalendarFeatureService: ProviderCalendarFeatureService = {
+  getCapabilities: (entityId) => ({
+    canCreate: false,
+    available:
+      getActiveScenario()?.entities.some(
+        (entity) =>
+          entity.type === 'calendar' &&
+          (entity.externalId === entityId || entity.canonicalId === entityId) &&
+          entity.availability === 'available'
+      ) ?? false,
+  }),
+  getEvents: async (entityId) => {
+    const entity = getActiveScenario()?.entities.find(
+      (entity) =>
+        entity.type === 'calendar' &&
+        (entity.externalId === entityId || entity.canonicalId === entityId)
+    );
+    const events = entity?.attributes.events;
+    if (entity?.availability !== 'available' || !Array.isArray(events)) return [];
+    return events.flatMap((event) => {
+      if (!event || typeof event !== 'object') return [];
+      return [
+        {
+          ...event,
+          start: event.startDateTime ?? event.start,
+          end: event.endDateTime ?? event.end,
+        },
+      ];
+    });
+  },
+};
+
 const previewLightFeatureService: ProviderLightFeatureService = {
   updateLight: async (entityId, options) => {
     updatePreviewEntity(entityId, (entity) => ({
@@ -1531,7 +1566,17 @@ const previewMediaFeatureService: ProviderMediaFeatureService = {
   selectMediaPlayerSoundMode: async () => undefined,
   seekMediaPlayer: async () => undefined,
   clearMediaPlayerPlaylist: async () => undefined,
-  updateMediaPlayerPower: async () => undefined,
+  updateMediaPlayerPower: async (entityId, state) => {
+    updatePreviewEntity(entityId, (entity) => ({
+      ...entity,
+      primaryState: state === 'on' ? 'idle' : 'off',
+      attributes: {
+        ...entity.attributes,
+        value: state === 'on' ? 'idle' : 'off',
+        isPoweredOn: state === 'on',
+      },
+    }));
+  },
   sendRemoteCommand: async () => undefined,
   browseMediaSource: async (mediaContentId) => getPreviewMediaBrowseResult(mediaContentId),
   resolveMediaSource: async (mediaContentId) => ({ url: mediaContentId }),
@@ -1768,6 +1813,7 @@ const previewProviderPackageRegistration: ProviderPackageRegistration = {
     },
     lightFeatureService: previewLightFeatureService,
     climateFeatureService: previewClimateFeatureService,
+    calendarFeatureService: previewCalendarFeatureService,
     mediaFeatureService: previewMediaFeatureService,
     securityFeatureService: previewSecurityFeatureService,
     historyFeatureService: previewHistoryFeatureService,

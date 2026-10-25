@@ -11,7 +11,7 @@ instead of requiring each option to be changed separately.
 
 ## Apply the preset
 
-1. Open **Settings → Dashboard** on the display.
+1. Open **Settings → Display & controls** on the display.
 2. Under **Display preset**, choose **Wall display**.
 
 The preset enables:
@@ -23,7 +23,7 @@ The preset enables:
 - The Home summary bar.
 
 The preset applies to the current device. To reuse the same display behavior elsewhere, use
-**Settings → System → Device settings** to copy it once or link a group of
+**Settings → Display & controls → Device settings** to copy it once or link a group of
 screens.
 
 ## Use Navet in kiosk mode
@@ -44,6 +44,17 @@ Kiosk control provides:
 Open **Kiosk behavior** to enable **Swipe between rooms**. Swipes work on empty dashboard space so
 they do not replace normal card gestures.
 
+## Show information while idle
+
+Enable **Settings → Appearance → Wallpaper → Screensaver** for an idle clock, weather, triggered-alarm
+alerts, and active timers. It is off by default. Choose its idle delay and background in the dialog. Tap or press a
+key to dismiss it. Keep-awake is a separate setting; enabling the screensaver does not prevent the
+device from sleeping. See [Screensaver mode](/guide/dashboards/customize-home/#screensaver-mode)
+for preview, source selection, and conditions that delay entry.
+
+For persistent controls on a supported landscape screen, configure the
+[side panel](/guide/dashboards/customize-home/#customize-the-side-panel).
+
 ## Home Assistant header and sidebar
 
 Navet kiosk mode controls Navet's own chrome. In Home Assistant-hosted modes, hiding Home
@@ -55,7 +66,7 @@ the [Home Assistant installation guide](/install/home-assistant/).
 1. Open **Kiosk control** from the bottom-right **More** button.
 2. Choose **Exit kiosk mode**.
 
-You can also open **Settings → Dashboard** and choose the **Standard** display preset.
+You can also open **Settings → Display & controls** and choose the **Standard** display preset.
 
 Keep this recovery path available before mounting a tablet where browser controls are difficult to
 reach.

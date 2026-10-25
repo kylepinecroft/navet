@@ -11,12 +11,15 @@ configuration.
 
 ## Export a backup
 
-1. Open **Settings → Dashboard**.
+1. Open **Settings → System**.
 2. Find **Local config backup**.
 3. Choose **Export config**.
 4. Store the downloaded file somewhere you control.
 
-The export contains dashboard configuration. It is not a backup of your smart-home provider.
+The export contains dashboard configuration. Chores use their own **Export chores** and
+**Download backup** actions in **Household → Settings → Data and recovery**; follow
+[Manage and recover household chores](/guide/everyday-control/manage-household-chores/#export-chore-configuration).
+Back up provider-owned data, including shopping lists and calendar events, through the provider.
 
 ## Import a backup
 

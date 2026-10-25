@@ -1,3 +1,7 @@
+import {
+  isScreensaverBackground,
+  isScreensaverIdleMinutes,
+} from '@navet/app/constants/screensaver-options';
 import type { UserSettings } from '@navet/app/stores/settings-store';
 
 export const DEVICE_DISPLAY_PROFILE_SCHEMA_VERSION = 1 as const;
@@ -7,6 +11,11 @@ export const DEVICE_DISPLAY_SETTING_KEYS = [
   'headerTitleMode',
   'headerCustomText',
   'keepDeviceAwake',
+  'screensaverEnabled',
+  'screensaverIdleMinutes',
+  'screensaverBackground',
+  'companionEnabled',
+  'companionCollapsed',
   'compactMode',
   'kioskMode',
   'kioskSwipeRooms',
@@ -45,6 +54,9 @@ const DISPLAY_PROFILE_VALUE_SETS: Partial<Record<DeviceDisplaySettingKey, Readon
 };
 const BOOLEAN_DISPLAY_SETTINGS = new Set<DeviceDisplaySettingKey>([
   'keepDeviceAwake',
+  'screensaverEnabled',
+  'companionEnabled',
+  'companionCollapsed',
   'compactMode',
   'kioskMode',
   'kioskSwipeRooms',
@@ -62,6 +74,8 @@ function sanitizeDisplaySetting(
   key: DeviceDisplaySettingKey,
   value: unknown
 ): UserSettings[DeviceDisplaySettingKey] | undefined {
+  if (key === 'screensaverIdleMinutes') return isScreensaverIdleMinutes(value) ? value : undefined;
+  if (key === 'screensaverBackground') return isScreensaverBackground(value) ? value : undefined;
   if (BOOLEAN_DISPLAY_SETTINGS.has(key)) {
     return (typeof value === 'boolean' ? value : undefined) as
       | UserSettings[DeviceDisplaySettingKey]

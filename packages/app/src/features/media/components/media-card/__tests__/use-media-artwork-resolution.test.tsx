@@ -1,8 +1,9 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { fetchMediaThumbnailDataUrlMock } = vi.hoisted(() => ({
+const { fetchMediaThumbnailDataUrlMock, signPathMock } = vi.hoisted(() => ({
   fetchMediaThumbnailDataUrlMock: vi.fn(),
+  signPathMock: vi.fn(),
 }));
 
 vi.mock('@navet/app/features/media/utils/media-thumbnail', () => ({
@@ -12,11 +13,13 @@ vi.mock('@navet/app/features/media/utils/media-thumbnail', () => ({
 vi.mock('@navet/app/services/home-assistant.service', () => ({
   homeAssistantService: {
     getConnection: vi.fn(),
+    signPath: signPathMock,
   },
 }));
 
 import { useMediaArtworkResolution } from '@navet/app/features/media/components/media-card/use-media-artwork-resolution';
 import * as mediaArtworkHookModule from '@navet/app/features/media/hooks/use-media-artwork';
+import * as resourceUrlHookModule from '@navet/app/hooks/use-resource-url';
 import { mediaArtworkService } from '@navet/app/infrastructure/home-assistant/home-assistant-shared-infrastructure';
 import { resetRuntimeContextForTests } from '@navet/app/infrastructure/home-assistant/runtime/runtime-detector';
 
@@ -31,6 +34,9 @@ function installRuntimeProxyConfig() {
 }
 
 function installIngressBase(addonSlug = 'navet_dev') {
+  signPathMock.mockImplementation(async (path: string) => ({
+    path: `${path}?authSig=current-user-signature`,
+  }));
   const base = document.createElement('base');
   base.href = `${window.location.origin}/api/hassio_ingress/${addonSlug}/`;
   document.head.append(base);
@@ -43,10 +49,20 @@ function expectFetchUrl(fetchMock: ReturnType<typeof vi.spyOn>, expectedUrl: str
 }
 
 describe('useMediaArtworkResolution', () => {
+  // Keep: exercise real provider resolution. Load the lazy modules before the
+  // assertion clock starts so a cold CI transform cannot consume waitFor's budget.
+  beforeAll(async () => {
+    await Promise.all([
+      import('@navet/app/services/integration-resource.service'),
+      import('@navet/app/services/resource-url-observer'),
+    ]);
+  });
+
   beforeEach(() => {
     document.querySelector('base')?.remove();
     window.history.replaceState(null, '', '/');
     fetchMediaThumbnailDataUrlMock.mockReset();
+    signPathMock.mockReset();
     vi.restoreAllMocks();
     window.__NAVET_PANEL__ = false;
     window.__NAVET_CONFIG__ = undefined;
@@ -101,9 +117,8 @@ describe('useMediaArtworkResolution', () => {
       })
     );
 
-    expect(result.current.albumArt).toBe(
-      '/__navet_ha_proxy__/api/media_player_proxy/media_player.living_room?token=stale-token&cache=artwork-hash'
-    );
+    // Rewrite: wait for asynchronous provider resolution before exposing a display URL.
+    expect(result.current.albumArt).toBeNull();
   });
 
   it('uses websocket thumbnail data before panel-mode media proxy fallback artwork', async () => {
@@ -214,6 +229,37 @@ describe('useMediaArtworkResolution', () => {
     });
   });
 
+  it('uses renewed display artwork instead of retaining an expiring primary result', () => {
+    vi.spyOn(mediaArtworkHookModule, 'useMediaArtwork').mockReturnValue({
+      id: 'media_player.kitchen',
+      kind: 'image',
+      cacheKey: 'artwork',
+      authStrategy: 'none',
+      url: '/api/image?authSig=old',
+      expiresAt: Date.now() + 30_000,
+    });
+    const displayUrl = vi
+      .spyOn(resourceUrlHookModule, 'useResourceUrl')
+      .mockReturnValue('/api/image?authSig=first');
+    const { result, rerender } = renderHook(() =>
+      useMediaArtworkResolution({
+        entityId: 'media_player.kitchen',
+        providerId: 'home_assistant',
+        liveEntityPicture: '/api/image',
+      })
+    );
+    expect(result.current.albumArt).toBe('/api/image?authSig=first');
+    act(() => result.current.handleArtworkError('/api/image?authSig=first'));
+    expect(result.current.albumArt).toBeNull();
+    displayUrl.mockReturnValue('/api/image?authSig=renewed');
+    rerender();
+    expect(result.current.albumArt).toBe('/api/image?authSig=renewed');
+    expect(result.current.artworkResource).toBeNull();
+    displayUrl.mockReturnValue(null);
+    rerender();
+    expect(result.current.albumArt).toBeNull();
+  });
+
   it('preserves direct fallback artwork when resource resolution is unavailable', async () => {
     vi.spyOn(mediaArtworkHookModule, 'useMediaArtwork').mockReturnValue({
       id: 'media_player.storybook',
@@ -297,7 +343,8 @@ describe('useMediaArtworkResolution', () => {
     expectFetchUrl(fetchMock, '/__navet_ha_proxy__/api/media_player_proxy/media_player.kitchen');
   });
 
-  it('fetches add-on ingress media proxy artwork through the ingress-aware proxy when runtime HA config exists', async () => {
+  // Rewrite: Ingress artwork uses user-signed host URLs; privileged add-on proxying is forbidden.
+  it('fetches user-signed Ingress artwork directly from Home Assistant when runtime HA config exists', async () => {
     installIngressBase();
     installRuntimeProxyConfig();
     fetchMediaThumbnailDataUrlMock.mockResolvedValue(null);
@@ -320,14 +367,15 @@ describe('useMediaArtworkResolution', () => {
 
     await waitFor(() => {
       expect(result.current.albumArt).toBe('blob:http://navet.local/addon-album-art');
+      expect(result.current.artworkResource?.expiresAt).toBeUndefined();
     });
     expectFetchUrl(
       fetchMock,
-      '/api/hassio_ingress/navet_dev/__navet_ha_proxy__/api/media_player_proxy/media_player.kitchen'
+      '/api/media_player_proxy/media_player.kitchen?authSig=current-user-signature'
     );
   });
 
-  it('fetches absolute Home Assistant artwork through the add-on ingress proxy when runtime HA config exists', async () => {
+  it('fetches absolute Home Assistant artwork through a user-signed host URL in Ingress', async () => {
     installIngressBase();
     installRuntimeProxyConfig();
     fetchMediaThumbnailDataUrlMock.mockResolvedValue(null);
@@ -356,11 +404,11 @@ describe('useMediaArtworkResolution', () => {
     });
     expectFetchUrl(
       fetchMock,
-      '/api/hassio_ingress/navet_dev/__navet_ha_proxy__/api/media_player_proxy/media_player.kitchen'
+      '/api/media_player_proxy/media_player.kitchen?authSig=current-user-signature'
     );
   });
 
-  it('fetches add-on media proxy artwork through the ingress proxy when runtime HA config is empty', async () => {
+  it('fetches user-signed Ingress artwork when runtime HA config is empty', async () => {
     installIngressBase();
     fetchMediaThumbnailDataUrlMock.mockResolvedValue(null);
     vi.spyOn(URL, 'createObjectURL').mockReturnValue(
@@ -387,11 +435,11 @@ describe('useMediaArtworkResolution', () => {
     });
     expectFetchUrl(
       fetchMock,
-      '/api/hassio_ingress/navet_dev/__navet_ha_proxy__/api/media_player_proxy/media_player.kitchen'
+      '/api/media_player_proxy/media_player.kitchen?authSig=current-user-signature'
     );
   });
 
-  it('keeps add-on ingress proxy artwork when empty-runtime artwork fetch fails', async () => {
+  it('keeps the user-signed host URL when empty-runtime Ingress artwork fetch fails', async () => {
     installIngressBase();
     fetchMediaThumbnailDataUrlMock.mockResolvedValue(null);
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('fetch failed'));
@@ -409,11 +457,11 @@ describe('useMediaArtworkResolution', () => {
     });
     expectFetchUrl(
       fetchMock,
-      '/api/hassio_ingress/navet_dev/__navet_ha_proxy__/api/media_player_proxy/media_player.kitchen'
+      '/api/media_player_proxy/media_player.kitchen?authSig=current-user-signature'
     );
     await waitFor(() => {
       expect(result.current.albumArt).toBe(
-        '/api/hassio_ingress/navet_dev/__navet_ha_proxy__/api/media_player_proxy/media_player.kitchen'
+        '/api/media_player_proxy/media_player.kitchen?authSig=current-user-signature'
       );
     });
   });
@@ -865,7 +913,7 @@ describe('useMediaArtworkResolution', () => {
     );
   });
 
-  it('keeps resolved proxy artwork when blob normalization fails despite returning 200', async () => {
+  it('keeps the user-signed host URL when Ingress blob normalization fails despite returning 200', async () => {
     installIngressBase();
     installRuntimeProxyConfig();
     fetchMediaThumbnailDataUrlMock.mockResolvedValue(null);
@@ -893,7 +941,7 @@ describe('useMediaArtworkResolution', () => {
       expect(createImageBitmapMock).toHaveBeenCalled();
     });
     expect(result.current.albumArt).toBe(
-      '/api/hassio_ingress/navet_dev/__navet_ha_proxy__/api/media_player_proxy/media_player.kitchen'
+      '/api/media_player_proxy/media_player.kitchen?authSig=current-user-signature'
     );
   });
 

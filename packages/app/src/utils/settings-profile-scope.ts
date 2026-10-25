@@ -1,3 +1,7 @@
+import {
+  isScreensaverBackground,
+  isScreensaverIdleMinutes,
+} from '@navet/app/constants/screensaver-options';
 import { isCredentialBearingUrl as isCredentialBearingSettingsUrl } from '@navet/core/credential-policy';
 
 export {
@@ -46,6 +50,11 @@ export const SETTINGS_PROFILE_CLASSIFICATION = {
   temperatureUnit: 'account',
   defaultView: 'account',
   compactMode: 'device',
+  screensaverEnabled: 'device',
+  screensaverIdleMinutes: 'device',
+  screensaverBackground: 'device',
+  companionEnabled: 'device',
+  companionCollapsed: 'device',
   kioskMode: 'device',
   kioskSwipeRooms: 'device',
   dashboardProfileMode: 'device',
@@ -124,6 +133,9 @@ const BOOLEAN_SETTINGS = new Set<keyof UserSettings>([
   'preventBrowserZoom',
   'use24HourTime',
   'compactMode',
+  'screensaverEnabled',
+  'companionEnabled',
+  'companionCollapsed',
   'kioskMode',
   'kioskSwipeRooms',
   'disableAnimations',
@@ -154,6 +166,8 @@ function sanitizeRecordValues(
 }
 
 function sanitizeSettingValue(key: keyof UserSettings, value: unknown): unknown {
+  if (key === 'screensaverIdleMinutes') return isScreensaverIdleMinutes(value) ? value : undefined;
+  if (key === 'screensaverBackground') return isScreensaverBackground(value) ? value : undefined;
   if (BOOLEAN_SETTINGS.has(key)) {
     return typeof value === 'boolean' ? value : undefined;
   }

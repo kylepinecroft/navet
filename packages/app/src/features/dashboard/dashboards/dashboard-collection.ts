@@ -1,7 +1,9 @@
 import type { CardSize } from '@navet/app/components/shared/card-size-selector';
 import { HOME_WIDGET_ROOM, isAllRooms } from '@navet/app/constants/rooms';
 import { ensureCanonicalEntityId } from '@navet/app/utils/provider-entity-id';
+import { parseProviderScopedId } from '@navet/app/utils/provider-ids';
 import { normalizeRoomName } from '@navet/app/utils/room-name';
+import { isRoomWorkspaceRoomId } from '../rooms/room-workspace-v2';
 import type { CustomCard } from '../stores/custom-cards-store';
 import type {
   HomeDashboardLayoutState,
@@ -22,12 +24,185 @@ const MAX_DASHBOARD_ROOM_COUNT = 200;
 
 export type DashboardId = string;
 
+export type CompanionCardType =
+  | 'clock'
+  | 'greeting'
+  | 'camera'
+  | 'weather'
+  | 'security'
+  | 'calendar'
+  | 'chores'
+  | 'entity'
+  | 'note';
+export interface CompanionCard {
+  id: string;
+  type: CompanionCardType;
+  /** Undefined uses an automatic source for camera/weather. */
+  entityId?: string;
+  text?: string;
+  size?: 'small' | 'medium-vertical';
+}
+
+export interface DashboardCompanionSettings {
+  /** Ordered panel content. Absent on older dashboards; [] is intentionally empty. */
+  cards?: CompanionCard[];
+  /** Undefined selects the first source; null hides the item. */
+  cameraEntityId?: string | null;
+  weatherEntityId?: string | null;
+  showSecurity: boolean;
+}
+
+export const DEFAULT_DASHBOARD_COMPANION: DashboardCompanionSettings = { showSecurity: true };
+export type RoomCompanionMode = 'dashboard' | 'room';
+
+function sanitizeRoomCompanionModes(value: unknown): Record<string, RoomCompanionMode> | undefined {
+  if (!isRecord(value)) return undefined;
+  const entries = Object.entries(value)
+    .filter((entry): entry is [string, RoomCompanionMode] => {
+      const [roomId, mode] = entry;
+      return isRoomWorkspaceRoomId(roomId) && (mode === 'dashboard' || mode === 'room');
+    })
+    .slice(0, MAX_DASHBOARD_ROOM_COUNT);
+  return entries.length ? Object.fromEntries(entries) : undefined;
+}
+
+export function isRoomCompanionSelected(
+  dashboard: NavetDashboardDefinition | undefined,
+  roomId: string | null
+): boolean {
+  // Existing saved room panels predate explicit selection and remain selected on upgrade.
+  return Boolean(
+    roomId &&
+      dashboard?.roomCompanions?.[roomId] &&
+      dashboard.roomCompanionModes?.[roomId] !== 'dashboard'
+  );
+}
+
+export function sanitizeRoomCompanions(
+  value: unknown
+): Record<string, DashboardCompanionSettings> | undefined {
+  if (!isRecord(value)) return undefined;
+  const entries = Object.entries(value)
+    .filter(([roomId, settings]) => isRoomWorkspaceRoomId(roomId) && isRecord(settings))
+    .slice(0, MAX_DASHBOARD_ROOM_COUNT)
+    .map(([roomId, settings]) => [roomId, sanitizeDashboardCompanion(settings)]);
+  return entries.length ? Object.fromEntries(entries) : undefined;
+}
+
+export function resolveDashboardCompanion(
+  dashboard: NavetDashboardDefinition | undefined,
+  roomId: string | null = null
+): DashboardCompanionSettings {
+  return (
+    (roomId && isRoomCompanionSelected(dashboard, roomId)
+      ? dashboard?.roomCompanions?.[roomId]
+      : undefined) ??
+    dashboard?.companion ??
+    DEFAULT_DASHBOARD_COMPANION
+  );
+}
+
+export function sanitizeDashboardCompanion(value: unknown): DashboardCompanionSettings {
+  const input = value && typeof value === 'object' ? (value as Record<string, unknown>) : {};
+  const selection = (key: string) => {
+    if (input[key] === null) return null;
+    if (typeof input[key] !== 'string' || input[key].length > 256) return undefined;
+    const id = ensureCanonicalEntityId(input[key].trim());
+    return parseProviderScopedId(id) ? id : undefined;
+  };
+  const seen = new Set<string>();
+  const types = new Set([
+    'clock',
+    'greeting',
+    'camera',
+    'weather',
+    'security',
+    'calendar',
+    'chores',
+    'entity',
+    'note',
+  ]);
+  const cards = Array.isArray(input.cards)
+    ? input.cards.slice(0, 64).flatMap((raw): CompanionCard[] => {
+        if (!raw || typeof raw !== 'object') return [];
+        const card = raw as Record<string, unknown>;
+        if (
+          typeof card.id !== 'string' ||
+          !/^[a-zA-Z0-9_-]{1,80}$/.test(card.id) ||
+          seen.has(card.id) ||
+          !types.has(String(card.type))
+        )
+          return [];
+        const entityId =
+          typeof card.entityId === 'string' && card.entityId.length <= 256
+            ? ensureCanonicalEntityId(card.entityId.trim())
+            : undefined;
+        if (
+          (card.type === 'entity' || card.entityId !== undefined) &&
+          (!entityId || !parseProviderScopedId(entityId))
+        )
+          return [];
+        seen.add(card.id);
+        return [
+          {
+            id: card.id,
+            type: card.type as CompanionCardType,
+            ...(entityId && parseProviderScopedId(entityId) ? { entityId } : {}),
+            ...(typeof card.text === 'string' ? { text: card.text.slice(0, 4000) } : {}),
+            ...(card.size === 'small' || card.size === 'medium-vertical'
+              ? { size: card.size }
+              : {}),
+          },
+        ];
+      })
+    : undefined;
+  return {
+    ...(cards ? { cards } : {}),
+    cameraEntityId: selection('cameraEntityId'),
+    weatherEntityId: selection('weatherEntityId'),
+    showSecurity: typeof input.showSecurity === 'boolean' ? input.showSecurity : true,
+  };
+}
+
+/** Preserve legacy source choices until the panel is first edited. */
+export function getCompanionCards(settings: DashboardCompanionSettings): CompanionCard[] {
+  if (settings.cards) return settings.cards;
+  return [
+    { id: 'greeting', type: 'greeting' },
+    { id: 'clock', type: 'clock' },
+    ...(settings.cameraEntityId !== null
+      ? [
+          {
+            id: 'camera',
+            type: 'camera' as const,
+            ...(settings.cameraEntityId ? { entityId: settings.cameraEntityId } : {}),
+          },
+        ]
+      : []),
+    ...(settings.weatherEntityId !== null
+      ? [
+          {
+            id: 'weather',
+            type: 'weather' as const,
+            ...(settings.weatherEntityId ? { entityId: settings.weatherEntityId } : {}),
+          },
+        ]
+      : []),
+    ...(settings.showSecurity ? [{ id: 'security', type: 'security' as const }] : []),
+  ];
+}
+
 export interface NavetDashboardDefinition {
   id: DashboardId;
   name: string;
   icon: string;
   createdAt: string;
   updatedAt: string;
+  companion?: DashboardCompanionSettings;
+  /** Saved panels keyed by stable room IDs, retained while the common panel is selected. */
+  roomCompanions?: Record<string, DashboardCompanionSettings>;
+  /** Absent selections retain the legacy behavior: a saved room panel is selected. */
+  roomCompanionModes?: Record<string, RoomCompanionMode>;
   homeRoomNames: string[] | null;
   homeLayout: HomeDashboardLayoutState;
   homeCardSizes: Record<string, CardSize>;
@@ -363,6 +538,16 @@ export function createDashboardDefinition(input: DashboardCreateInput): NavetDas
     icon: input.icon ?? 'layout-dashboard',
     createdAt: now,
     updatedAt: now,
+    companion:
+      source.kind === 'copy'
+        ? sanitizeDashboardCompanion(source.dashboard.companion)
+        : { ...DEFAULT_DASHBOARD_COMPANION },
+    ...(source.kind === 'copy' && source.dashboard.roomCompanions
+      ? { roomCompanions: sanitizeRoomCompanions(source.dashboard.roomCompanions) }
+      : {}),
+    ...(source.kind === 'copy' && source.dashboard.roomCompanionModes
+      ? { roomCompanionModes: sanitizeRoomCompanionModes(source.dashboard.roomCompanionModes) }
+      : {}),
     homeRoomNames,
     homeLayout,
     homeCardSizes,
@@ -449,6 +634,13 @@ export function sanitizeDashboardCollection(
               : 'layout-dashboard',
           createdAt,
           updatedAt,
+          companion: sanitizeDashboardCompanion(rawDefinition.companion),
+          ...(rawDefinition.roomCompanions
+            ? { roomCompanions: sanitizeRoomCompanions(rawDefinition.roomCompanions) }
+            : {}),
+          ...(rawDefinition.roomCompanionModes
+            ? { roomCompanionModes: sanitizeRoomCompanionModes(rawDefinition.roomCompanionModes) }
+            : {}),
           homeRoomNames: sanitizeDashboardRoomNames(rawDefinition.homeRoomNames),
           homeLayout,
           homeCardSizes: sanitizeCardSizes(rawDefinition.homeCardSizes, allowedIds),

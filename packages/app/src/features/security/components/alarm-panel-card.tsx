@@ -13,6 +13,11 @@ import {
   InteractivePill,
 } from '@navet/app/components/primitives';
 import type { CardSize } from '@navet/app/components/shared/card-size-selector';
+import {
+  type EntityCardDialogControl,
+  useEntityCardDialogState,
+} from '@navet/app/components/shared/entity-card-dialog';
+import { useEntityCardInteractionController } from '@navet/app/components/shared/entity-card-interaction-controller';
 import { withTintAlpha } from '@navet/app/components/shared/theme/custom-card-tint-surface';
 import { getThemeSurfaceTokens } from '@navet/app/components/shared/theme/theme-surface-tokens';
 import {
@@ -51,12 +56,15 @@ import {
 } from 'lucide-react';
 import { type CSSProperties, useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
+import { getAlarmStateLabel } from '../utils/alarm-state-label';
 import {
   getSecurityCardSurfaceTokens,
   getSecurityStateSurfaceProps,
 } from './security-card-surface-tokens';
 
 interface SecurityPanelCardProps {
+  dialog?: EntityCardDialogControl;
+  isEditMode?: boolean;
   alarms: NavetAlarmEntity[];
   size?: Extract<CardSize, 'medium' | 'large' | 'extra-large'>;
   presentation?: 'card' | 'compact';
@@ -99,35 +107,6 @@ function compareAlarms(left: NavetAlarmEntity, right: NavetAlarmEntity) {
   }
 
   return left.name.localeCompare(right.name);
-}
-
-function getAlarmStateLabel(state: NavetAlarmEntity['state'], t: TranslateFn) {
-  switch (state) {
-    case 'disarmed':
-      return t('security.alarm.state.disarmed');
-    case 'armed_home':
-      return t('security.alarm.state.armedHome');
-    case 'armed_away':
-      return t('security.alarm.state.armedAway');
-    case 'armed_night':
-      return t('security.alarm.state.armedNight');
-    case 'armed_vacation':
-      return t('security.alarm.state.armedVacation');
-    case 'armed_custom_bypass':
-      return t('security.alarm.state.customBypass');
-    case 'arming':
-      return t('security.alarm.state.arming');
-    case 'pending':
-      return t('security.alarm.state.pending');
-    case 'disarming':
-      return t('security.alarm.state.disarming');
-    case 'triggered':
-      return t('security.alarm.state.triggered');
-    case 'unavailable':
-      return t('common.unavailable');
-    default:
-      return t('security.alarm.state.unknown');
-  }
 }
 
 function getAlarmStateTone(state: NavetAlarmEntity['state']) {
@@ -530,6 +509,8 @@ export function SecurityPanelCard({
   alarms,
   size = 'large',
   presentation = 'card',
+  isEditMode = false,
+  dialog,
 }: SecurityPanelCardProps) {
   const { t } = useI18n();
   const sortedAlarms = useMemo(() => [...alarms].sort(compareAlarms), [alarms]);
@@ -541,7 +522,7 @@ export function SecurityPanelCard({
   const [pendingAction, setPendingAction] = useState<PendingActionState>(null);
   const [postSubmitAction, setPostSubmitAction] = useState<PendingActionState>(null);
   const [triggerAction, setTriggerAction] = useState<{ alarmId: string } | null>(null);
-  const [moreActionsOpen, setMoreActionsOpen] = useState(false);
+  const [moreActionsOpen, setMoreActionsOpen] = useEntityCardDialogState(dialog);
   const { theme, colors, accentColor } = useTheme();
   const securitySurface = getSecurityCardSurfaceTokens(theme);
 
@@ -571,6 +552,13 @@ export function SecurityPanelCard({
     () => sortedAlarms.find((alarm) => alarm.id === selectedAlarmId) ?? sortedAlarms[0] ?? null,
     [selectedAlarmId, sortedAlarms]
   );
+
+  const interaction = useEntityCardInteractionController({
+    ariaLabel: t('providerDetails.controls', { name: selectedAlarm?.name ?? '' }),
+    isEditMode: isEditMode || !selectedAlarm || isAlarmUnavailable(selectedAlarm),
+    onOpenControls: () => setMoreActionsOpen(true),
+    onOpenSettings: () => setMoreActionsOpen(true),
+  });
 
   if (!selectedAlarm) {
     return null;
@@ -797,8 +785,9 @@ export function SecurityPanelCard({
           }
         }
       `}</style>
-      {presentation === 'compact' ? (
+      {dialog ? null : presentation === 'compact' ? (
         <BaseCard
+          {...interaction.cardProps}
           size="large"
           fullBleed
           role="group"
@@ -871,6 +860,7 @@ export function SecurityPanelCard({
         </BaseCard>
       ) : (
         <BaseCard
+          {...interaction.cardProps}
           size={size}
           title={selectedAlarm.name}
           subtitle={getAlarmStateLabel(selectedAlarm.state, t)}
@@ -993,6 +983,7 @@ export function SecurityPanelCard({
       <BaseCardDialog
         variant="modal"
         titleInContent
+        onCloseAutoFocus={dialog?.onCloseAutoFocus}
         isOpen={moreActionsOpen}
         onOpenChange={setMoreActionsOpen}
         title={t('security.alarm.controls')}
@@ -1010,7 +1001,7 @@ export function SecurityPanelCard({
             editableTitle={false}
           />
           <div className="grid gap-2 sm:grid-cols-2">
-            {secondaryActions.map((action) => renderActionButton(action))}
+            {supportedActions.map((action) => renderActionButton(action))}
           </div>
         </CardDialogBody>
       </BaseCardDialog>

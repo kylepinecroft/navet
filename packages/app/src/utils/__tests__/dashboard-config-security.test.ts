@@ -336,6 +336,41 @@ describe('dashboard-config import hardening', () => {
     expect(exported.homeDashboardLayout).not.toHaveProperty('version');
   });
 
+  it('round-trips dashboard companion selections without sharing the device collapse state', () => {
+    const state = useDashboardCollectionStore.getState();
+    state.updateCompanion(state.activeDashboardId, {
+      cameraEntityId: 'home_assistant:camera.front',
+      weatherEntityId: null,
+      showSecurity: false,
+    });
+    state.updateRoomCompanion(state.activeDashboardId, 'room_kitchen1', {
+      cards: [],
+      showSecurity: false,
+    });
+    state.selectRoomCompanion(state.activeDashboardId, 'room_kitchen1', 'dashboard');
+    useSettingsStore.getState().updateSettings({ companionCollapsed: true });
+    const exported = exportDashboardConfig();
+    expect(exported.dashboards?.dashboardsById.home.companion).toEqual({
+      cameraEntityId: 'home_assistant:camera.front',
+      weatherEntityId: null,
+      showSecurity: false,
+    });
+    useDashboardCollectionStore.getState().resetCollection();
+    importDashboardConfig({ ...baseConfig, dashboards: exported.dashboards });
+    expect(useDashboardCollectionStore.getState().collection.dashboardsById.home.companion).toEqual(
+      { cameraEntityId: 'home_assistant:camera.front', weatherEntityId: null, showSecurity: false }
+    );
+    expect(useSettingsStore.getState().companionCollapsed).toBe(true);
+    expect(
+      useDashboardCollectionStore.getState().collection.dashboardsById.home.roomCompanions
+    ).toEqual({
+      room_kitchen1: { cards: [], showSecurity: false },
+    });
+    expect(
+      useDashboardCollectionStore.getState().collection.dashboardsById.home.roomCompanionModes
+    ).toEqual({ room_kitchen1: 'dashboard' });
+  });
+
   it('round-trips each dashboard room-navigation scope', () => {
     useDashboardCollectionStore.getState().createDashboard({
       id: 'upstairs',

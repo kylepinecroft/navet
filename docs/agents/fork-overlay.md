@@ -2,7 +2,7 @@
 
 This checkout is `kylepinecroft/navet`, a fork of [`navet-app/navet`](https://github.com/navet-app/navet).
 
-- **Last synced:** upstream `v0.18.4`
+- **Last synced:** upstream `v0.19.1`
 - **Remote:** `upstream` → `https://github.com/navet-app/navet.git`
 
 Keep this file current. It is the routing list for new fork features and for upstream merges. Do not turn it into a design doc or a hunk-by-hunk patch archive.
@@ -50,6 +50,7 @@ Record the decision under **Overlap decisions** in the same sync.
 
 ## Overlap decisions
 
+- **2026-10-25 — Greeting name.** Upstream `v0.19.1` moved header title settings into Interaction and added a side-panel greeting card that addressed the provider user's first name. Decision: keep the greeting-name overlay and wire it through the header and side panel. `headerGreetingName` remains the name inside automatic time-of-day greetings, with sanitize-on-change and normalize-on-blur. Card text and header `custom_text` still win. Per-entity display names stay.
 - **2026-10-04 — Dashboard-local room names.** Upstream `v0.17.6` already renames rooms with `renameRoomWorkspaceRoomV2` and `RoomWorkspaceNameMode` in `packages/app/src/features/dashboard/rooms/room-workspace-v2.ts`. Decision: toss the overlay and use upstream only. Deleted `resetRoomWorkspaceRoomNameV2`, `packages/app/src/features/dashboard/rooms/components/room-bar-customize-dialog.tsx`, the room-bar customize control in `room-nav.tsx`, and locale keys `dashboard.roomsWorkspace.useOriginalName` and `dashboard.roomNav.customizeRooms*`.
 
 ## Features
@@ -72,11 +73,11 @@ Each dashboard can use a global or local summary bar.
 
 ### Greeting name and display overrides
 
-Custom header greeting and per-entity display names.
+Custom name inside automatic time-of-day greetings, plus per-entity display names. The header and side panel share `headerGreetingName`. Card text and header custom text still replace the automatic greeting.
 
 - **Owned:** `packages/app/src/utils/display-overrides.ts`
-- **Seams:** `settings-store.ts` (`UserSettings` lives here), `stores/selectors.ts`, `settings-dashboard-section.tsx`, `use-header-controller.ts`, `use-devices.ts`, `security-camera-dashboard-model.ts`, `security-section.tsx`, `card-dialog.tsx`, `settings-profile-scope.ts`
-- **Tests:** `display-overrides.test.ts`, `settings-store.test.ts`, `settings-dashboard-section.test.tsx`, `use-header-controller.test.tsx`
+- **Seams:** `settings-store.ts` (`UserSettings` lives here), `stores/selectors.ts`, `settings-interaction-section.tsx` (greeting control next to header title), `settings-search-items.ts` (search section `interaction`), `use-header-controller.ts`, `dashboard-companion.tsx` (`CompanionGreeting`), `use-devices.ts`, `security-camera-dashboard-model.ts`, `security-section.tsx`, `card-dialog.tsx`, `settings-profile-scope.ts`
+- **Tests:** `display-overrides.test.ts`, `settings-store.test.ts`, `settings-interaction-section.test.tsx`, `use-header-controller.test.tsx`, `dashboard-companion.test.tsx`
 
 ### Dropdown ghost-click and menu animation
 
@@ -91,7 +92,7 @@ Menus must not steal the click that opened them or fly in from off-screen.
 Keep the raw value on change; normalize on blur (and in persistence), not on every keystroke.
 
 - **Owned:** sanitize vs normalize split in `display-overrides.ts`
-- **Seams:** `settings-dashboard-section.tsx` greeting field, `settings-store.ts`
+- **Seams:** `settings-interaction-section.tsx` greeting field, `settings-store.ts`
 - **Tests:** `display-overrides.test.ts`, `settings-store.test.ts`
 
 ### Repository GHCR publishing
@@ -108,14 +109,14 @@ Publish container images to `ghcr.io/<repository owner>/...` with `GITHUB_TOKEN`
 
 ### Eager JavaScript
 
-Temporary override. `scripts/check-bundle-budget.mjs` sets `MAX_TOTAL_EAGER_JS_BYTES` to `820 * 1024` because upstream's `800 * 1024` cap does not fit this fork. Upstream `v0.18.1` measured 799.3 KB. Overlay code adds about 3 KB, and this fork measured 802.1 KB at `v0.18.4`.
+Upstream `v0.19.1` raised `MAX_TOTAL_EAGER_JS_BYTES` from `800 * 1024` to `820 * 1024`. Measured eager JavaScript at this sync: upstream `v0.19.1` 807.7 KB, this fork 810.6 KB. The 820 KB cap is about 12 KB above upstream's measurement, which covers the fork's extra ~3 KB. The temporary fork override was removed. `scripts/check-bundle-budget.mjs` uses upstream's limit.
 
-On each sync, compare upstream's `MAX_TOTAL_EAGER_JS_BYTES` with upstream's measured eager JavaScript:
+On the next sync, compare upstream's cap with upstream's measured eager JavaScript again:
 
-- If upstream raises the cap and the new limit is still about 3 KB above upstream's measured eager JavaScript, delete this override and use upstream's limit.
-- If the new limit does not leave that room, keep a fork override above the measured fork size.
+- If the cap still leaves about 3 KB above upstream's measured eager JavaScript, keep using upstream's limit.
+- If it does not leave that room, add a fork override above the measured fork size.
 
-- **Owned:** the `MAX_TOTAL_EAGER_JS_BYTES` constant in `scripts/check-bundle-budget.mjs`
+- **Owned:** none while the override is deleted
 - **Tests:** `pnpm build`, then `pnpm check:bundle-budget`
 
 ## Shared mechanical seams
