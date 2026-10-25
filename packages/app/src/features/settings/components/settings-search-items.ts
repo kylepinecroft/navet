@@ -151,7 +151,7 @@ const SETTINGS: SearchSettingDefinition[] = [
   },
   {
     id: 'dashboard-greeting-name',
-    sectionId: 'dashboard',
+    sectionId: 'interaction',
     labelKey: 'settings.dashboard.greetingName.title',
     descriptionKey: 'settings.dashboard.greetingName.description',
   },

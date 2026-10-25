@@ -122,6 +122,9 @@ describe('SettingsSection', () => {
     expect(available.find((item) => item.label === 'Swipe between rooms')?.sectionId).toBe(
       'interaction'
     );
+    expect(available.find((item) => item.label === 'What to call you')?.sectionId).toBe(
+      'interaction'
+    );
   });
 
   it('uses list-to-detail navigation on mobile and returns to the category list', () => {

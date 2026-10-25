@@ -121,6 +121,20 @@ describe('SettingsInteractionSection', () => {
     expect(activateFallbackMock).toHaveBeenCalledTimes(1);
   });
 
+  it('saves a greeting name on change and trims it when the field blurs', () => {
+    renderWithProviders(<TestSection />);
+
+    const input = screen.getByRole('textbox', { name: 'What to call you' });
+    fireEvent.change(input, { target: { value: 'Chef ' } });
+
+    expect(useSettingsStore.getState().headerGreetingName).toBe('Chef ');
+
+    fireEvent.blur(input);
+
+    expect(useSettingsStore.getState().headerGreetingName).toBe('Chef');
+    expect(input).toHaveValue('Chef');
+  });
+
   it('switches header title mode and shows the custom text input only for custom mode', () => {
     renderWithProviders(<TestSection />);
 

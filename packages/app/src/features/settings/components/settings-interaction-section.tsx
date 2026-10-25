@@ -8,6 +8,10 @@ import {
 } from '@navet/app/hooks/use-keep-device-awake';
 import { isHomeAssistantPanelMode } from '@navet/app/runtime/app-mode';
 import { HEADER_CUSTOM_TEXT_MAX_LENGTH } from '@navet/app/stores/settings-store';
+import {
+  HEADER_GREETING_NAME_MAX_LENGTH,
+  normalizeHeaderGreetingName,
+} from '@navet/app/utils/display-overrides';
 import { LayoutGrid, Monitor } from 'lucide-react';
 import {
   DASHBOARD_PROFILE_MODE_OPTIONS,
@@ -36,7 +40,9 @@ export function SettingsInteractionSection({ controller }: SettingsInteractionSe
     theme,
     updateSettings,
     headerCustomText,
+    headerGreetingName,
     headerTitleMode,
+    providerUserName,
     keepDeviceAwake,
     companionEnabled,
     kioskMode,
@@ -177,6 +183,40 @@ export function SettingsInteractionSection({ controller }: SettingsInteractionSe
                 </p>
               </div>
             ) : null}
+          </div>
+        </SettingsItem>
+
+        <SettingsItem
+          title={t('settings.dashboard.greetingName.title')}
+          description={t('settings.dashboard.greetingName.description')}
+          styles={styles}
+        >
+          <div className="max-w-xl space-y-2">
+            <input
+              type="text"
+              maxLength={HEADER_GREETING_NAME_MAX_LENGTH}
+              value={headerGreetingName}
+              onChange={(event) =>
+                controller.updateSettings({ headerGreetingName: event.currentTarget.value })
+              }
+              onBlur={(event) =>
+                controller.updateSettings({
+                  headerGreetingName: normalizeHeaderGreetingName(event.currentTarget.value),
+                })
+              }
+              placeholder={
+                providerUserName?.trim() || t('settings.dashboard.greetingName.placeholder')
+              }
+              aria-label={t('settings.dashboard.greetingName.title')}
+              className={`h-11 w-full rounded-[16px] border px-4 text-sm font-normal outline-none transition-colors ${styles.borderColor} ${styles.softBg} ${styles.textColor}`}
+            />
+            <p className={`text-sm leading-relaxed ${styles.subtleColor}`}>
+              {providerUserName?.trim()
+                ? t('settings.dashboard.greetingName.providerHint', {
+                    name: providerUserName.trim(),
+                  })
+                : t('settings.dashboard.greetingName.guestHint')}
+            </p>
           </div>
         </SettingsItem>
 

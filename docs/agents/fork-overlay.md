@@ -48,19 +48,9 @@ For each suspected overlap, report all of:
 
 Record the decision under **Overlap decisions** in the same sync.
 
-## Pending overlap
-
-Not a keep/toss decision. The greeting-name half of **Greeting name and display overrides** collides with upstream `v0.19.1`. The settings control was not re-inserted into Dashboard or Interaction settings, and the overlay module was not deleted. Entity display names stay. Choose keep, toss, or a subset before treating this sync as finished.
-
-1. **Overlay feature.** Greeting name and display overrides. The greeting half stores `headerGreetingName` and uses it as the name inside the automatic header greeting (`Good morning, {name}`), with sanitize-on-change and normalize-on-blur. The same module also stores per-entity display names.
-2. **Upstream change.** `v0.19.0` / `v0.19.1`. Header title settings (auto greeting, custom text, clock) moved from `settings-dashboard-section.tsx` to `settings-interaction-section.tsx`. The side-panel greeting card in `packages/app/src/features/dashboard/companion/dashboard-companion.tsx` (`CompanionGreeting`) shows card text, otherwise header custom text, otherwise the time-of-day greeting with the provider user's first name.
-3. **Why it matches.** Same user-facing job (what the greeting says and whom it addresses) and the same dashboard settings seam, now rewritten. The side panel reads `headerTitleMode` and `headerCustomText` and ignores `headerGreetingName`, so the two greeting identities diverge. `headerGreetingName` does not reuse upstream's setting keys, but it competes with them.
-4. **What each side still does.** The overlay still has a name-only override that keeps the time-of-day greeting, plus per-entity display names and blur-normalization. Upstream still has the header mode switch (greeting, custom text, or clock), full custom title text, and a side-panel greeting card with its own text. Upstream has no per-entity display-name overrides.
-5. **Options.** Keep the greeting-name overlay and wire it into the header and side panel. Toss the greeting-name overlay and use upstream header title plus the side-panel card. Keep the entity display-name subset and toss only the greeting name.
-6. **Recommendation.** Keep the entity display-name subset and toss the greeting-name setting so upstream owns greeting presentation. Waiting on that choice.
-
 ## Overlap decisions
 
+- **2026-10-25 — Greeting name.** Upstream `v0.19.1` moved header title settings into Interaction and added a side-panel greeting card that addressed the provider user's first name. Decision: keep the greeting-name overlay and wire it through the header and side panel. `headerGreetingName` remains the name inside automatic time-of-day greetings, with sanitize-on-change and normalize-on-blur. Card text and header `custom_text` still win. Per-entity display names stay.
 - **2026-10-04 — Dashboard-local room names.** Upstream `v0.17.6` already renames rooms with `renameRoomWorkspaceRoomV2` and `RoomWorkspaceNameMode` in `packages/app/src/features/dashboard/rooms/room-workspace-v2.ts`. Decision: toss the overlay and use upstream only. Deleted `resetRoomWorkspaceRoomNameV2`, `packages/app/src/features/dashboard/rooms/components/room-bar-customize-dialog.tsx`, the room-bar customize control in `room-nav.tsx`, and locale keys `dashboard.roomsWorkspace.useOriginalName` and `dashboard.roomNav.customizeRooms*`.
 
 ## Features
@@ -83,11 +73,11 @@ Each dashboard can use a global or local summary bar.
 
 ### Greeting name and display overrides
 
-Custom header greeting and per-entity display names.
+Custom name inside automatic time-of-day greetings, plus per-entity display names. The header and side panel share `headerGreetingName`. Card text and header custom text still replace the automatic greeting.
 
 - **Owned:** `packages/app/src/utils/display-overrides.ts`
-- **Seams:** `settings-store.ts` (`UserSettings` lives here), `stores/selectors.ts`, `settings-dashboard-section.tsx` (greeting control not re-homed in the `v0.19.1` sync; see Pending overlap), `use-header-controller.ts`, `use-devices.ts`, `security-camera-dashboard-model.ts`, `security-section.tsx`, `card-dialog.tsx`, `settings-profile-scope.ts`
-- **Tests:** `display-overrides.test.ts`, `settings-store.test.ts`, `settings-dashboard-section.test.tsx`, `use-header-controller.test.tsx`
+- **Seams:** `settings-store.ts` (`UserSettings` lives here), `stores/selectors.ts`, `settings-interaction-section.tsx` (greeting control next to header title), `settings-search-items.ts` (search section `interaction`), `use-header-controller.ts`, `dashboard-companion.tsx` (`CompanionGreeting`), `use-devices.ts`, `security-camera-dashboard-model.ts`, `security-section.tsx`, `card-dialog.tsx`, `settings-profile-scope.ts`
+- **Tests:** `display-overrides.test.ts`, `settings-store.test.ts`, `settings-interaction-section.test.tsx`, `use-header-controller.test.tsx`, `dashboard-companion.test.tsx`
 
 ### Dropdown ghost-click and menu animation
 
@@ -102,7 +92,7 @@ Menus must not steal the click that opened them or fly in from off-screen.
 Keep the raw value on change; normalize on blur (and in persistence), not on every keystroke.
 
 - **Owned:** sanitize vs normalize split in `display-overrides.ts`
-- **Seams:** `settings-dashboard-section.tsx` greeting field (paused with the pending greeting overlap), `settings-store.ts`
+- **Seams:** `settings-interaction-section.tsx` greeting field, `settings-store.ts`
 - **Tests:** `display-overrides.test.ts`, `settings-store.test.ts`
 
 ### Repository GHCR publishing

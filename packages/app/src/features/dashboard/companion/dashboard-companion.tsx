@@ -26,6 +26,7 @@ import {
 import { useResourceUrl } from '@navet/app/hooks/use-resource-url';
 import { useEditModeStore, useSettingsStore } from '@navet/app/stores';
 import { integrationSelectors } from '@navet/app/stores/selectors';
+import { resolveGreetingDisplayName } from '@navet/app/utils/display-overrides';
 import { parseProviderScopedId } from '@navet/app/utils/provider-ids';
 import {
   formatTemperatureFromSourceUnit,
@@ -562,12 +563,17 @@ function CompanionGreeting({ text }: { text?: string }) {
   const user = useIntegrationStore(integrationSelectors.currentUser);
   const titleMode = useSettingsStore((state) => state.headerTitleMode);
   const customText = useSettingsStore((state) => state.headerCustomText);
+  const headerGreetingName = useSettingsStore((state) => state.headerGreetingName);
+  const cardText = text?.trim();
+  const headerCustomTitle = titleMode === 'custom_text' ? customText.trim() : '';
+  const greetingName = resolveGreetingDisplayName({
+    guestName: t('header.guestName'),
+    override: headerGreetingName,
+    providerUserName: user?.name,
+  });
   return (
     <p className="break-words text-sm">
-      {text?.trim() ||
-        (titleMode === 'custom_text' && customText.trim()
-          ? customText
-          : t(greetingKey, { name: user?.name?.trim().split(/\s+/)[0] || t('header.guestName') }))}
+      {cardText || headerCustomTitle || t(greetingKey, { name: greetingName })}
     </p>
   );
 }

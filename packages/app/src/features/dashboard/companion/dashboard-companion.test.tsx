@@ -129,6 +129,71 @@ describe('dashboard companion connected state', () => {
     }
   );
 
+  it('prefers the greeting name over the provider first name for the automatic companion greeting', () => {
+    integrationStore.setState({
+      ...integrationStore.getState(),
+      currentUser: {
+        id: 'user-1',
+        name: 'Jane Doe',
+        email: 'jane@example.com',
+        avatarUrl: null,
+      },
+    });
+    useSettingsStore.getState().updateSettings({
+      headerGreetingName: 'Chef',
+      headerTitleMode: 'auto_greeting',
+      headerCustomText: 'Dinner soon',
+    });
+    const store = useDashboardCollectionStore.getState();
+    store.updateCompanion(store.activeDashboardId, {
+      showSecurity: false,
+      cards: [{ id: 'greeting', type: 'greeting' }],
+    });
+
+    renderWithProviders(<DashboardCompanion />);
+
+    expect(screen.getByText(/, Chef$/)).toBeInTheDocument();
+    expect(screen.queryByText(/, Jane$/)).not.toBeInTheDocument();
+  });
+
+  it('keeps card text and header custom text ahead of the automatic companion greeting', () => {
+    integrationStore.setState({
+      ...integrationStore.getState(),
+      currentUser: {
+        id: 'user-1',
+        name: 'Jane Doe',
+        email: 'jane@example.com',
+        avatarUrl: null,
+      },
+    });
+    useSettingsStore.getState().updateSettings({
+      headerGreetingName: 'Chef',
+      headerTitleMode: 'custom_text',
+      headerCustomText: 'Dinner soon',
+    });
+    const store = useDashboardCollectionStore.getState();
+    store.updateCompanion(store.activeDashboardId, {
+      showSecurity: false,
+      cards: [{ id: 'greeting', type: 'greeting', text: 'Hello from the card' }],
+    });
+
+    const { unmount } = renderWithProviders(<DashboardCompanion />);
+
+    expect(screen.getByText('Hello from the card')).toBeInTheDocument();
+    expect(screen.queryByText(/, Chef$/)).not.toBeInTheDocument();
+    expect(screen.queryByText('Dinner soon')).not.toBeInTheDocument();
+
+    unmount();
+    store.updateCompanion(store.activeDashboardId, {
+      showSecurity: false,
+      cards: [{ id: 'greeting', type: 'greeting' }],
+    });
+    renderWithProviders(<DashboardCompanion />);
+
+    expect(screen.getByText('Dinner soon')).toBeInTheDocument();
+    expect(screen.queryByText(/, Chef$/)).not.toBeInTheDocument();
+  });
+
   it.each(['camera', 'weather'] as const)(
     'edits and moves %s sources as one group',
     async (type) => {
