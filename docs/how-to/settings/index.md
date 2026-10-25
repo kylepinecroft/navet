@@ -9,11 +9,13 @@ the search field to jump directly to a setting when you know its name.
 
 Settings that affect shared household structure can synchronize through the dashboard profile.
 Display settings remain independent unless you copy them to other devices or link those devices
-from **System → Device settings**.
+from **Display & controls → Device settings**.
 
 ## Guides
 
 - [Change themes, accents, and wallpapers](/guide/settings/appearance/)
+- [Customize the side panel](/guide/dashboards/customize-home/#customize-the-side-panel)
+- [Enable the screensaver](/guide/dashboards/customize-home/#screensaver-mode)
 - [Choose how cards react to taps](/guide/settings/card-interactions/)
 - [Connect and manage providers](/guide/settings/manage-providers/)
 - [Add custom sidebar shortcuts](/guide/settings/sidebar-extensions/)

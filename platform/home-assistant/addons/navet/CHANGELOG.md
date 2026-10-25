@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.19.0
+
+## New features
+
+- Customize a collapsible side panel and enable a device screensaver with weather, security alerts, and timers.
+
+## 0.18.7
+
+No user-facing changes in this release.
+
+## 0.18.5
+
+## Improvements and bug fixes
+
+- Camera playback starts without waiting for unused fallback streams to initialize.
+- Dashboard sync can save profiles larger than nginx's default request buffer without repeated reconciliation errors.
+- Connected security sensors no longer raise alerts; disconnected sensors do, and the Security guide explains alert states.
+- Restore individual hidden entities or all at once, with hidden samples available to try in the demo.
+
+## 0.18.4
+
+## Improvements and bug fixes
+
+- Room summaries match Home's mobile spacing and appear in demo rooms; chore and climate controls reject stale updates.
+
 ## 0.18.3
 
 ## New features

@@ -1,5 +1,42 @@
 # Changelog
 
+## 0.19.0-beta.1
+
+## New features
+
+- Customize a collapsible side panel and enable a device screensaver with weather, security alerts, and timers.
+
+## 0.18.8-beta.1
+
+## New features
+
+- Customize a collapsible side panel and enable a device screensaver with weather, security alerts, and timers.
+
+## 0.18.7-beta.1
+
+No user-facing changes in this release.
+
+## 0.18.6-beta.2
+
+## Security
+
+- Allow non-admin sidebar access while loading Ingress media through the signed-in user's session instead of the privileged add-on proxy.
+
+## 0.18.5-beta.1
+
+## Improvements and bug fixes
+
+- Camera playback starts without waiting for unused fallback streams to initialize.
+- Dashboard sync can save profiles larger than nginx's default request buffer without repeated reconciliation errors.
+- Connected security sensors no longer raise alerts; disconnected sensors do, and the Security guide explains alert states.
+- Restore individual hidden entities or all at once, with hidden samples available to try in the demo.
+
+## 0.18.4-beta.1
+
+## Improvements and bug fixes
+
+- Room summaries match Home's mobile spacing and appear in demo rooms; chore and climate controls reject stale updates.
+
 ## 0.18.3-beta.1
 
 ## New features

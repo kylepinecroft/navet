@@ -51,8 +51,22 @@ stall the single Nginx worker or be silently overwritten.
 The installation has one revisioned shared profile. It contains the household-facing dashboard
 collection: named Home dashboards, their order, the workspace default, and assignments from
 registered dashboard-client IDs to dashboard IDs. Each dashboard owns its Home card membership,
-room-navigation scope, layout, sections, card sizes, custom-card instances, and zone assignments.
-Theme, room organization, weather presentation, and shared custom actions that pass export
+room-navigation scope, layout, sections, card sizes, custom-card instances, zone assignments, and
+ordered companion-panel items, their device references and note content. Saved card sizes remain
+readable for compatibility; panel presentation uses compact data rows. Legacy camera/weather
+selections and security visibility remain readable and follow panel edits for other consuming
+surfaces. Each Home dashboard owns a common panel. Rooms use that panel by default and can
+explicitly select an independent room panel, stored on the same dashboard under the stable room
+ID. Creating a room panel copies the common panel; subsequent edits affect only the selected
+panel. An intentionally empty room panel remains empty. Switching back to the dashboard panel
+retains the saved room panel; deleting it is a separate confirmed action. Home and feature
+sections use the common panel, and separately saved Home dashboards keep their panels independent.
+Compact editing controls appear only during dashboard customization; edits from a room using
+the common panel update that panel everywhere it is used. Item configuration uses focused dialogs.
+The panel’s enabled and collapsed states are device preferences; enabling, disabling, opening or collapsing it never writes
+the shared dashboard profile. Screensaver enablement is also a device preference; its active
+state and idle timer are runtime-only.
+Theme, room organization, weather presentation defaults, and shared custom actions that pass export
 security filtering remain workspace-wide. Camera transport and presentation preferences remain
 device-owned because panel capabilities differ.
 
@@ -180,7 +194,8 @@ management cannot make a dashboard save stale. Assignments use public client IDs
 remapped when the server recognizes the same durable browser binding under a rotated client ID.
 Forgetting a device also removes its linked-profile assignment.
 
-Only allowlisted non-secret presentation settings can be copied or linked. Visual-quality
+Only allowlisted non-secret presentation settings can be copied or linked, including screensaver
+enablement, idle delay and background selection, plus side-panel visibility and collapse preferences. Visual-quality
 automatic detection remains local to each device unless the user explicitly chooses a quality in
 the linked policy; camera URLs, provider credentials, language, and account preferences never enter
 this domain. The custom-panel deployment stays local-only because it has no profile-store endpoint.

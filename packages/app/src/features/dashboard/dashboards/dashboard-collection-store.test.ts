@@ -1,9 +1,11 @@
 import { getDashboardClientIdentity } from '@navet/app/features/dashboard/clients/dashboard-client-identity';
 import { beforeEach, describe, expect, it } from 'vitest';
 import {
+  type CompanionCard,
   createDashboardDefinition,
   createLegacyDashboardCollection,
   type DashboardActivationSource,
+  resolveDashboardCompanion,
   sanitizeDashboardCollection,
 } from './dashboard-collection';
 import { useDashboardCollectionStore } from './dashboard-collection-store';
@@ -53,6 +55,106 @@ describe('dashboard collection store', () => {
     window.history.replaceState({}, '', '/');
     clientId = getDashboardClientIdentity().id;
     installCollection(clientId);
+  });
+
+  it('isolates room panels by dashboard and restores live inheritance when removed', async () => {
+    const store = useDashboardCollectionStore.getState();
+    const custom = { showSecurity: false, cards: [] };
+    store.updateRoomCompanion('home', 'room_kitchen1', custom);
+    store.updateRoomCompanion('home', 'room_office01', custom);
+    expect(
+      resolveDashboardCompanion(
+        useDashboardCollectionStore.getState().collection.dashboardsById.home,
+        'room_kitchen1'
+      )
+    ).toEqual(custom);
+    expect(
+      useDashboardCollectionStore.getState().collection.dashboardsById.upstairs.roomCompanions
+    ).toBeUndefined();
+    const copyId = store.duplicateDashboard('home', 'Copy');
+    if (!copyId) throw new Error('Expected dashboard copy');
+    await useDashboardCollectionStore.persist.rehydrate();
+    expect(
+      useDashboardCollectionStore.getState().collection.dashboardsById[copyId].roomCompanions
+        ?.room_kitchen1
+    ).toEqual(custom);
+    store.updateRoomCompanion('home', 'room_kitchen1', null);
+    const common = { showSecurity: false, cards: [{ id: 'clock', type: 'clock' as const }] };
+    store.updateCompanion('home', common);
+    const home = useDashboardCollectionStore.getState().collection.dashboardsById.home;
+    expect(resolveDashboardCompanion(home, 'room_kitchen1')).toEqual(common);
+    expect(home.roomCompanions?.room_office01).toEqual(custom);
+    expect(
+      useDashboardCollectionStore.getState().collection.dashboardsById[copyId].roomCompanions
+        ?.room_kitchen1
+    ).toEqual(custom);
+  });
+
+  it('preserves inactive room panels and selections through reload and independent dashboard copies', async () => {
+    const store = useDashboardCollectionStore.getState();
+    const roomPanel = { showSecurity: false, cards: [] };
+    store.updateRoomCompanion('home', 'room_kitchen1', roomPanel);
+    store.selectRoomCompanion('home', 'room_kitchen1', 'dashboard');
+    const copyId = store.duplicateDashboard('home', 'Copy');
+    if (!copyId) throw new Error('Expected dashboard copy');
+    await useDashboardCollectionStore.persist.rehydrate();
+    const home = useDashboardCollectionStore.getState().collection.dashboardsById.home;
+    expect(home.roomCompanions?.room_kitchen1).toEqual(roomPanel);
+    expect(resolveDashboardCompanion(home, 'room_kitchen1')).toBe(home.companion);
+    const copy = useDashboardCollectionStore.getState().collection.dashboardsById[copyId];
+    expect(copy.roomCompanionModes?.room_kitchen1).toBe('dashboard');
+    expect(copy.roomCompanions?.room_kitchen1).toEqual(roomPanel);
+    store.selectRoomCompanion('home', 'room_kitchen1', 'room');
+    expect(
+      resolveDashboardCompanion(
+        useDashboardCollectionStore.getState().collection.dashboardsById.home,
+        'room_kitchen1'
+      )
+    ).toEqual(roomPanel);
+    expect(
+      useDashboardCollectionStore.getState().collection.dashboardsById[copyId].roomCompanionModes
+        ?.room_kitchen1
+    ).toBe('dashboard');
+    store.updateRoomCompanion('home', 'room_kitchen1', null);
+    expect(
+      useDashboardCollectionStore.getState().collection.dashboardsById.home.roomCompanionModes
+        ?.room_kitchen1
+    ).toBeUndefined();
+  });
+
+  it('keeps companion selections with their dashboard across activation, duplication and profile reload', () => {
+    const settings = {
+      cameraEntityId: 'home_assistant:camera.front',
+      weatherEntityId: null,
+      showSecurity: false,
+      cards: [
+        { id: 'note', type: 'note', text: 'Evening routine' },
+        { id: 'lamp', type: 'entity', entityId: 'homey:light.kitchen' },
+      ] as CompanionCard[],
+    };
+    useDashboardCollectionStore.getState().updateCompanion('home', settings);
+    useDashboardCollectionStore.getState().activateDashboard('upstairs');
+    expect(
+      useDashboardCollectionStore.getState().collection.dashboardsById.upstairs.companion
+    ).toEqual({ showSecurity: true });
+    useDashboardCollectionStore.getState().activateDashboard('home');
+    expect(useDashboardCollectionStore.getState().collection.dashboardsById.home.companion).toEqual(
+      settings
+    );
+    const copiedId = useDashboardCollectionStore.getState().duplicateDashboard('home', 'Evening');
+    if (!copiedId) throw new Error('Expected dashboard duplication');
+    expect(
+      useDashboardCollectionStore.getState().collection.dashboardsById[copiedId].companion?.cards
+    ).not.toBe(
+      useDashboardCollectionStore.getState().collection.dashboardsById.home.companion?.cards
+    );
+    const serialized = JSON.parse(
+      JSON.stringify(useDashboardCollectionStore.getState().collection)
+    );
+    useDashboardCollectionStore.getState().replaceCollection(serialized);
+    expect(
+      useDashboardCollectionStore.getState().collection.dashboardsById[copiedId].companion
+    ).toEqual(settings);
   });
 
   it('keeps previewing separate from the device assignment until explicitly selected', () => {

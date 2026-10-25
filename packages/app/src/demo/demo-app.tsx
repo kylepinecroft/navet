@@ -9,10 +9,8 @@ import { LoadingSpinner } from '@navet/app/components/primitives/loading-spinner
 import { SkipLink } from '@navet/app/components/primitives/skip-link';
 import {
   type CardSize,
-  getCardGridAutoRowsStyle,
   getCardSpanClass,
   getDashboardCardFootprint,
-  getDashboardGridColumnCount,
 } from '@navet/app/components/shared/card-size-selector';
 import { ALL_ROOMS_ID, isAllRooms } from '@navet/app/constants/rooms';
 import { ClimateCard } from '@navet/app/features/climate/components/climate-card';
@@ -21,9 +19,12 @@ import type { ClimateDashboardSection } from '@navet/app/features/climate/types/
 import type { CardTemplate } from '@navet/app/features/dashboard/components/add-entity-dialog/types';
 import { HomeEditCommandBar } from '@navet/app/features/dashboard/components/home-edit-command-bar';
 import { WidgetCard } from '@navet/app/features/dashboard/components/widget-card';
+import { useFitDashboardGrid } from '@navet/app/features/dashboard/hooks/use-fit-dashboard-grid';
 import { useProgressiveBatching } from '@navet/app/features/dashboard/hooks/use-progressive-batching';
+import { useRoomWorkspaceStore } from '@navet/app/features/dashboard/rooms/room-workspace-store';
 import { DashboardLayout } from '@navet/app/features/dashboard/shell';
 import type { CustomCard } from '@navet/app/features/dashboard/stores/custom-cards-store';
+import { useDashboardEntitiesStore } from '@navet/app/features/dashboard/stores/dashboard-entities-store';
 import { FanCard } from '@navet/app/features/lighting/components/fan-card';
 import { LightCard } from '@navet/app/features/lighting/components/light-card';
 import { MediaCard } from '@navet/app/features/media/components/media-card';
@@ -41,6 +42,7 @@ import {
 import { SensorCard } from '@navet/app/features/sensors/components/sensor-card';
 import { useBreakpointCols } from '@navet/app/hooks/use-breakpoint-cols';
 import { useDeferredVisibility } from '@navet/app/hooks/use-deferred-visibility';
+import { useRoomNavigation } from '@navet/app/hooks/use-room-navigation';
 import { I18nProvider, useI18n } from '@navet/app/i18n';
 import { integrationSessionRuntime } from '@navet/app/integration-session-runtime';
 import type { Section } from '@navet/app/navigation/sections';
@@ -60,7 +62,6 @@ import { Fan, Lightbulb, ShieldCheck, Speaker, Zap } from 'lucide-react';
 import {
   Children,
   type ComponentProps,
-  type CSSProperties,
   lazy,
   type ReactNode,
   type Ref,
@@ -74,6 +75,7 @@ import {
 import type { CameraDevice, DeviceWithType, LockDevice, SensorDevice } from '../types/device.types';
 import { DEMO_CARD_TEMPLATE_IDS, demoHomeLibraryCards } from './demo-card-library';
 import { installDemoDeviceAuthority } from './demo-device-authority';
+import { installDemoEntityVisibility } from './demo-entity-visibility';
 import { DemoRoomSummary } from './demo-room-summary';
 import { PHOTO_FRAME_DEMO_IMAGES } from './photo-frame-demo-images';
 
@@ -949,6 +951,8 @@ function useDemoDisplayDefaults() {
   const [runtimeReady, setRuntimeReady] = useState(false);
 
   useEffect(() => {
+    const previousNavigation = useNavigationStore.getState();
+    useNavigationStore.getState().setCurrentRoom(ALL_ROOMS_ID);
     const detectedEffectsQuality = useSettingsStore.getState().effectsQuality;
     const reduceEffects = detectedEffectsQuality === 'low';
     const kioskPreview = window.location.pathname.split('/').filter(Boolean).includes('kiosk');
@@ -959,6 +963,11 @@ function useDemoDisplayDefaults() {
     useThemeStore.getState().setWallpaper(null);
     useSettingsStore.getState().updateSettings({
       ...defaultSettings,
+      screensaverEnabled: useSettingsStore.getState().screensaverEnabled,
+      screensaverIdleMinutes: useSettingsStore.getState().screensaverIdleMinutes,
+      screensaverBackground: useSettingsStore.getState().screensaverBackground,
+      companionEnabled: useSettingsStore.getState().companionEnabled,
+      companionCollapsed: useSettingsStore.getState().companionCollapsed,
       username: 'Navet',
       language: 'en',
       temperatureUnit: 'celsius',
@@ -980,12 +989,20 @@ function useDemoDisplayDefaults() {
     const restoreDeviceAuthority = installDemoDeviceAuthority();
     const previousSession = integrationSessionRuntime.getSession();
     installPreviewRuntime(getPreviewRuntimeScenario('demo'));
+    const restoreEntityVisibility = installDemoEntityVisibility();
     setRuntimeReady(true);
 
     return () => {
       restoreDeviceAuthority();
+      restoreEntityVisibility();
       integrationSessionRuntime.replaceSession(previousSession);
       resetPreviewRuntime();
+      useNavigationStore.setState({
+        currentRoom: previousNavigation.currentRoom,
+        currentRoomId: previousNavigation.currentRoomId,
+        lastExplicitRoom: previousNavigation.lastExplicitRoom,
+        lastExplicitRoomId: previousNavigation.lastExplicitRoomId,
+      });
     };
   }, []);
 
@@ -1179,6 +1196,10 @@ function DemoWeatherCard({
   size: CardSize;
   deferUntilVisible?: boolean;
 }) {
+  const hidden = useDashboardEntitiesStore((state) =>
+    state.hiddenEntityIds.includes(`home_assistant:${id}`)
+  );
+  if (hidden) return null;
   return (
     <DemoLazyCardSlot
       size={size}
@@ -1217,18 +1238,19 @@ function getRoomEntitySlug(room: string) {
 
 function DashboardGrid({ children }: { children: ReactNode }) {
   const breakpointCols = useBreakpointCols();
-
+  const { outerRef, innerRef, outerContainerStyle, innerContainerStyle, isAutoScaled, gridStyle } =
+    useFitDashboardGrid(breakpointCols);
   return (
-    <div
-      className="grid w-full grid-flow-row-dense gap-3 md:gap-3 lg:gap-4"
-      style={
-        {
-          ...getCardGridAutoRowsStyle(breakpointCols),
-          gridTemplateColumns: `repeat(${getDashboardGridColumnCount(breakpointCols)}, minmax(0, 1fr))`,
-        } as CSSProperties
-      }
-    >
-      {children}
+    <div ref={outerRef} className="relative w-full" style={outerContainerStyle}>
+      <div
+        ref={innerRef}
+        className={`w-full${isAutoScaled ? ' absolute left-0 top-0 origin-top-left' : ''}`}
+        style={innerContainerStyle}
+      >
+        <div className="grid w-full grid-flow-row-dense gap-3 md:gap-3 lg:gap-4" style={gridStyle}>
+          {children}
+        </div>
+      </div>
     </div>
   );
 }
@@ -1239,7 +1261,8 @@ function DemoSummaryRow() {
   return <SummaryBar items={demoSummaryItems} onNavigate={setActiveSection} />;
 }
 
-function ProductGrid({ addedWidgets }: { addedWidgets: CustomCard[] }) {
+export function ProductGrid({ addedWidgets }: { addedWidgets: CustomCard[] }) {
+  const hiddenEntityIds = useDashboardEntitiesStore((state) => state.hiddenEntityIds);
   const reduceRenderingWork = useSettingsStore(
     (state) =>
       state.effectsQuality === 'low' ||
@@ -1411,17 +1434,19 @@ function ProductGrid({ addedWidgets }: { addedWidgets: CustomCard[] }) {
         isEditMode={false}
         deferUntilVisible
       />
-      <DemoSwitchCard
-        id="input_boolean.guest_mode"
-        name="Guest mode"
-        initialState
-        entityType="helper"
-        serviceDomain="input_boolean"
-        serviceAction="toggle"
-        size="small"
-        isEditMode={false}
-        deferUntilVisible
-      />
+      {hiddenEntityIds.includes('home_assistant:input_boolean.guest_mode') ? null : (
+        <DemoSwitchCard
+          id="input_boolean.guest_mode"
+          name="Guest mode"
+          initialState
+          entityType="helper"
+          serviceDomain="input_boolean"
+          serviceAction="toggle"
+          size="small"
+          isEditMode={false}
+          deferUntilVisible
+        />
+      )}
       <DemoSwitchCard
         id="script.goodnight"
         name="Goodnight"
@@ -1443,20 +1468,22 @@ function ProductGrid({ addedWidgets }: { addedWidgets: CustomCard[] }) {
           isEditMode={false}
         />
       </CardSlot>
-      <CardSlot size="small">
-        <SensorCard
-          id="sensor.living_room_temp"
-          name="Living Room Temperature"
-          room="Living Room"
-          value="22.4"
-          unit="C"
-          icon="thermometer"
-          subtitle="Sensor"
-          size="small"
-          onSizeChange={noopCardSizeChange}
-          isEditMode={false}
-        />
-      </CardSlot>
+      {hiddenEntityIds.includes('home_assistant:sensor.living_room_temp') ? null : (
+        <CardSlot size="small">
+          <SensorCard
+            id="sensor.living_room_temp"
+            name="Living Room Temperature"
+            room="Living Room"
+            value="22.4"
+            unit="C"
+            icon="thermometer"
+            subtitle="Sensor"
+            size="small"
+            onSizeChange={noopCardSizeChange}
+            isEditMode={false}
+          />
+        </CardSlot>
+      )}
       <DemoVacuumCard />
       {[...demoHomeWidgets, ...addedWidgets].map((card) => (
         <DemoWidgetCard key={card.id} card={card} />
@@ -1495,6 +1522,13 @@ function DemoWidgetCard({ card }: { card: CustomCard }) {
 }
 
 function ClimateShot() {
+  const hiddenEntityIds = useDashboardEntitiesStore((state) => state.hiddenEntityIds);
+  const sections = demoClimateSections.map((section) => ({
+    ...section,
+    orderedIds: section.orderedIds.filter(
+      (id) => !hiddenEntityIds.includes(`home_assistant:${id}`)
+    ),
+  }));
   const reduceRenderingWork = useSettingsStore(
     (state) =>
       state.effectsQuality === 'low' ||
@@ -1505,7 +1539,7 @@ function ClimateShot() {
   return (
     <ClimateDashboard
       deviceMap={demoClimateDeviceMap}
-      sections={demoClimateSections}
+      sections={sections}
       temperatureUnit="celsius"
       cardSizes={demoClimateCardSizes}
       updateCardSize={noopCardSizeChange}
@@ -1950,11 +1984,17 @@ function sanitizeDemoSection(value: unknown): DemoSection {
   return 'home';
 }
 
+const DemoChoreWorkspace = lazy(async () => {
+  const module = await import('./demo-chore-workspace');
+  return { default: module.DemoChoreWorkspace };
+});
+
 function DemoContent() {
   const { t } = useI18n();
   const runtimeReady = useDemoDisplayDefaults();
   const authSession = useOptionalAuthSession();
-  const [activeRoom, setActiveRoom] = useState<string>(ALL_ROOMS_ID);
+  const roomWorkspace = useRoomWorkspaceStore((state) => state.workspace);
+  const { activeRoom, changeRoom: setActiveRoom } = useRoomNavigation(ALL_ROOMS_ID, roomWorkspace);
   const [addCardOpen, setAddCardOpen] = useState(false);
   const [addedWidgets, setAddedWidgets] = useState<CustomCard[]>([]);
   const [removedWidgets, setRemovedWidgets] = useState<CustomCard[]>([]);
@@ -2123,7 +2163,11 @@ export default function DemoApp() {
   return (
     <I18nProvider>
       <AuthProvider>
-        <DemoContent />
+        <Suspense fallback={null}>
+          <DemoChoreWorkspace>
+            <DemoContent />
+          </DemoChoreWorkspace>
+        </Suspense>
       </AuthProvider>
     </I18nProvider>
   );

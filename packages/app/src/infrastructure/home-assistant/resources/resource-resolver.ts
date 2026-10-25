@@ -17,8 +17,6 @@ const HOME_ASSISTANT_RELATIVE_PREFIXES = [
   '/image/',
 ];
 const DEFAULT_CACHE_TTL_MS = 60_000;
-const SIGNED_PATH_EXPIRY_SECONDS = 30;
-const MEDIA_PLAYER_PROXY_PATH_SEGMENT = '/api/media_player_proxy/';
 
 function isAbsoluteHttpUrl(value: string) {
   return value.startsWith('http://') || value.startsWith('https://');
@@ -78,10 +76,6 @@ function extractSignablePath(resourceUrl: string, haBaseUrl: string | null) {
   } catch {
     return null;
   }
-}
-
-function shouldSkipSignedPathForProxyResource(signablePath: string) {
-  return signablePath.includes(MEDIA_PLAYER_PROXY_PATH_SEGMENT);
 }
 
 function hasSignedAuthQuery(resourceUrl: string) {
@@ -198,6 +192,38 @@ export class HomeAssistantResourceResolver {
           cacheKey,
           authStrategy: 'none',
         };
+      }
+
+      // Ingress shares Home Assistant's browser origin. Resolve HA resources on
+      // that origin and sign them through the current user's parent connection;
+      // the add-on must never substitute its Supervisor credential.
+      if (runtime.kind === 'ha_ingress') {
+        try {
+          const url = new URL(resourceUrl, runtime.appOrigin);
+          const haOrigin = haBaseUrl ? new URL(haBaseUrl).origin : runtime.appOrigin;
+          // HA can advertise internal media origins while Ingress is accessed
+          // through an external URL. Preserve that resource-path compatibility,
+          // while leaving ambiguous external CDN /image/ URLs untouched.
+          const haResourcePath =
+            isHomeAssistantRelativeUrl(url.pathname) && !url.pathname.startsWith('/image/');
+          if (url.origin === runtime.appOrigin || url.origin === haOrigin || haResourcePath) {
+            const proxyPath = getEmbeddedProxyPath(url.pathname);
+            const path = proxyPath ? stripProxyPath(proxyPath) : url.pathname;
+            if (isHomeAssistantRelativeUrl(path)) {
+              const nativePath = `${path}${url.search}`;
+              return {
+                id: resourceUrl,
+                kind: 'image',
+                url: toUrlWithCacheBust(nativePath, options.cacheBustKey),
+                cacheKey,
+                authStrategy: hasSignedAuthQuery(nativePath) ? 'none' : 'panel_bridge',
+                metadata: { source: 'ha_ingress_user_resource' },
+              };
+            }
+          }
+        } catch {
+          // Let the existing URL validation and unavailable fallback handle it.
+        }
       }
 
       if (resourceUrl.startsWith(HOME_ASSISTANT_PROXY_PATH)) {
@@ -492,52 +518,14 @@ export class HomeAssistantResourceResolver {
   }
 
   async resolve(ref: HaResourceRef, options: ResolveOptions = {}): Promise<ResolvedMediaResource> {
-    const resource = this.resolveSync(ref, options);
-    const runtime = getRuntimeContext();
-    const session = this.getSession();
-    const haBaseUrl = session?.haBaseUrl ?? runtime.haBaseUrl;
-
-    if (
-      (runtime.kind !== 'standalone' && runtime.kind !== 'dev') ||
-      session?.authMode !== 'oauth' ||
-      !this.signPath ||
-      resource.authStrategy !== 'same_origin' ||
-      !resource.url ||
-      !haBaseUrl
-    ) {
-      return resource;
-    }
-
-    const signablePath = extractSignablePath(resource.url, haBaseUrl);
-    if (!signablePath) {
-      return resource;
-    }
-
-    // Media artwork already flows through Navet's same-origin proxy in standalone OAuth mode.
-    // Re-signing media_player_proxy paths adds authSig noise without improving access, and some
-    // Home Assistant-backed players fail when the extra signed query is appended.
-    if (shouldSkipSignedPathForProxyResource(signablePath)) {
-      return resource;
-    }
-
-    try {
-      const signedPath = await this.signPath(signablePath, SIGNED_PATH_EXPIRY_SECONDS);
-      if (!signedPath) {
-        return resource;
-      }
-
-      const signedResource = this.resolveSync({ kind: 'absolute_url', url: signedPath }, options);
-
-      return {
-        ...resource,
-        ...signedResource,
-        metadata: {
-          ...signedResource.metadata,
-          source: 'ha_signed_path',
-        },
-      };
-    } catch {
-      return resource;
-    }
+    const { resolveSignedResource } = await import('./signed-resource-resolver');
+    return resolveSignedResource({
+      resource: this.resolveSync(ref, options),
+      runtime: getRuntimeContext(),
+      session: this.getSession(),
+      signPath: this.signPath,
+      extractSignablePath,
+      resolveSync: (resourceRef) => this.resolveSync(resourceRef, options),
+    });
   }
 }

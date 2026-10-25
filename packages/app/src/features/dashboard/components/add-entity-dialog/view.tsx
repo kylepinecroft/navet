@@ -34,11 +34,12 @@ import {
   ListFilter,
   Sparkles,
 } from 'lucide-react';
-import { useState } from 'react';
+import { type ReactNode, useState } from 'react';
 import {
   type DashboardLibraryCard,
   type DashboardLibraryEntityType,
   DashboardLibraryList,
+  type DashboardLibraryRemoval,
 } from '../dashboard-library-list';
 import type { CardTemplate, CardTemplateId } from './types';
 
@@ -47,6 +48,7 @@ function cardSizeKey(size: CardSize): `dashboard.addCard.size.${CardSize}` {
 }
 
 interface AddEntityDialogViewProps {
+  libraryRemoval?: DashboardLibraryRemoval;
   open: boolean;
   onClose: () => void;
   currentRoom: string;
@@ -54,10 +56,12 @@ interface AddEntityDialogViewProps {
   setActiveTab: (tab: 'cards' | 'widgets') => void;
   showCardsTab: boolean;
   libraryOnly?: boolean;
+  libraryAddDisabled?: boolean;
   title?: string;
   description?: string;
   actionLabel?: string;
   libraryEmptyText?: string;
+  footer?: ReactNode;
   libraryQuery: string;
   setLibraryQuery: (query: string) => void;
   hasLibraryQuery: boolean;
@@ -99,10 +103,13 @@ export function AddEntityDialogView({
   setActiveTab,
   showCardsTab,
   libraryOnly = false,
+  libraryAddDisabled,
+  libraryRemoval,
   title,
   description,
   actionLabel,
   libraryEmptyText,
+  footer,
   libraryQuery,
   setLibraryQuery,
   hasLibraryQuery,
@@ -449,6 +456,8 @@ export function AddEntityDialogView({
                       addLabel={actionLabel ?? t('dashboard.addEntity.action')}
                       emptyText={libraryEmptyText ?? t('dashboard.addCard.libraryEmpty')}
                       onAdd={handleAddFromLibrary}
+                      addDisabled={libraryAddDisabled}
+                      removal={libraryRemoval}
                       fillAvailable
                     />
                   </div>
@@ -664,6 +673,8 @@ export function AddEntityDialogView({
                 </div>
               )}
             </div>
+
+            {footer ? <DialogFooter className="mt-4 shrink-0">{footer}</DialogFooter> : null}
 
             {activeTab === 'widgets' && selectedTemplate ? (
               <DialogFooter

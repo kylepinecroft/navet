@@ -1,5 +1,6 @@
 import { execFileSync } from 'node:child_process';
-import { appendFileSync } from 'node:fs';
+import fs from 'node:fs';
+import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { ghcrNamespace } from './release-ghcr-namespace.mjs';
 import { validateEvidence } from './release-evidence.mjs';
@@ -7,6 +8,28 @@ import { validateEvidence } from './release-evidence.mjs';
 const versionPattern = '(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)';
 const releasePattern = new RegExp(`^v${versionPattern}(?:-(beta|rc)\\.([1-9]\\d*))?$`);
 const devPattern = new RegExp(`^navet-dev-${versionPattern}-dev\\.(\\d{14})$`);
+
+/** Append only to existing runner command files, never an arbitrary environment path. */
+export function appendActionsFile(filePath, content, runnerTemp = process.env.RUNNER_TEMP) {
+  if (!runnerTemp) throw new Error('Actions output requires RUNNER_TEMP.');
+  const commandRoot = fs.realpathSync(path.join(runnerTemp, '_runner_file_commands'));
+  const destination = fs.realpathSync(path.resolve(filePath));
+  if (!destination.startsWith(`${commandRoot}${path.sep}`)) {
+    throw new Error('Actions output must be a runner command file.');
+  }
+  // Reject a symlink swapped in after resolution. Nonblocking open also avoids
+  // hanging on a substituted FIFO; inspect and write the same open file.
+  const descriptor = fs.openSync(destination,
+    fs.constants.O_WRONLY | fs.constants.O_APPEND | fs.constants.O_NOFOLLOW | fs.constants.O_NONBLOCK);
+  try {
+    if (!fs.fstatSync(descriptor).isFile()) {
+      throw new Error('Actions output must be a runner command file.');
+    }
+    fs.appendFileSync(descriptor, content);
+  } finally {
+    fs.closeSync(descriptor);
+  }
+}
 
 /**
  * Parse a supported Dev, beta, RC, or stable tag into sortable version fields.
@@ -46,17 +69,20 @@ const compareCandidate = (a, b) =>
  * Resolve an eligible source and unused target without mutating Git or publishing.
  * Blank overrides select channel defaults; all existing tags reserve their numbers.
  * @param {object} options Channel, optional overrides, known tags, and verified sources.
- * @returns {{source_tag: string, release_tag: string, source_sha: string}} Promotion plan.
+ * @returns {object} Promotion plan, or a no_promotion result requiring stable publication verification.
  * @throws {Error} If no eligible source exists or the requested promotion is invalid.
  */
 export function resolvePromotion({
   channel = 'beta',
   sourceTag = '',
   releaseTag = '',
+  versionBump = 'automatic',
   tags,
   sources,
 }) {
   if (!['beta', 'rc', 'stable'].includes(channel)) throw new Error('Choose beta, rc, or stable.');
+  if (!['automatic', 'patch', 'minor'].includes(versionBump))
+    throw new Error('Choose automatic, patch, or minor for the version bump.');
   const parsedTags = tags.map(parsePromotionTag).filter(Boolean);
   const latestStable = parsedTags
     .filter((tag) => tag.channel === 'stable')
@@ -86,13 +112,22 @@ export function resolvePromotion({
       channel === 'beta'
         ? devs.at(-1)
         : (candidates.at(-1) ?? (channel === 'rc' ? devs.at(-1) : undefined));
-    if (!source) throw new Error(`No successfully published source is available for ${channel}.`);
+    if (!source) {
+      if (channel === 'stable' && !releaseTag && latestStable)
+        return { no_promotion: true, latest_stable: latestStable.tag };
+      throw new Error(`No successfully published source is available for ${channel}.`);
+    }
   }
   if (channel === 'beta' && source.channel !== 'dev') throw new Error('Beta must promote Dev.');
   if (channel === 'stable' && source.channel === 'dev')
     throw new Error('Stable must promote a tested beta or RC.');
   let base = source.base;
-  if (source.channel === 'dev' && latestStable && compareVersion(source, latestStable) <= 0) {
+  if (source.channel === 'dev' && !releaseTag && versionBump !== 'automatic') {
+    if (!latestStable)
+      throw new Error('No stable tag exists. Use automatic or enter an exact target tag.');
+    const [major, minor, patch] = latestStable.version;
+    base = versionBump === 'minor' ? `${major}.${minor + 1}.0` : `${major}.${minor}.${patch + 1}`;
+  } else if (source.channel === 'dev' && latestStable && compareVersion(source, latestStable) <= 0) {
     base = `${latestStable.version[0]}.${latestStable.version[1]}.${latestStable.version[2] + 1}`;
   }
   if (!releaseTag) {
@@ -131,6 +166,20 @@ export function resolvePromotion({
   return { source_tag: source.tag, release_tag: releaseTag, source_sha: source.sha };
 }
 
+/** Confirm publication before reporting that automatic stable promotion has nothing to do. */
+export async function resolveVerifiedPromotion(options, verifyStable) {
+  const plan = resolvePromotion(options);
+  if (!plan.no_promotion) return plan;
+  if (!(await verifyStable(plan.latest_stable)))
+    throw new Error(
+      `${plan.latest_stable} is tagged, but successful publication could not be verified. Use Publish Release to recover it.`,
+    );
+  return {
+    ...plan,
+    message: `${plan.latest_stable} is already published. No newer successfully published beta/RC is available to promote.`,
+  };
+}
+
 /**
  * Collect published prereleases whose commits and publication evidence are eligible.
  * Callbacks verify tag ancestry and channel-specific publication success; API errors
@@ -159,7 +208,7 @@ export async function collectPromotionSources({
   return sources;
 }
 
-/** Verify candidate evidence against the documented package namespace and publication run. */
+/** Verify candidate evidence against the repository-owner package namespace and publication run. */
 export async function candidatePublicationSucceeded(
   release,
   sha,
@@ -202,6 +251,15 @@ async function main() {
   ).flat();
   const sourceTag = (process.env.SOURCE_TAG ?? '').trim();
   const channel = process.env.RELEASE_CHANNEL || 'beta';
+  const verifyPublication = (release, sha) =>
+    candidatePublicationSucceeded(release, sha, {
+      readEvidence: (asset) =>
+        JSON.parse(execFileSync('gh', [
+          'api', '-H', 'Accept: application/octet-stream',
+          `repos/${repo}/releases/assets/${asset.id}`,
+        ], { encoding: 'utf8' })),
+      readRun: (id) => api(`actions/runs/${id}`),
+    });
   if (sourceTag && !parsePromotionTag(sourceTag)) throw new Error('Invalid source tag.');
   const candidates = releases.filter((r) =>
     sourceTag
@@ -236,41 +294,45 @@ async function main() {
         (run) => run.head_branch === tag && run.head_sha === sha && run.conclusion === 'success',
       );
     },
-    candidateSucceeded: (release, sha) =>
-      candidatePublicationSucceeded(release, sha, {
-        readEvidence: (asset) =>
-          JSON.parse(
-            execFileSync('gh', [
-              'api', '-H', 'Accept: application/octet-stream',
-              `repos/${repo}/releases/assets/${asset.id}`,
-            ], { encoding: 'utf8' }),
-          ),
-        readRun: (id) => api(`actions/runs/${id}`),
-      }),
+    candidateSucceeded: verifyPublication,
   });
-  const plan = resolvePromotion({
-    channel,
-    sourceTag,
-    releaseTag: (process.env.RELEASE_TAG ?? '').trim(),
-    tags: git('tag', '--list').split('\n'),
-    sources,
-  });
+  const plan = await resolveVerifiedPromotion(
+    {
+      channel,
+      sourceTag,
+      releaseTag: (process.env.RELEASE_TAG ?? '').trim(),
+      versionBump: process.env.VERSION_BUMP || 'automatic',
+      tags: git('tag', '--list').split('\n'),
+      sources,
+    },
+    async (tag) => {
+      const release = releases.find(
+        (entry) => entry.tag_name === tag && !entry.draft && !entry.prerelease,
+      );
+      if (!release) return false;
+      const sha = git('rev-parse', '--verify', `refs/tags/${tag}^{commit}`);
+      return verifyPublication(release, sha);
+    },
+  );
   console.log(JSON.stringify(plan, null, 2));
   if (process.env.GITHUB_OUTPUT)
-    appendFileSync(
+    appendActionsFile(
       process.env.GITHUB_OUTPUT,
       Object.entries(plan)
         .map(([k, v]) => `${k}=${v}\n`)
         .join(''),
     );
   if (process.env.GITHUB_STEP_SUMMARY)
-    appendFileSync(
+    appendActionsFile(
       process.env.GITHUB_STEP_SUMMARY,
-      `## Selected promotion\n\n- Source: \`${plan.source_tag}\`\n- Target: \`${plan.release_tag}\`\n- Commit: \`${plan.source_sha}\`\n\n${process.env.PREVIEW_ONLY === 'true' ? 'Preview only: no tag or release will be published. Pin these tags with the overrides when publishing.' : 'Publication requested. Source evidence is verified before creating the tag.'}\n\n### Eligible sources (up to 20)\n\n${sources
+      plan.no_promotion
+        ? `## Nothing to promote\n\n${plan.message}\n\nNo tag was created and no publication was dispatched.\n`
+        : `## Selected promotion\n\n- Source: \`${plan.source_tag}\`\n- Target: \`${plan.release_tag}\`\n- Commit: \`${plan.source_sha}\`\n\n${process.env.PREVIEW_ONLY === 'true' ? 'Preview only: no tag or release will be published. Pin these tags with the overrides when publishing.' : 'Publication requested. Source evidence is verified before creating the tag.'}\n\n### Eligible sources (up to 20)\n\n${sources
         .slice(0, 20)
         .map((s) => `- \`${s.tag}\``)
         .join('\n')}\n`,
     );
+  if (plan.no_promotion) console.log(`::notice::${plan.message}`);
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) await main();

@@ -1,10 +1,78 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import {
+  appendActionsFile,
   collectPromotionSources,
   candidatePublicationSucceeded,
   parsePromotionTag,
   resolvePromotion,
+  resolveVerifiedPromotion,
 } from './release-promotion.mjs';
+
+// Keep: existing tests verify promotion contracts and the runner-file boundary.
+it('appends runner outputs but rejects traversal, sibling paths and symlink escapes', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'navet-actions-output-'));
+  try {
+    const commands = path.join(root, '_runner_file_commands');
+    fs.mkdirSync(commands);
+    const output = path.join(commands, 'step_summary_test');
+    const outside = path.join(root, 'outside');
+    fs.writeFileSync(output, 'before\n');
+    fs.writeFileSync(outside, 'unchanged');
+    const link = path.join(commands, 'link');
+    fs.symlinkSync(outside, link);
+    const sibling = path.join(root, '_runner_file_commands-other');
+    fs.mkdirSync(sibling);
+    fs.writeFileSync(path.join(sibling, 'output'), 'unchanged');
+    appendActionsFile(output, 'after\n', root);
+    expect(fs.readFileSync(output, 'utf8')).toBe('before\nafter\n');
+    for (const destination of [outside, path.join(commands, '..', 'outside'), link,
+      path.join(sibling, 'output'), commands]) {
+      expect(() => appendActionsFile(destination, 'bad', root)).toThrow('runner command file');
+    }
+    expect(fs.readFileSync(outside, 'utf8')).toBe('unchanged');
+    expect(fs.readFileSync(path.join(sibling, 'output'), 'utf8')).toBe('unchanged');
+    expect(() => appendActionsFile(output, 'bad', '')).toThrow('RUNNER_TEMP');
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+it.each(['before-open', 'after-open'])('does not follow a replacement output symlink %s', (timing) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'navet-actions-race-'));
+  const commands = path.join(root, '_runner_file_commands');
+  fs.mkdirSync(commands);
+  const output = path.join(commands, 'step_summary_test');
+  const original = path.join(commands, 'original');
+  const outside = path.join(root, 'outside');
+  fs.writeFileSync(output, 'before\n');
+  fs.writeFileSync(outside, 'unchanged');
+  const replaceOutput = () => {
+    fs.renameSync(output, original);
+    fs.symlinkSync(outside, output);
+  };
+  const method = timing === 'before-open' ? 'openSync' : 'fstatSync';
+  const operation = fs[method];
+  const spy = vi.spyOn(fs, method).mockImplementationOnce((...args) => {
+    replaceOutput();
+    return operation(...args);
+  });
+  try {
+    if (timing === 'before-open') {
+      expect(() => appendActionsFile(output, 'after\n', root)).toThrow();
+      expect(fs.readFileSync(original, 'utf8')).toBe('before\n');
+    } else {
+      appendActionsFile(output, 'after\n', root);
+      expect(fs.readFileSync(original, 'utf8')).toBe('before\nafter\n');
+    }
+    expect(fs.readFileSync(outside, 'utf8')).toBe('unchanged');
+  } finally {
+    spy.mockRestore();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
 
 const dev = 'navet-dev-0.17.1-dev.20260920120000';
 const olderDev = 'navet-dev-0.17.1-dev.20260919120000';
@@ -18,6 +86,41 @@ const plan = (options = {}) =>
   });
 
 describe('promotion defaults', () => {
+  it.each(['beta', 'rc'])('starts a %s on the chosen version after 0.18.7', (channel) => {
+    const options = { channel, tags: ['v0.18.7'], sources: [source(dev)] };
+    expect(plan({ ...options, versionBump: 'patch' }).release_tag).toBe(`v0.18.8-${channel}.1`);
+    expect(plan({ ...options, versionBump: 'minor' }).release_tag).toBe(`v0.19.0-${channel}.1`);
+    expect(plan({ ...options, versionBump: 'automatic' }).release_tag).toBe(`v0.18.8-${channel}.1`);
+    expect(plan({
+      ...options,
+      versionBump: 'minor',
+      tags: ['v0.18.7', `v0.19.0-${channel}.1`, `v0.19.0-${channel}.3`],
+    }).release_tag).toBe(`v0.19.0-${channel}.4`);
+  });
+  it('calculates explicit bumps from stable even when the Dev base is newer', () => {
+    const options = { tags: ['v0.18.7'], sources: [source('navet-dev-0.20.0-dev.20260920120000')] };
+    expect(plan({ ...options, versionBump: 'automatic' }).release_tag).toBe('v0.20.0-beta.1');
+    expect(plan({ ...options, versionBump: 'patch' }).release_tag).toBe('v0.18.8-beta.1');
+    expect(plan({ ...options, versionBump: 'minor' }).release_tag).toBe('v0.19.0-beta.1');
+  });
+  it.each(['rc', 'stable'])('keeps the tested candidate version for %s with a bump selected', (channel) => {
+    expect(plan({
+      channel,
+      versionBump: 'minor',
+      tags: ['v0.18.7', 'v0.19.0-beta.1'],
+      sources: [source('v0.19.0-beta.1')],
+    }).release_tag).toBe(channel === 'stable' ? 'v0.19.0' : 'v0.19.0-rc.1');
+  });
+  it('honors an exact target over the bump choice, including without a stable baseline', () => {
+    expect(plan({ versionBump: 'minor', releaseTag: 'v0.20.0-beta.1' }).release_tag)
+      .toBe('v0.20.0-beta.1');
+    expect(plan({ tags: [], versionBump: 'patch', releaseTag: 'v0.19.0-beta.1' }).release_tag)
+      .toBe('v0.19.0-beta.1');
+  });
+  it('requires a stable baseline for explicit bumps and rejects unsupported choices', () => {
+    expect(() => plan({ tags: [], versionBump: 'minor' })).toThrow('No stable tag exists');
+    expect(() => plan({ versionBump: 'major' })).toThrow('Choose automatic, patch, or minor');
+  });
   it('selects newest eligible Dev by timestamp and advances beyond reserved beta tags', () => {
     expect(
       plan({
@@ -96,9 +199,9 @@ describe('promotion defaults', () => {
         ],
       }),
     ).toEqual({ source_tag: 'v0.17.2-rc.2', release_tag: 'v0.17.2', source_sha: sha });
-    expect(() => plan({ channel: 'stable', sources: [source('v0.17.1-rc.9')] })).toThrow(
-      'No successfully published source',
-    );
+    expect(plan({ channel: 'stable', sources: [source('v0.17.1-rc.9')] })).toEqual({
+      no_promotion: true, latest_stable: 'v0.17.1',
+    });
   });
   it('matches automatic source to an explicit target base', () => {
     expect(
@@ -112,7 +215,7 @@ describe('promotion defaults', () => {
   it.each([
     [{ sources: [] }, 'No successfully published source'],
     [{ sourceTag: olderDev }, 'not a successfully published'],
-    [{ channel: 'stable' }, 'No successfully published source'],
+    [{ channel: 'stable', tags: [] }, 'No successfully published source'],
     [{ channel: 'stable', sourceTag: dev }, 'Stable must promote'],
     [{ sourceTag: 'v0.17.2-beta.1', sources: [source('v0.17.2-beta.1')] }, 'Beta must promote'],
     [{ releaseTag: 'v0.18.0' }, 'match the selected channel'],
@@ -149,6 +252,42 @@ describe('promotion defaults', () => {
     'v1.2.3-rc.1; echo unsafe',
   ])('rejects malformed tag %s', (tag) => {
     expect(parsePromotionTag(tag)).toBeNull();
+  });
+});
+
+describe('automatic stable promotion with nothing newer', () => {
+  // Keep: publication evidence, explicit overrides, and API failures remain safety boundaries.
+  const options = {
+    channel: 'stable', tags: ['v0.18.4', 'v0.18.5'],
+    sources: [source('v0.18.5-beta.1')],
+  };
+  it('reports the latest verified stable as already published', async () => {
+    expect(await resolveVerifiedPromotion(options, async (tag) => tag === 'v0.18.5')).toEqual({
+      no_promotion: true, latest_stable: 'v0.18.5',
+      message: 'v0.18.5 is already published. No newer successfully published beta/RC is available to promote.',
+    });
+  });
+  it('directs an incomplete stable publication to recovery', async () => {
+    await expect(resolveVerifiedPromotion(options, async () => false)).rejects.toThrow(
+      'v0.18.5 is tagged, but successful publication could not be verified. Use Publish Release to recover it.',
+    );
+  });
+  it('propagates verification outages', async () => {
+    await expect(resolveVerifiedPromotion(options, async () => { throw new Error('API unavailable'); }))
+      .rejects.toThrow('API unavailable');
+  });
+  it('keeps explicit unavailable selections as errors', async () => {
+    await expect(resolveVerifiedPromotion({ ...options, releaseTag: 'v0.18.6' }, async () => true))
+      .rejects.toThrow('No successfully published source');
+    await expect(resolveVerifiedPromotion({ ...options, sourceTag: 'v0.18.5-beta.1' }, async () => true))
+      .rejects.toThrow('Target tag already exists');
+  });
+  it('continues to select a newer candidate without checking the old stable publication', async () => {
+    expect(await resolveVerifiedPromotion({
+      ...options, sources: [...options.sources, source('v0.18.6-rc.1')],
+    }, async () => { throw new Error('should not verify old stable'); })).toEqual({
+      source_tag: 'v0.18.6-rc.1', release_tag: 'v0.18.6', source_sha: sha,
+    });
   });
 });
 
@@ -227,7 +366,25 @@ describe('candidate publication verification', () => {
     }));
     expect(await verify(upstream, undefined, 'navet-app')).toBe(true);
   });
-  it.each(['awesomestvi', 'other'])('rejects evidence for another namespace %s', async (owner) => {
+  it('verifies stable publication using its own tag, version, channel, and successful run', async () => {
+    const record = evidence();
+    record.tag = 'v0.17.8';
+    record.version = '0.17.8';
+    record.channel = 'stable';
+    record.images = record.images.map((image) => ({
+      ...image, version: record.version, channel: 'stable',
+      tag: image.image.endsWith('/navet') ? record.tag : record.version,
+    }));
+    const stable = { ...release, tag_name: record.tag };
+    const check = (run) => candidatePublicationSucceeded(stable, sha, {
+      readEvidence: () => record,
+      readRun: () => run,
+      owner: 'kylepinecroft',
+    });
+    expect(await check({ conclusion: 'success', path: '.github/workflows/release.yml' })).toBe(true);
+    expect(await check({ conclusion: null, path: '.github/workflows/release.yml' })).toBe(false);
+  });
+  it.each(['awesomestvi', 'navet-app', 'other'])('rejects evidence for another namespace %s', async (owner) => {
     const record = evidence();
     record.images = record.images.map((image) => ({
       ...image,
