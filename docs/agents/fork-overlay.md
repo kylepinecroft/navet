@@ -2,7 +2,7 @@
 
 This checkout is `kylepinecroft/navet`, a fork of [`navet-app/navet`](https://github.com/navet-app/navet).
 
-- **Last synced:** upstream `v0.19.1`
+- **Last synced:** upstream `v0.19.2` (2026-11-15). This release was docs and Home Assistant release metadata only.
 - **Remote:** `upstream` → `https://github.com/navet-app/navet.git`
 
 Keep this file current. It is the routing list for new fork features and for upstream merges. Do not turn it into a design doc or a hunk-by-hunk patch archive.
@@ -109,7 +109,7 @@ Publish container images to `ghcr.io/<repository owner>/...` with `GITHUB_TOKEN`
 
 ### Eager JavaScript
 
-Upstream `v0.19.1` raised `MAX_TOTAL_EAGER_JS_BYTES` from `800 * 1024` to `820 * 1024`. Measured eager JavaScript at this sync: upstream `v0.19.1` 807.7 KB, this fork 810.6 KB. The 820 KB cap is about 12 KB above upstream's measurement, which covers the fork's extra ~3 KB. The temporary fork override was removed. `scripts/check-bundle-budget.mjs` uses upstream's limit.
+Upstream `v0.19.1` raised `MAX_TOTAL_EAGER_JS_BYTES` from `800 * 1024` to `820 * 1024`. `v0.19.2` did not change the cap or application source. Measured eager JavaScript: upstream `v0.19.1` 807.7 KB, this fork 810.6 KB again on 2026-11-15. The 820 KB cap is about 12 KB above upstream's measurement, which covers the fork's extra ~3 KB. The temporary fork override stays removed. `scripts/check-bundle-budget.mjs` uses upstream's limit.
 
 On the next sync, compare upstream's cap with upstream's measured eager JavaScript again:
 
