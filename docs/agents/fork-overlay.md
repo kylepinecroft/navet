@@ -2,7 +2,7 @@
 
 This checkout is `kylepinecroft/navet`, a fork of [`navet-app/navet`](https://github.com/navet-app/navet).
 
-- **Last synced:** upstream `v0.19.1`
+- **Last synced:** upstream `v0.19.2` (2026-11-15). This release was docs and Home Assistant release metadata only.
 - **Remote:** `upstream` → `https://github.com/navet-app/navet.git`
 
 Keep this file current. It is the routing list for new fork features and for upstream merges. Do not turn it into a design doc or a hunk-by-hunk patch archive.
