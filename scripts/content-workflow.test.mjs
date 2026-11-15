@@ -109,7 +109,7 @@ it('generates all three transports from one master without rewriting wording or 
   const briefPath = path.join(outputRoot, 'brief.yml');
   writeYaml(briefPath, brief);
   const result = await generateContentPack({ briefPath, outputPath: outputRoot,
-    suppliedMaster: master, env: {}, now: new Date('2026-10-05T12:00:00Z') });
+    suppliedMaster: master, env: {}, now: new Date('2026-11-15T12:00:00Z') });
   expect(result.pack.publishEligible).toBe(true);
   expect(result.pack.drafts).toEqual(drafts);
   const masterPath = path.join(outputRoot, 'master.json');

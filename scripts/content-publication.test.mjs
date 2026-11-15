@@ -13,7 +13,8 @@ import {
 } from './content-publication.mjs';
 
 const roots = [];
-const now = new Date('2026-10-05T12:00:00Z');
+// Stay on or after homeassistant-community rulesCheckedOn, inside the 30-day window.
+const now = new Date('2026-11-15T12:00:00Z');
 function fixture(channelId = 'navet-subreddit') {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'navet-publication-'));
   roots.push(root);
@@ -508,7 +509,7 @@ describe('request-authorized release publication', () => {
       recordAgentPublication({
         ...input,
         ...prepared,
-        receipt: { ...input.receipt, observedAt: '2026-10-04T12:00:00Z' },
+        receipt: { ...input.receipt, observedAt: '2026-11-14T12:00:00Z' },
       })
     ).toThrow('predates');
   });
